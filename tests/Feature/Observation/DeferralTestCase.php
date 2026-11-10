@@ -6,6 +6,7 @@ namespace Justrau\Orrery\Tests\Feature\Observation;
 
 use ArrayObject;
 use Closure;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\Connection;
 use Illuminate\Database\DatabaseTransactionRecord;
 use Illuminate\Database\DatabaseTransactionsManager;
@@ -34,6 +35,10 @@ use Throwable;
  * whose first statement is the locking read. The observation appends its
  * label to $this->ran when it runs. Every test uses the real transaction
  * manager of the installed Laravel version.
+ *
+ * Each item of raise() and pop() carries 1 byte, so the check that the
+ * held bytes equal the held items (after each raise() and pop(), and in
+ * the tear-down) proves the byte counter in every deferral test.
  */
 abstract class DeferralTestCase extends TestCase
 {
@@ -85,6 +90,8 @@ abstract class DeferralTestCase extends TestCase
     protected function tearDown(): void
     {
         if ($this->app !== null) {
+            $this->assertHeldBytesFollowHeld();
+
             foreach ($this->app['db']->getConnections() as $connection) {
                 try {
                     if ($connection->transactionLevel() > 0) {
@@ -133,7 +140,19 @@ abstract class DeferralTestCase extends TestCase
     {
         $q ??= $this->q();
 
-        return $this->deferral()->around($q, 0, $parent ?? static fn () => $q->select(self::INSERT), $this->observationFor($label));
+        $result = $this->deferral()->around($q, 0, $parent ?? static fn () => $q->select(self::INSERT), $this->observationFor($label), CommitDeferral::OPERATION, 1);
+        $this->assertHeldBytesFollowHeld();
+
+        return $result;
+    }
+
+    /**
+     * Every item of raise() and pop() carries 1 byte.
+     */
+    protected function assertHeldBytesFollowHeld(): void
+    {
+        $deferral = $this->deferral();
+        self::assertSame($deferral->held(), $deferral->heldBytes(), 'The held bytes follow the held items (1 byte each).');
     }
 
     /**
@@ -159,7 +178,7 @@ abstract class DeferralTestCase extends TestCase
     {
         $q ??= $this->q();
 
-        return $this->deferral()->around($q, 1, static fn () => $q->transaction(static function () use ($q, $inside): string {
+        $result = $this->deferral()->around($q, 1, static fn () => $q->transaction(static function () use ($q, $inside): string {
             $q->select(self::POP);
 
             if ($inside !== null) {
@@ -169,7 +188,10 @@ abstract class DeferralTestCase extends TestCase
             $q->select(self::RESERVE);
 
             return 'job';
-        }), $this->observationFor($label));
+        }), $this->observationFor($label), CommitDeferral::OPERATION, 1);
+        $this->assertHeldBytesFollowHeld();
+
+        return $result;
     }
 
     /**
@@ -199,6 +221,45 @@ abstract class DeferralTestCase extends TestCase
             ['unverified' => $this->drops->unverifiedCount(), 'rollback_unverified' => $this->drops->rollbackUnverifiedCount()],
             $message,
         );
+    }
+
+    /**
+     * Replaces the exception handler with one that records each report.
+     *
+     * @return ArrayObject<int, Throwable>
+     */
+    protected function recordReports(): ArrayObject
+    {
+        $reports = new ArrayObject;
+
+        $this->app->instance(ExceptionHandler::class, new class($reports) implements ExceptionHandler
+        {
+            /** @param ArrayObject<int, Throwable> $reports */
+            public function __construct(private readonly ArrayObject $reports)
+            {
+            }
+
+            public function report(Throwable $e): void
+            {
+                $this->reports[] = $e;
+            }
+
+            public function shouldReport(Throwable $e): bool
+            {
+                return true;
+            }
+
+            public function render($request, Throwable $e)
+            {
+                throw $e;
+            }
+
+            public function renderForConsole($output, Throwable $e): void
+            {
+            }
+        });
+
+        return $reports;
     }
 
     protected function manager(): DatabaseTransactionsManager

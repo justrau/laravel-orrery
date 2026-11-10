@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Observation;
 
-use ArrayObject;
 use Closure;
-use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\Connection;
 use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Database\Events\QueryExecuted;
@@ -203,7 +201,7 @@ final class CommitDeferralTest extends DeferralTestCase
             'at once' => fn () => $this->deferral()->around($q, 0, static fn (): null => null, static fn (): Closure => $throws),
             'at commit' => function () use ($q, $throws): void {
                 $q->beginTransaction();
-                $this->deferral()->around($q, 0, static fn (): null => null, static fn (): Closure => $throws);
+                $this->deferral()->around($q, 0, static fn (): null => null, static fn (): Closure => $throws, CommitDeferral::OPERATION, 1);
                 $this->raise('after');
                 $q->commit();
             },
@@ -402,6 +400,7 @@ final class CommitDeferralTest extends DeferralTestCase
 
             self::assertSame([], $this->ran(), 'Inside the walk of A, neither item has run.');
             self::assertSame(1, $this->deferral()->open() - ($variant === 'stays open' ? 1 : 0), 'A is still tracked.');
+            $this->assertHeldBytesFollowHeld();
         });
         $q->commit();
         $q->commit();
@@ -482,6 +481,8 @@ final class CommitDeferralTest extends DeferralTestCase
 
         self::assertSame($limit, $this->deferral()->held());
         $this->assertCounts(1, 0, 'The 10,001st item is dropped and counted.');
+        self::assertSame(1, $this->drops->overBudgetCount(CommitDeferral::COUNT_CAP), 'The drop has the reason of the count cap.');
+        self::assertSame(0, $this->drops->overBudgetCount(CommitDeferral::BYTE_BUDGET));
 
         $q->commit();
 
@@ -1592,7 +1593,7 @@ final class CommitDeferralTest extends DeferralTestCase
 
         // The run of the first item throws at the commit.
         $q->beginTransaction();
-        $this->deferral()->around($q, 0, static fn () => $q->select(self::INSERT), static fn () => static fn () => throw new RuntimeException('observation failed'));
+        $this->deferral()->around($q, 0, static fn () => $q->select(self::INSERT), static fn () => static fn () => throw new RuntimeException('observation failed'), CommitDeferral::OPERATION, 1);
         $this->raise('second');
         $q->commit();
 
@@ -2325,6 +2326,11 @@ final class CommitDeferralTest extends DeferralTestCase
             {
             }
 
+            public function overBudget(string $reason, int $items = 1): void
+            {
+                $this->unverified($items);
+            }
+
             public function unverifiedCount(): int
             {
                 return $this->unverified;
@@ -2408,44 +2414,5 @@ final class CommitDeferralTest extends DeferralTestCase
         self::assertSame(['in the new unit'], $this->ran());
         $this->assertCounts(0, 0);
         $deferral->endUnit($second);
-    }
-
-    /**
-     * Replaces the exception handler with one that records each report.
-     *
-     * @return ArrayObject<int, Throwable>
-     */
-    private function recordReports(): ArrayObject
-    {
-        $reports = new ArrayObject;
-
-        $this->app->instance(ExceptionHandler::class, new class($reports) implements ExceptionHandler
-        {
-            /** @param ArrayObject<int, Throwable> $reports */
-            public function __construct(private readonly ArrayObject $reports)
-            {
-            }
-
-            public function report(Throwable $e): void
-            {
-                $this->reports[] = $e;
-            }
-
-            public function shouldReport(Throwable $e): bool
-            {
-                return true;
-            }
-
-            public function render($request, Throwable $e)
-            {
-                throw $e;
-            }
-
-            public function renderForConsole($output, Throwable $e): void
-            {
-            }
-        });
-
-        return $reports;
     }
 }

@@ -24,7 +24,7 @@ final class TrackedRoot
      * autocommit item raised during this root's walk, or the runnable item
      * of a root that committed inside the walk); it only waits for its turn.
      *
-     * @var list<array{run: Closure(): mixed, operation: string, chain: list<RecordMark>, ambiguous: bool, decided: bool}>
+     * @var list<array{run: Closure(): mixed, operation: string, chain: list<RecordMark>, ambiguous: bool, decided: bool, bytes: int}>
      */
     public array $items = [];
 
