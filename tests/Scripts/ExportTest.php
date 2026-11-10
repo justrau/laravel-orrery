@@ -40,7 +40,7 @@ final class ExportTest extends TestCase
     private const IGNORED = [
         '.gitattributes', '.github', '.gitignore', '.npmrc', '.nvmrc',
         'CLAUDE.md', 'CONTRIBUTING.md', 'SECURITY.md', 'bin', 'docker', 'docs',
-        'package.json', 'phpstan.neon.dist', 'phpunit.xml.dist', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
+        'package.json', 'phpstan.neon.dist', 'phpunit.xml.dist', 'pint.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
         'testbench.yaml', 'tests', 'tools', 'vite.config.js', 'workbench',
     ];
 

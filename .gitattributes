@@ -26,6 +26,7 @@ AGENTS.md export-ignore
 /pnpm-workspace.yaml export-ignore
 /phpstan.neon.dist export-ignore
 /phpunit.xml.dist export-ignore
+/pint.json export-ignore
 /testbench.yaml export-ignore
 /vite.config.js export-ignore
 

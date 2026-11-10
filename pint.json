@@ -1,0 +1,24 @@
+{
+    "preset": "laravel",
+    "rules": {
+        "php_unit_method_casing": false
+    },
+    "exclude": [
+        ".claude",
+        ".excluded",
+        ".internal",
+        ".matrix",
+        ".testbench",
+        ".tia",
+        ".verify",
+        "dist",
+        "node_modules",
+        "tools/browser/node_modules",
+        "vendor",
+        "workbench/storage"
+    ],
+    "notPath": [
+        "database/migrations/2026_09_23_000000_create_orrery_tables.php",
+        "tests/Feature/Projection/fixtures/orrery-pre-d8.php"
+    ]
+}

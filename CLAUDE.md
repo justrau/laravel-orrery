@@ -54,6 +54,7 @@ composer test -- --filter test_name  # one test; composer test -- tests/Feature/
 vendor/bin/phpunit --group <scripts|workbench> <file>  # a file of an excluded group (composer test runs none of it)
 bin/test <sqlite|mysql|pgsql> [--sqlite-file] -- <files>   # tests on an engine (see bin/CLAUDE.md)
 composer lint                        # PHPStan level 8 with Larastan (through workbench/bin/phpstan)
+composer format                      # Pint, Laravel preset (pint.json); composer format:check only reports
 pnpm test                            # JavaScript unit tests
 pnpm run build                       # Vite build to dist/ (committed)
 bin/check-assets                     # proves that the build inputs reproduce dist/
@@ -73,6 +74,7 @@ Each parallel run (a worktree, an agent, a matrix leg) uses its own database nam
 ## Conventions
 
 - Commit subjects are shorter than 70 characters, with a conventional prefix (`feat:`, `fix:`, `docs:`, `test:`, `chore:`, `refactor:`).
+- Run `composer format` before committing. `pint.json` excludes the files that tests pin byte for byte (the main migration, the frozen pre-D8 configuration fixture).
 - Stage explicit paths only. Never `git add -A` or `git add .`.
 - `dist/` is committed. After a change in `resources/js/` or `resources/css/`, run `pnpm test` and `pnpm run build` and commit `dist/`. The package publishes no assets: `Orrery::css()` and `Orrery::js()` inline `dist/` into the page.
 - `.excluded/` is gitignored reference material (`.excluded/horizon-issues/index.md` sorts Horizon's issues by demand). Never commit anything under it.

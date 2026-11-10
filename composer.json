@@ -21,6 +21,7 @@
     },
     "require-dev": {
         "larastan/larastan": "^3.4",
+        "laravel/pint": "^1.32",
         "laravel/slack-notification-channel": "^3.8",
         "mockery/mockery": "^1.6",
         "orchestra/testbench": "^10.0|^11.0",
@@ -107,7 +108,9 @@
             "@putenv ORRERY_DOCKER_TESTS=1",
             "@php vendor/bin/phpunit --group docker"
         ],
-        "lint": "@php workbench/bin/phpstan analyse"
+        "lint": "@php workbench/bin/phpstan analyse",
+        "format": "pint",
+        "format:check": "pint --test"
     },
     "config": {
         "sort-packages": true

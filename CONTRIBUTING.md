@@ -41,6 +41,15 @@ composer lint
 
 PHPStan runs at level 8 with Larastan, for PHP 8.3. It must report no errors, with no baseline, no `ignoreErrors` entry and no `@phpstan-ignore` comment. Fix a finding in the code, never in the configuration. Start it only through `composer lint`.
 
+## Code style
+
+```bash
+composer format        # Pint with the Laravel preset (pint.json)
+composer format:check  # reports, changes nothing
+```
+
+Run `composer format` before committing. `pint.json` excludes the files that tests pin byte for byte: the main migration and the frozen pre-D8 configuration fixture. It also turns off `php_unit_method_casing`, which renames every method whose name starts with `test`, helpers too, without their callers.
+
 ## Frontend
 
 The package ships the built dashboard in `dist/`, and `dist/` is committed. After a change in `resources/js/` or `resources/css/`:
