@@ -64,7 +64,7 @@ To see the session-expired state, sign in, open `/orrery`, then log out in anoth
 
 ## The Content Security Policy
 
-In both modes the Workbench serves the dashboard under the enforced policy of the README: `WorkbenchServiceProvider` adds `Workbench\App\Http\Middleware\ContentSecurityPolicy` to `orrery.middleware`. Each request gets a new nonce through `Vite::useCspNonce()`, which the package puts on its inlined style and script elements, and the header `Content-Security-Policy` (no `unsafe-inline`, no `unsafe-eval`, `frame-ancestors 'none'`). The login form of the strict mode is not a dashboard route and has no policy. `WorkbenchContentSecurityPolicyTest` checks the header, the nonce and the README's copy of the policy. A browser check records violations with a `securitypolicyviolation` listener that runs before the page's scripts.
+In both modes the Workbench serves the dashboard under the enforced policy of docs/security.md: `WorkbenchServiceProvider` adds `Workbench\App\Http\Middleware\ContentSecurityPolicy` to `orrery.middleware`. Each request gets a new nonce through `Vite::useCspNonce()`, which the package puts on its inlined style and script elements, and the header `Content-Security-Policy` (no `unsafe-inline`, no `unsafe-eval`, `frame-ancestors 'none'`). The login form of the strict mode is not a dashboard route and has no policy. `WorkbenchContentSecurityPolicyTest` checks the header, the nonce and the copy of the policy in docs/security.md. A browser check records violations with a `securitypolicyviolation` listener that runs before the page's scripts.
 
 ## Running the Workbench tests
 

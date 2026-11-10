@@ -153,7 +153,7 @@ final class MainMigrationTest extends TestCase
      * Rejects (re-check, item 1): an install() that decides the refusal against the default that
      * `migrate --database=<package connection>` made (Migrator::setConnection() swaps it before
      * the migration's getConnection()), so a queue connection with an empty `connection` key
-     * resolves to the package connection's own SQLite file and the README's command form is
+     * resolves to the package connection's own SQLite file and the command form of docs/upgrading.md is
      * refused.
      */
     public function test_migrate_on_the_dedicated_sqlite_package_file_itself_is_accepted(): void

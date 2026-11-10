@@ -23,7 +23,7 @@ An unreachable server costs one connect timeout (`CONNECT_TIMEOUT_SECONDS`, 5 s)
 - Sessions build their PDO through `SessionConnectionFactory` with the package's connectors (`Connectors\*`, trait `ConnectsOnce`), which never connect again after a failed connect. A connector the application binds as `db.connector.<driver>` is used as is. SQLite keeps Laravel's connector. The application's own connections never use this factory.
 - A server session reconnects only after a connect that succeeded (`ReconnectsOnlyAfterAConnect`).
 - Limits: several configured hosts get one attempt each; libpq applies its timeout per address; a slow name lookup adds to it.
-- No read timeout: only `PDO::ATTR_TIMEOUT`, the connect timeout, is set. A statement on an established connection to a server that vanishes without a TCP reset waits until the kernel gives up; the server-side statement timeout cannot end it. libpq's `tcp_user_timeout` and keepalive keys are not set (an older libpq refuses an unknown key), and mysqlnd's read timeout is a global ini setting that would change the application's connections too. The README lists it as a known limit.
+- No read timeout: only `PDO::ATTR_TIMEOUT`, the connect timeout, is set. A statement on an established connection to a server that vanishes without a TCP reset waits until the kernel gives up; the server-side statement timeout cannot end it. libpq's `tcp_user_timeout` and keepalive keys are not set (an older libpq refuses an unknown key), and mysqlnd's read timeout is a global ini setting that would change the application's connections too. `docs/known-limits.md` lists it.
 - `ConnectAttemptsTest` reproduces the Linux text on every OS through `PackageSession::useConnectAttemptForTesting()`.
 
 ## Transactions

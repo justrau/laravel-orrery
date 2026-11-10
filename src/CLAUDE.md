@@ -53,7 +53,7 @@ Where the code and a spec disagree, read the code and report the difference.
 
 ## Configuration (`config/orrery.php`)
 
-The file documents most keys (the first keys, `name`, `domain`, `path`, `proxy_path` and `middleware`, have no comment there: the README's configuration table describes them). Keys that change behaviour in non-obvious ways:
+The file documents most keys (the first keys, `name`, `domain`, `path`, `proxy_path` and `middleware`, have no comment there: the table of `docs/configuration.md` describes them). Keys that change behaviour in non-obvious ways:
 
 - `database` (`ORRERY_CONNECTION`): empty means the default connection, and on a SQLite file the sibling file.
 - `guard`: the guard that decides 401 versus 403.

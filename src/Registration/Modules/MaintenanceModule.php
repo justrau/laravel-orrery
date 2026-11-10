@@ -84,7 +84,7 @@ final class MaintenanceModule implements Module
 
     public static function schedule(Schedule $schedule): void
     {
-        // `orrery.schedule` false: the app schedules orrery:tick itself (README, "The scheduler").
+        // `orrery.schedule` false: the app schedules orrery:tick itself (docs/installation.md, "The scheduler").
         $enabled = Container::getInstance()->make('config')->get('orrery.schedule', true);
 
         // An empty value (ORRERY_SCHEDULE=) means the default.

@@ -69,7 +69,7 @@ final class SafeReportTest extends TestCase
 
     /**
      * Rejects: reporting the original QueryException, a wrapper that keeps it as its previous, and a fresh exception with its natural trace (whose frames carry the job and its payload).
-     * Still passes: a report whose message keeps a value that a host exception (not a query) put on its first line; that path is stated in the README.
+     * Still passes: a report whose message keeps a value that a host exception (not a query) put on its first line; that path is stated in docs/security.md.
      */
     public function test_failed_mirror_write_reports_no_payload_value(): void
     {

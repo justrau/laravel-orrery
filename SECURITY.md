@@ -9,6 +9,9 @@ select **Report a vulnerability**.
 Include the affected version, the steps to reproduce the problem, and its
 effect. You get an answer in the advisory thread.
 
+The dashboard's own security model (access, redaction, error reports and the
+Content Security Policy) is in [docs/security.md](docs/security.md).
+
 ## Supported versions
 
 | Version | Supported |

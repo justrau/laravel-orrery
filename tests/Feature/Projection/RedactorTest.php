@@ -156,7 +156,7 @@ final class RedactorTest extends TestCase
             // An unencoded `@` in the password, and a value that starts with a character that would end it.
             'URL password with an @' => ['Could not connect to mysql://root:P@ss-canary-at@db:3306/app', 'ss-canary-at', '://[redacted]@db:3306'],
             'URL password before a JSON value with an @' => ['{"dsn":"mysql://root:canary-json-dsn@db","mail":"a@b.test"}', 'canary-json-dsn', '"mail":"a@b.test"'],
-            // A `/` or a space in a URL password must be percent-encoded (README, "Redaction").
+            // A `/` or a space in a URL password must be percent-encoded (docs/security.md, "Redaction").
             'URL password with an encoded slash' => ['Could not connect to mysql://root:pa%2Fss-canary-slash@db/app', 'ss-canary-slash', '://[redacted]@db/app'],
             'URL password with an encoded space' => ['Could not connect to mysql://root:pa%20ss-canary-space@db', 'ss-canary-space', '://[redacted]@db'],
             'value that starts with &' => ['Login failed password=&canary-amp now', 'canary-amp', 'password=[redacted] now'],
@@ -321,15 +321,15 @@ final class RedactorTest extends TestCase
     }
 
     /**
-     * The limit that the README states: the URL rule cannot tell a password
+     * The limit that docs/security.md states: the URL rule cannot tell a password
      * with an unencoded `/` or space from a port and a path
      * (`host:8080/path?mail=a@b`) or from the text after a URL, so it leaves
      * such a password as it is.
      *
      * Rejects: a URL rule that takes the password up to the last `@` across
      * a `/` or a space, and so eats the path or the text before an e-mail
-     * address; and a silent change of the stated limit (this test and the
-     * README change together).
+     * address; and a silent change of the stated limit (this test and
+     * docs/security.md change together).
      * Still passes: a rule that redacts such a password by a pattern that
      * only this text matches.
      */
@@ -345,7 +345,7 @@ final class RedactorTest extends TestCase
             self::assertSame($text, $this->redactor()->text($text));
         }
 
-        self::assertStringContainsString('holds no unencoded `/`, space or backslash', (string) file_get_contents(dirname(__DIR__, 3).'/README.md'));
+        self::assertStringContainsString('holds no unencoded `/`, space or backslash', (string) file_get_contents(dirname(__DIR__, 3).'/docs/security.md'));
     }
 
     /**

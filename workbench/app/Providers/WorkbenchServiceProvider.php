@@ -100,7 +100,7 @@ class WorkbenchServiceProvider extends OrreryApplicationServiceProvider
             WorkbenchShowcase::apply($app->make('config'));
         }
 
-        // The dashboard runs under the enforced Content Security Policy of the README,
+        // The dashboard runs under the enforced Content Security Policy of docs/security.md,
         // so every browser check of the Workbench proves it. The package's boot() reads
         // orrery.middleware after every register().
         $config = $app->make('config');
