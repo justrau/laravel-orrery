@@ -134,6 +134,24 @@ final class Degradation
     }
 
     /**
+     * The reason of a count that is not an error (the commit deferral's
+     * budget drops): kept in the errors map, and the window's
+     * last_error_operation only while the window has none, so it never
+     * replaces a real error.
+     */
+    public static function reason(string $operation): void
+    {
+        $now = Clock::now();
+        $window = &self::event();
+        $window['errors'][$operation] = $now;
+
+        if ($window['last_error_operation'] === null) {
+            $window['last_error_operation'] = $operation;
+            $window['last_error_at'] = $now;
+        }
+    }
+
+    /**
      * The watcher calls it after a successful watched mirror operation: an
      * open window gets its end.
      */

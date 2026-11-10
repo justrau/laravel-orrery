@@ -70,8 +70,8 @@ use WeakReference;
  *
  * Two budgets bound the held items, both checked before a root is tracked:
  * the count (MAX_HELD) and the bytes (byteBudget()). Each item carries the
- * byte estimate of its hook (estimate(): the payload bytes times a fixed
- * factor for the decoded copy; a bulk insert the sum over its payloads), and
+ * byte estimate of its hook (estimate(): its payload strings and a fixed
+ * size per observation; a bulk insert all its payloads), and
  * the held bytes follow every move of an item: hold(), untrack() and the
  * walk transfer of rootCommitted(). An item over a budget is dropped and
  * counted `unverified` with its reason, `count_cap` or `byte_budget`
@@ -88,8 +88,19 @@ final class CommitDeferral
     /** The byte budget's share of memory_limit. */
     public const MEMORY_SHARE = 8;
 
-    /** The estimate of the bytes that a held item keeps per payload byte: the payload and its decoded copy. */
-    public const BYTES_PER_PAYLOAD_BYTE = 4;
+    /**
+     * The bytes that a held item keeps per payload byte: only the payload
+     * string, because each hook frees the decoded copy once the observation
+     * is built (Observation::forgetDecoded()).
+     */
+    public const BYTES_PER_PAYLOAD_BYTE = 1;
+
+    /**
+     * The bytes that a held item keeps per observation beside its payload
+     * string: the Observation object, its closure and the item. Measured at
+     * about 1.3 KB on PHP 8.4, for every payload size.
+     */
+    public const OBSERVATION_BYTES = 1536;
 
     /** The drop reason of an item over MAX_HELD. */
     public const COUNT_CAP = 'count_cap';
@@ -124,12 +135,14 @@ final class CommitDeferral
     /**
      * @param  WatchRegistry|null  $registry  the process registry (default: a registry of this store only)
      * @param  (Closure(): DatabaseTransactionsManager)|null  $manager  the manager whose lists the deferral reads (default: `db.transactions`)
+     * @param  string|null  $memoryLimit  the memory_limit of the byte budget (a test seam; default: the ini value at each check)
      */
     public function __construct(
         private readonly DropCounter $drops,
         private readonly Watcher $watcher,
         ?WatchRegistry $registry = null,
         private readonly ?Closure $manager = null,
+        private readonly ?string $memoryLimit = null,
     ) {
         $this->registry = $registry ?? new WatchRegistry(fn (): self => $this);
     }
@@ -423,7 +436,7 @@ final class CommitDeferral
      */
     public function byteBudget(): int
     {
-        return self::byteBudgetFor((string) ini_get('memory_limit'));
+        return self::byteBudgetFor($this->memoryLimit ?? (string) ini_get('memory_limit'));
     }
 
     /**
@@ -442,12 +455,13 @@ final class CommitDeferral
     }
 
     /**
-     * The byte estimate of an item whose payloads have $payloadBytes bytes:
-     * the payloads and their decoded copies.
+     * The byte estimate of an item of $observations observations whose
+     * payloads have $payloadBytes bytes: the payload strings and a fixed
+     * size per observation.
      */
-    public static function estimate(int $payloadBytes): int
+    public static function estimate(int $payloadBytes, int $observations = 1): int
     {
-        return max(0, $payloadBytes) * self::BYTES_PER_PAYLOAD_BYTE;
+        return max(0, $payloadBytes) * self::BYTES_PER_PAYLOAD_BYTE + max(0, $observations) * self::OBSERVATION_BYTES;
     }
 
     /**
@@ -598,7 +612,7 @@ final class CommitDeferral
         }
 
         $item['chain'] = $chain;
-        $this->hold($root, $item);
+        $this->place($root, $item);
     }
 
     /**
@@ -629,10 +643,19 @@ final class CommitDeferral
      */
     private function hold(TrackedRoot $root, array $item): void
     {
-        if (! $this->admits($item['bytes'])) {
-            return;
+        if ($this->admits($item['bytes'])) {
+            $this->place($root, $item);
         }
+    }
 
+    /**
+     * Adds an admitted item to $root (decide() checks the budgets before it
+     * tracks the root).
+     *
+     * @param  array{run: Closure(): mixed, operation: string, chain: list<RecordMark>, ambiguous: bool, decided: bool, bytes: int}  $item
+     */
+    private function place(TrackedRoot $root, array $item): void
+    {
         $root->items[] = $item;
         $this->held++;
         $this->heldBytes += $item['bytes'];

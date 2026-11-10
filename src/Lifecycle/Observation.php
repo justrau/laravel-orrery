@@ -162,9 +162,10 @@ final class Observation
     }
 
     /**
-     * Frees the decoded payload copy once the observation's write ran: a
-     * held observation keeps it only until then. payloadData() decodes the
-     * payload again when it is read later.
+     * Frees the decoded payload copy: the hooks call it once the observation
+     * is built (a held observation keeps only its payload string) and again
+     * after its write. payloadData() decodes the payload again when it is
+     * read later.
      */
     public function forgetDecoded(): void
     {

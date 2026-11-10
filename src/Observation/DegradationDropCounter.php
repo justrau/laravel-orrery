@@ -10,8 +10,10 @@ use Throwable;
  * `unverified` goes to the `unverified` counter,
  * `rollback_unverified` to its own counter. The health windows of
  * orrery_health_events carry both. An over-budget drop counts as
- * `unverified`, and its reason is the window's error operation
- * (`deferral.count_cap` or `deferral.byte_budget`). It never throws.
+ * `unverified`, and its reason (`deferral.count_cap` or
+ * `deferral.byte_budget`) goes to the window's errors, and to its
+ * last_error_operation only while no other error is set
+ * (Degradation::reason()). It never throws.
  */
 final class DegradationDropCounter implements DropCounter
 {
@@ -37,9 +39,7 @@ final class DegradationDropCounter implements DropCounter
     {
         try {
             Degradation::unverified($items);
-            Degradation::error('deferral.'.$reason, $reason === CommitDeferral::BYTE_BUDGET
-                ? 'The commit deferral dropped an observation: the held observations reached the byte budget.'
-                : 'The commit deferral dropped an observation: the held observations reached the count cap.');
+            Degradation::reason('deferral.'.$reason);
         } catch (Throwable) {
             // The degradation record is the last place to count in.
         }

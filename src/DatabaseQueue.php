@@ -321,7 +321,7 @@ class DatabaseQueue extends BaseQueue
                 return $this->observingBulk($connection, $capture->records(), $floor);
             },
             'hook:bulk',
-            static fn (): int => CommitDeferral::estimate(self::payloadBytes($capture->records())),
+            static fn (): int => CommitDeferral::estimate(self::payloadBytes($capture->records()), count($capture->records())),
         );
     }
 
@@ -367,7 +367,7 @@ class DatabaseQueue extends BaseQueue
         $run = $built->succeeded() ? $built->value() : null;
 
         if ($run instanceof Closure) {
-            $deferral->after($this->database, $insert, $run, 'hook:bulk', CommitDeferral::estimate(self::payloadBytes($records)));
+            $deferral->after($this->database, $insert, $run, 'hook:bulk', CommitDeferral::estimate(self::payloadBytes($records), count($records)));
         }
     }
 
@@ -670,7 +670,10 @@ class DatabaseQueue extends BaseQueue
     /**
      * The deferred work of one observation: the JobStore write of the
      * observation built now (one payload decode, `at` = now), or null when
-     * the payload has no usable uuid. The write frees the decoded copy.
+     * the payload has no usable uuid. The observation frees its decoded copy
+     * at once, so a held item keeps only the payload string: the write
+     * decodes the payload again (Observation::payloadData()), and frees
+     * that copy too.
      *
      * @param  array<string, mixed>  $fields
      */
@@ -685,6 +688,7 @@ class DatabaseQueue extends BaseQueue
             return null;
         }
 
+        $observation->forgetDecoded();
         $store = Container::getInstance()->make(JobStore::class);
 
         return static function () use ($store, $observation): void {

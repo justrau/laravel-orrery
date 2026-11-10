@@ -203,7 +203,7 @@ final class CommitDeferralTest extends DeferralTestCase
             'at once' => fn () => $this->deferral()->around($q, 0, static fn (): null => null, static fn (): Closure => $throws),
             'at commit' => function () use ($q, $throws): void {
                 $q->beginTransaction();
-                $this->deferral()->around($q, 0, static fn (): null => null, static fn (): Closure => $throws);
+                $this->deferral()->around($q, 0, static fn (): null => null, static fn (): Closure => $throws, CommitDeferral::OPERATION, 1);
                 $this->raise('after');
                 $q->commit();
             },
@@ -402,6 +402,7 @@ final class CommitDeferralTest extends DeferralTestCase
 
             self::assertSame([], $this->ran(), 'Inside the walk of A, neither item has run.');
             self::assertSame(1, $this->deferral()->open() - ($variant === 'stays open' ? 1 : 0), 'A is still tracked.');
+            $this->assertHeldBytesFollowHeld();
         });
         $q->commit();
         $q->commit();
@@ -1594,7 +1595,7 @@ final class CommitDeferralTest extends DeferralTestCase
 
         // The run of the first item throws at the commit.
         $q->beginTransaction();
-        $this->deferral()->around($q, 0, static fn () => $q->select(self::INSERT), static fn () => static fn () => throw new RuntimeException('observation failed'));
+        $this->deferral()->around($q, 0, static fn () => $q->select(self::INSERT), static fn () => static fn () => throw new RuntimeException('observation failed'), CommitDeferral::OPERATION, 1);
         $this->raise('second');
         $q->commit();
 

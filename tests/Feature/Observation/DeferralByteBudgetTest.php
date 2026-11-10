@@ -221,32 +221,55 @@ final class DeferralByteBudgetTest extends DeferralTestCase
 
     /**
      * Rejects: an over-budget drop that the health window does not count
-     * in `unverified`, or one whose reason it does not keep apart from the
-     * other budget's.
+     * in `unverified`, one whose reason it does not keep apart from the
+     * other budget's, or a reason that never shows as the last error of a
+     * window without one.
      */
     public function test_the_health_window_counts_the_drop_and_names_its_reason(): void
     {
         $drops = new DegradationDropCounter;
 
         $drops->overBudget(CommitDeferral::COUNT_CAP);
-        self::assertSame('deferral.count_cap', Degradation::record()['last_error_operation'] ?? null);
+        self::assertSame('deferral.count_cap', Degradation::record()['last_error_operation'] ?? null, 'A window without an error names the reason.');
 
         $drops->overBudget(CommitDeferral::BYTE_BUDGET, 2);
         $record = Degradation::record();
         self::assertSame(3, $record['unverified'] ?? null);
-        self::assertSame('deferral.byte_budget', $record['last_error_operation'] ?? null);
+        self::assertSame('deferral.count_cap', $record['last_error_operation'] ?? null, 'A later reason does not replace the first.');
         self::assertArrayHasKey('deferral.count_cap', $record['errors'] ?? []);
+        self::assertArrayHasKey('deferral.byte_budget', $record['errors'] ?? []);
     }
 
     /**
-     * Rejects: an estimate of the payload bytes alone, without the decoded
-     * copy, or one that a negative size makes negative.
+     * Rejects: a budget drop that replaces the real error of the window
+     * (here a lock timeout of a mirror write) as its last error.
      */
-    public function test_the_estimate_adds_the_decoded_copy_to_the_payload(): void
+    public function test_a_budget_drop_never_replaces_an_earlier_error(): void
     {
-        self::assertSame(4, CommitDeferral::BYTES_PER_PAYLOAD_BYTE);
-        self::assertSame(4000, CommitDeferral::estimate(1000));
-        self::assertSame(0, CommitDeferral::estimate(-1));
+        Degradation::error('hook:push', 'SQLSTATE[HY000]: General error: 1205 Lock wait timeout exceeded');
+        $at = Degradation::record()['last_error_at'] ?? null;
+
+        (new DegradationDropCounter)->overBudget(CommitDeferral::BYTE_BUDGET);
+
+        $record = Degradation::record();
+        self::assertSame('hook:push', $record['last_error_operation'] ?? null, 'The lock timeout stays the last error.');
+        self::assertSame($at, $record['last_error_at'] ?? null);
+        self::assertArrayHasKey('deferral.byte_budget', $record['errors'] ?? []);
+        self::assertSame(1, $record['unverified'] ?? null);
+    }
+
+    /**
+     * Rejects: an estimate that still counts a decoded copy (a factor above
+     * 1), one without the fixed size per observation (a bulk of small
+     * payloads would look free), or one that a negative size makes negative.
+     */
+    public function test_the_estimate_is_the_payload_strings_and_a_size_per_observation(): void
+    {
+        self::assertSame(1, CommitDeferral::BYTES_PER_PAYLOAD_BYTE);
+        self::assertSame(1536, CommitDeferral::OBSERVATION_BYTES);
+        self::assertSame(1000 + 1536, CommitDeferral::estimate(1000));
+        self::assertSame(3000 + 3 * 1536, CommitDeferral::estimate(3000, 3));
+        self::assertSame(0, CommitDeferral::estimate(-1, 0));
     }
 
     /**

@@ -160,6 +160,8 @@ class BulkResolver
             ]);
 
             if ($observation !== null) {
+                // The held batch keeps only the payload strings; each write decodes its payload again.
+                $observation->forgetDecoded();
                 $batch->add($observation);
             }
         }
