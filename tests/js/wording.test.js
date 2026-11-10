@@ -144,7 +144,7 @@ test('the codes that retry and forget share are worded for both', () => {
 
 // Rejects: a schema text that sends the operator to php artisan migrate (the package schema has its own upgrade steps).
 test('schema_outdated points at the upgrade steps', () => {
-    assert.equal(codeText('schema_outdated'), "Orrery's tables are older than this version. Follow the upgrade steps in the README; the health footer shows the command.");
+    assert.equal(codeText('schema_outdated'), "Orrery's tables are older than this version. Follow the upgrade steps in docs/upgrading.md; the health footer shows the command.");
     assert.doesNotMatch(codeText('schema_outdated'), /migrate/);
 });
 

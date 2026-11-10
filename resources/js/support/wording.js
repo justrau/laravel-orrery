@@ -71,7 +71,7 @@ export const CODES = Object.freeze({
     record_unreachable: 'The failed-job storage cannot be reached. Try again when it is back.',
     target_changed: 'The failed-job storage changed since this failure. Check the queue configuration.',
     scope_changed: 'The failed-job storage changed between the count and the run: nothing was forgotten. Run the command again.',
-    schema_outdated: "Orrery's tables are older than this version. Follow the upgrade steps in the README; the health footer shows the command.",
+    schema_outdated: "Orrery's tables are older than this version. Follow the upgrade steps in docs/upgrading.md; the health footer shows the command.",
     app_key_missing: 'The application has no APP_KEY, so a bulk forget cannot be signed. Set APP_KEY first.',
     unknown_source: 'The request named an unknown source: nothing changed.',
 
