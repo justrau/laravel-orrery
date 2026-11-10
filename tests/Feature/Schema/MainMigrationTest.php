@@ -112,6 +112,8 @@ final class MainMigrationTest extends TestCase
      * Rejects (review, item 3): a SchemaLoaded listener that compares the plain mirror name with
      * the loaded connection's name, so a dump loaded through `<name>::direct` keeps its empty
      * marker table.
+     * Still passes, before Laravel 13.31: that listener, because Laravel names a direct
+     * connection by its plain name there (laravel/framework#61435 added the suffix).
      */
     public function test_a_schema_loaded_through_a_direct_connection_gets_its_marker(): void
     {
@@ -120,7 +122,8 @@ final class MainMigrationTest extends TestCase
 
         /** @var Connection $direct */
         $direct = $this->app['db']->connection(self::MIRROR.'::direct');
-        self::assertSame(self::MIRROR.'::direct', $direct->getName());
+        self::assertSame(self::MIRROR.'::direct', $direct->getNameWithReadWriteType());
+        self::assertSame($this->directConnectionsHaveTheSuffix() ? self::MIRROR.'::direct' : self::MIRROR, $direct->getName());
         PackageSchema::afterSchemaLoad($direct);
 
         self::assertSame(PackageSchema::currentVersion(), PackageSchema::installedVersion($mirror));
@@ -419,6 +422,15 @@ final class MainMigrationTest extends TestCase
 
         self::assertTrue(PackageSchema::hasPackageTables($mirror), 'The dump was loaded.');
         self::assertSame(PackageSchema::currentVersion(), PackageSchema::installedVersion($mirror));
+    }
+
+    /**
+     * Laravel 13.31 and later name a direct connection `<name>::direct`
+     * (laravel/framework#61435); 13.30 names it by its plain name.
+     */
+    private function directConnectionsHaveTheSuffix(): bool
+    {
+        return version_compare($this->app->version(), '13.31.0', '>=');
     }
 
     /**

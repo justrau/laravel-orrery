@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Hooks;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Queue;
 use Justrau\Orrery\Runtime\Degradation;
+use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Tests\Feature\Hooks\Jobs\EffectJob;
 use Justrau\Orrery\Tests\Support\FreshSchema;
 use Justrau\Orrery\Tests\Support\MirrorOutage;
@@ -78,6 +80,8 @@ final class HookIsolationTest extends HooksTestCase
 
     /**
      * Rejects: a stale state without a health window.
+     * Would still pass: a breaker close that does not flush (the explicit flush writes the window;
+     * SharedBreakerTest covers the close).
      */
     #[Group('shared-database')]
     public function test_after_recovery_the_state_is_true_or_unknown_with_a_health_window(): void
@@ -95,6 +99,14 @@ final class HookIsolationTest extends HooksTestCase
         }
 
         self::assertSame(0, $this->mirrorCount(), 'The push was dropped during the outage.');
+
+        // Recovery includes the end of the breaker period. The outage of a separate mirror is a
+        // lost server, a dependency error that opens the breaker, and a flush skips while it is
+        // open. The rename outage is a data error, which opens nothing.
+        $breakerSeconds = (int) $this->app['config']->get('orrery.observer.breaker_seconds');
+        Watcher::advanceMonotonicForTesting($breakerSeconds);
+        Carbon::setTestNow(Carbon::now()->addSeconds($breakerSeconds));
+        self::assertFalse(Watcher::instance()->breakerOpen(), 'The breaker closed after its period.');
         Degradation::flush();
 
         $windows = $this->mirror()->table('orrery_health_events')->where('process', 'like', '%:'.getmypid().':%')->get();

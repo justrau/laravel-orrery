@@ -18,7 +18,7 @@ Run as few tests as possible (root `CLAUDE.md`, "Test policy"). The runners are 
 - Give every `uuid` column a valid UUID: Postgres rejects other values.
 - Never write into Testbench's shared skeleton (`vendor/orchestra/testbench-core/laravel`). A test that runs `orrery:install`, publishes files or edits `bootstrap/providers.php` uses `Support\UsesPrivateSkeleton` (`startPrivateSkeleton()` before `parent::setUp()`, `endPrivateSkeleton()` after `parent::tearDown()`).
 - Controller tests extend `ControllerTest`, which allows every request with `Orrery::auth(fn () => true)`.
-- Version-exact tests: Laravel 13.39.0 rolls the transactions manager back when a commit fails (`DeferralTestCase::failedCommitRollsTheManagerBack()` branches on it); PHPUnit 12.5.43 stopped reporting a failed `tearDown()` assertion after an error (`KnownFailuresCheckTest`). `QueueCallGraphTest` and `ProviderContractTest` pin the Laravel internals that the design reads on purpose.
+- Version-exact tests: Laravel 13.31.0 names a direct connection `<name>::direct`, 13.30 by its plain name (`MainMigrationTest::directConnectionsHaveTheSuffix()`); Laravel 13.39.0 rolls the transactions manager back when a commit fails (`DeferralTestCase::failedCommitRollsTheManagerBack()` branches on it); PHPUnit 12.5.43 stopped reporting a failed `tearDown()` assertion after an error (`KnownFailuresCheckTest`). `QueueCallGraphTest` and `ProviderContractTest` pin the Laravel internals that the design reads on purpose.
 
 ## The schema modes (`ORRERY_TEST_SCHEMA`, `bin/test --schema=`)
 
