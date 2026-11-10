@@ -164,7 +164,8 @@ final class LegacyGoneTest extends TestCase
         /** @var array<string, mixed> $package */
         $package = json_decode((string) file_get_contents($root.'/package.json'), true, 512, JSON_THROW_ON_ERROR);
         $lock = (string) file_get_contents($root.'/pnpm-lock.yaml');
-        self::assertStringContainsString("importers:\n", $lock, 'pnpm-lock.yaml is missing or has no importers.');
+        // The importers (the dependencies of package.json) come before the packages; a package's own peer list is not one.
+        self::assertSame(1, preg_match('/^importers:\n(.*?)^packages:\n/ms', $lock, $importers), 'pnpm-lock.yaml is missing or has no importers.');
         $found = [];
 
         foreach (['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] as $section) {
@@ -179,7 +180,7 @@ final class LegacyGoneTest extends TestCase
             $quoted = preg_quote($name, '/');
 
             // An importer entry ("      dayjs:") or a package ("  dayjs@1.11.13:", quoted when scoped).
-            if (preg_match('/^      \'?'.$quoted.'\'?:$/m', $lock) === 1) {
+            if (preg_match('/^      \'?'.$quoted.'\'?:$/m', $importers[1]) === 1) {
                 $found[] = "pnpm-lock.yaml importer {$name}";
             }
 
