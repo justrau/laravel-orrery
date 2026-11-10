@@ -661,8 +661,8 @@ final class AuthorizationTest extends TestCase
                     'the job class series body is missing',
                 ),
             ),
-            'GET orrery/api/queues/{connection}/{queue}/history' => $this->read(
-                fn (): string => $api.'/queues/database/'.self::WORK_QUEUE.'/history',
+            'GET orrery/api/queues/history' => $this->read(
+                fn (): string => $api.'/queues/history?connection=database&queue='.self::WORK_QUEUE,
                 fn (TestResponse $response): ?string => $this->problem(
                     $response->json('bucket_seconds') === 60 && $response->json('queue') === self::WORK_QUEUE,
                     'the queue history body is missing',
@@ -802,18 +802,18 @@ final class AuthorizationTest extends TestCase
                     'the response does not report a cancel: '.$response->getContent(),
                 ),
             ),
-            'POST orrery/api/queues/{connection}/{queue}/waiting' => $this->operatorRead(
-                fn (): string => $api.'/queues/database/'.self::CLEAR_QUEUE.'/waiting',
-                fn (): array => [],
+            'POST orrery/api/queues/waiting' => $this->operatorRead(
+                fn (): string => $api.'/queues/waiting',
+                fn (): array => ['connection' => 'database', 'queue' => self::CLEAR_QUEUE],
                 fn () => $this->arrangeWaiting(self::CLEAR_QUEUE),
                 fn (TestResponse $response): ?string => $this->problem(
                     $response->json('waiting') === 1 && $response->json('ready') === 1,
                     'the count does not hold the waiting job: '.$response->getContent(),
                 ),
             ),
-            'POST orrery/api/queues/{connection}/{queue}/clear' => $this->write(
-                fn (): string => $api.'/queues/database/'.self::CLEAR_QUEUE.'/clear',
-                [],
+            'POST orrery/api/queues/clear' => $this->write(
+                fn (): string => $api.'/queues/clear',
+                ['connection' => 'database', 'queue' => self::CLEAR_QUEUE],
                 fn () => $this->arrangeWaiting(self::CLEAR_QUEUE),
                 fn (): int => $this->waitingOn(self::CLEAR_QUEUE),
                 fn (mixed $before): ?string => $this->problem(

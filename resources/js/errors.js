@@ -38,7 +38,7 @@ export const FORBIDDEN_ACTION = 'forbidden_action';
 const SAFE_METHODS = ['get', 'head', 'options', 'trace'];
 
 /** POSTs that only read (the bulk freeze and the waiting count write nothing): they get the timeout of a GET (shell/poll.js) and are aborted as reads. */
-export const READ_POSTS = ['/api/bulk/freeze', '/waiting'];
+export const READ_POSTS = ['/api/bulk/freeze', '/api/queues/waiting'];
 
 const TERMINAL_MESSAGES = {
     [SESSION_EXPIRED]: 'Your session has expired. Reload the page to sign in again.',

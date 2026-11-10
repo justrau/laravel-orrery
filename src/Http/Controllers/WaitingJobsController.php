@@ -27,21 +27,28 @@ use Throwable;
  *   row; 409 `not_database_queue` when the job's connection is no longer a
  *   database queue; 503 `write_failed` when the mirror row or the queue
  *   connection fails (the outcome is then not known).
- * - **POST /api/queues/{connection}/{queue}/waiting**: a read-only POST
- *   (operators only, as it reads the host table in an operator action): the
- *   count of the clear's sheet, `{waiting, ready, delayed, in_batches}`;
- *   `in_batches` is null when the mirror cannot be read. 409
- *   `not_database_queue`; 503 `read_failed`.
- * - **POST /api/queues/{connection}/{queue}/clear**: clears the waiting
- *   jobs of the queue (the service's clear() with BUDGET_SECONDS) and
- *   answers 200 `{deleted, mirror_rows, unresolved_rows, undecodable,
- *   count_mismatches, mirror_failed, complete, reason}` (reason null,
- *   `probe_failed` or `time_budget`). 409 `in_transaction` when the queue
- *   connection is inside a transaction, 409 `not_database_queue`; 503
- *   `write_failed` on an error of the queue connection.
+ * - **POST /api/queues/waiting** `{"connection": "…", "queue": "…"}`: a
+ *   read-only POST (operators only, as it reads the host table in an
+ *   operator action): the count of the clear's sheet, `{waiting, ready,
+ *   delayed, in_batches, in_batches_at_least}`; `in_batches` is null when
+ *   the mirror cannot be read, and `in_batches_at_least` true when some
+ *   waiting jobs have no mirror row yet. 409 `not_database_queue`; 503
+ *   `read_failed`.
+ * - **POST /api/queues/clear** `{"connection": "…", "queue": "…"}`: clears
+ *   the waiting jobs of the queue (the service's clear() with
+ *   BUDGET_SECONDS) and answers 200 `{deleted, mirror_rows,
+ *   unresolved_rows, undecodable, count_mismatches, mirror_failed, complete,
+ *   reason}` (reason null, `probe_failed`, `time_budget` or `write_failed`:
+ *   a later batch failed after earlier ones committed). 409 `in_transaction`
+ *   when the queue connection is inside a transaction, 409
+ *   `not_database_queue`; 503 `write_failed` when the first batch fails.
  *
- * `{connection}` is the queue connection (any alias: the mirror rows of
- * every alias go), `{queue}` the byte-exact queue name, "/" included.
+ * The queue connection and the byte-exact queue name are JSON strings of the
+ * body, read from the raw body (no middleware trims them), never path
+ * segments: a browser resolves `.` and `..` segments of a path, so a name
+ * like `x/../default` would reach another queue. A missing or empty value,
+ * or one that is not a string, gives 422 `invalid` with `field`. The mirror
+ * rows of every alias of the connection go.
  * No answer carries job text.
  */
 class WaitingJobsController extends Controller
@@ -77,8 +84,16 @@ class WaitingJobsController extends Controller
         return self::json(['id' => $uuid, 'result' => $outcome['result']]);
     }
 
-    public function waiting(string $connection, string $queue): JsonResponse
+    public function waiting(Request $request): JsonResponse
     {
+        $target = self::target($request);
+
+        if ($target instanceof JsonResponse) {
+            return $target;
+        }
+
+        [$connection, $queue] = $target;
+
         try {
             $count = PackageSession::asOperator(fn (): array => $this->jobs->count($connection, $queue));
         } catch (ActionRefused $refused) {
@@ -92,8 +107,15 @@ class WaitingJobsController extends Controller
         return self::json(['waiting' => $count['ready'] + $count['delayed']] + $count);
     }
 
-    public function clear(Request $request, string $connection, string $queue): JsonResponse
+    public function clear(Request $request): JsonResponse
     {
+        $target = self::target($request);
+
+        if ($target instanceof JsonResponse) {
+            return $target;
+        }
+
+        [$connection, $queue] = $target;
         $actor = Orrery::actor($request);
 
         try {
@@ -107,6 +129,30 @@ class WaitingJobsController extends Controller
         $this->audit->record('clear', ['connection' => $connection, 'queue' => $queue], $actor, $result->complete ? 'done' : (string) $result->reason, $result->toArray());
 
         return self::json($result->toArray());
+    }
+
+    /**
+     * The queue connection and the queue name of the body, as sent: non-empty
+     * strings of valid UTF-8 without NUL, else 422 `invalid` with `field`.
+     *
+     * @return array{0: string, 1: string}|JsonResponse
+     */
+    private static function target(Request $request): array|JsonResponse
+    {
+        $body = json_decode((string) $request->getContent(), true, 8);
+        $values = [];
+
+        foreach (['connection', 'queue'] as $field) {
+            $value = is_array($body) ? ($body[$field] ?? null) : null;
+
+            if (! is_string($value) || $value === '' || ! mb_check_encoding($value, 'UTF-8') || str_contains($value, "\0")) {
+                return self::json(['error' => 'invalid', 'message' => "{$field} is a non-empty text.", 'field' => $field], 422);
+            }
+
+            $values[] = $value;
+        }
+
+        return [$values[0], $values[1]];
     }
 
     private static function refused(ActionRefused $refused): JsonResponse

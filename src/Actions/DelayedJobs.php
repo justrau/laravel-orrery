@@ -36,7 +36,10 @@ use Justrau\Orrery\Storage\PackageTransaction;
  * reserved, or gone while the mirror row is no longer pending); `gone` (the
  * host row is gone, or holds another job, while the mirror row is still
  * pending); `job_id_unknown` (an unresolved bulk row); `not_found` (no
- * mirror row). An error of the queue connection reaches the caller.
+ * mirror row). A queue connection inside a transaction is refused
+ * (`in_transaction`); an SQLITE_BUSY answer runs the transaction again
+ * (WaitingJobs::retryBusy()). An error of the queue connection reaches the
+ * caller.
  */
 final class DelayedJobs
 {
@@ -80,8 +83,10 @@ final class DelayedJobs
         $jobId = (int) $row->job_id;
         $time = Carbon::now()->getTimestamp();
         $queue = $this->waiting->queue($facts['connection']);
+        $database = $queue->getDatabase();
+        WaitingJobs::refuseInTransaction($database, $facts['connection']);
         $table = WaitingJobs::tableOf($queue);
-        $result = $queue->getDatabase()->transaction(static function (Connection $database) use ($table, $jobId, $uuid, $time): string {
+        $result = WaitingJobs::retryBusy($database, static fn (): string => $database->transaction(static function (Connection $database) use ($table, $jobId, $uuid, $time): string {
             $job = $database->table($table)->where('id', $jobId)->lockForUpdate()->first(['id', 'payload', 'reserved_at', 'available_at']);
 
             if ($job === null || PayloadIdentity::uuidOf($job->payload ?? null) !== $uuid) {
@@ -104,7 +109,7 @@ final class DelayedJobs
                 ->update(['available_at' => $time]);
 
             return $moved === 1 ? self::AVAILABLE : WaitingJobs::NOT_PENDING;
-        });
+        }));
 
         if ($result === WaitingJobs::GONE) {
             $current = $this->mirrorRow($uuid);
@@ -145,6 +150,6 @@ final class DelayedJobs
     private function mirrorRow(string $uuid): ?\stdClass
     {
         /** @var \stdClass|null */
-        return $this->sessions->mirror()->table(JobStore::TABLE)->where('uuid', $uuid)->first(['uuid', 'connection', 'queue', 'status', 'job_id']);
+        return $this->sessions->bounded($this->sessions->mirror(), static fn (Connection $session): ?\stdClass => $session->table(JobStore::TABLE)->where('uuid', $uuid)->first(['uuid', 'connection', 'queue', 'status', 'job_id']));
     }
 }

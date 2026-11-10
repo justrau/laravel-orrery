@@ -145,6 +145,44 @@ final class RunNowTest extends HooksTestCase
         self::assertFalse($this->getJson("/orrery/api/jobs/{$ready}")->assertOk()->json('actions.run_now'));
     }
 
+    /**
+     * Rejects: a run-now inside an open transaction of the queue connection (its update would commit or roll back
+     * with the application's), and a run-now that fails at once on SQLITE_BUSY instead of running again.
+     * Still passes: a retry after another error code (none is raised here).
+     */
+    public function test_it_refuses_a_transaction_and_runs_again_after_sqlite_busy(): void
+    {
+        $uuid = $this->pushedLater(3600);
+        $at = (int) DB::table('jobs')->value('available_at');
+        DB::connection()->beginTransaction();
+
+        try {
+            self::assertSame('in_transaction', $this->runNow($uuid)->assertStatus(409)->json('error'));
+        } finally {
+            DB::connection()->rollBack();
+        }
+
+        self::assertSame($at, (int) DB::table('jobs')->value('available_at'));
+
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            return;
+        }
+
+        $busy = 1;
+        DB::connection()->beforeExecuting(static function (string $sql) use (&$busy): void {
+            if ($busy > 0 && preg_match('/^update "\w*jobs" set "available_at"/i', $sql) === 1) {
+                $busy--;
+                $pdo = new \PDOException('SQLSTATE[HY000]: General error: 5 database is locked');
+                $pdo->errorInfo = ['HY000', 5, 'database is locked'];
+
+                throw new \Illuminate\Database\QueryException('testbench', $sql, [], $pdo);
+            }
+        });
+
+        self::assertSame('available', $this->runNow($uuid)->assertOk()->json('result'));
+        self::assertSame(0, $busy);
+    }
+
     private function runNow(string $uuid): TestResponse
     {
         return $this->postJson("/orrery/api/jobs/{$uuid}/run-now");

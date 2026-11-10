@@ -155,8 +155,9 @@ class BatchesController extends Controller
 
     /**
      * POST /api/batches/{id}/cancel (Actions\BatchCancel, inside one
-     * operator action, D17); the action is recorded (Actions\OperatorAudit,
-     * with the request's actor). 200 `{id, result: "cancelled",
+     * operator action, D17); every cancel that reached its update is
+     * recorded, a refused one too (Actions\OperatorAudit, with the request's
+     * actor). 200 `{id, result: "cancelled",
      * cancelled_at}`; 409 `already_cancelled`, `already_finished`,
      * `unsupported_repository` or `batch_state_unknown`; 404 `not_found`
      * (also for an id with invalid UTF-8 or a NUL); 503 `write_failed` on a
@@ -185,11 +186,14 @@ class BatchesController extends Controller
             return self::json(['error' => 'not_found', 'message' => 'Not found.'], 404);
         }
 
+        if ($result !== BatchCancel::UNSUPPORTED) {
+            // Every cancel that reached its guarded update, also one that changed nothing.
+            $audit->record('cancel_batch', ['batch_id' => $id], $actor, $result, ['cancelled_at' => $outcome['cancelled_at']]);
+        }
+
         if ($result !== BatchCancel::CANCELLED) {
             return self::json(['error' => $result, 'message' => 'The batch was not cancelled.'], 409);
         }
-
-        $audit->record('cancel_batch', ['batch_id' => $id], $actor, $result, ['cancelled_at' => $outcome['cancelled_at']]);
 
         return self::json(['id' => $id, 'result' => $result, 'cancelled_at' => $outcome['cancelled_at']]);
     }

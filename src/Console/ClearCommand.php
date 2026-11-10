@@ -18,11 +18,13 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * no time budget; this command only adapts the input and the output, and
  * records the action (Actions\OperatorAudit, actor `cli`).
  *
- * Exit 1: an empty argument, a connection that is not a database queue, a
- * failed mirror delete (reconciliation marks those rows unknown later; the
- * operator asked for the mirror rows too), or a failed probe (that batch
- * and the later ones stay queued). An error of the queue connection is not
- * caught, so it also exits 1. Undecodable payloads and count mismatches are
+ * Exit 1: an empty argument, a connection that is not a database queue or
+ * inside a transaction, a failed mirror delete (reconciliation marks those
+ * rows unknown later; the operator asked for the mirror rows too), a failed
+ * probe (that batch and the later ones stay queued), or a later batch that
+ * failed after earlier ones committed (the summary counts those). An error
+ * of the queue connection in the first batch is not caught, so it also
+ * exits 1. Undecodable payloads and count mismatches are
  * warnings (exit 0).
  */
 #[AsCommand(name: 'orrery:clear')]
@@ -121,6 +123,13 @@ class ClearCommand extends Command
             $this->components->error('The unresolved bulk mirror rows could not be checked, so Orrery stopped before it deleted the next batch of waiting jobs. Those jobs are still queued. Run orrery:clear again.');
         }
 
-        return $result->mirrorFailed || $probeFailed ? self::FAILURE : self::SUCCESS;
+        $writeFailed = $result->reason === ClearResult::WRITE_FAILED;
+
+        if ($writeFailed) {
+            // Earlier batches committed: the counts above are theirs.
+            $this->components->error('A later batch could not be deleted, so Orrery stopped. The jobs counted above are gone; the others are still queued. Run orrery:clear again.');
+        }
+
+        return $result->mirrorFailed || $probeFailed || $writeFailed ? self::FAILURE : self::SUCCESS;
     }
 }

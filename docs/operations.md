@@ -67,7 +67,7 @@ php artisan orrery:retry --all --key=<group key> --key=<group key> --from=<epoch
 These actions change your queue tables, so they need `operateOrrery`. Each one runs as an operator action: on an SQLite queue file it writes only when you start it.
 
 - **Delete one job.** "Delete…" on the detail of a pending job deletes it from its queue before a worker takes it, with its rows in Orrery. A job that a worker took meanwhile is kept, and the answer says so. A job in a batch leaves that batch unfinished forever, so the sheet offers to cancel the batch instead; a job that carries a chain drops the rest of the chain. The delete of a bulk-pushed job waits until Orrery knows its row in the queue table: try again in a minute.
-- **Clear a queue.** "Clear waiting jobs…" on the Queues screen first counts the waiting jobs of the queue (ready and delayed, and how many belong to batches, whose batches then never finish). It deletes every job of the queue that no worker has reserved, with the rows in Orrery of every connection name on the same jobs table. From the dashboard it stops after 15 seconds and says so; clear again to go on. `orrery:clear` does the same work without a time limit.
+- **Clear a queue.** "Clear waiting jobs…" on the Queues screen first counts the waiting jobs of the queue (ready and delayed, and how many belong to batches, whose batches then never finish). It deletes every job of the queue that no worker has reserved, with the rows in Orrery of every connection name on the same jobs table. From the dashboard it stops after 15 seconds and says so; clear again to go on. If a later batch fails, the jobs of the earlier batches are gone and the answer counts them. `orrery:clear` does the same work without a time limit. Neither runs while the queue connection is inside a transaction.
 
 - **Run a delayed job now.** "Run now…" on the detail of a delayed job makes it available at once, by the clock of your workers (PHP's, not the database's). Its attempts and releases stay as they are. The history shows a `run now` entry.
 
@@ -75,7 +75,7 @@ These actions change your queue tables, so they need `operateOrrery`. Each one r
 
 "Cancel batch…" on a batch that is neither finished nor cancelled marks it cancelled and finished, as Laravel's `$batch->cancel()` does. Jobs that check the batch (the `SkipIfBatchCancelled` middleware or `batch()->cancelled()`) skip their work. Other jobs still run, and running jobs finish. Laravel's `BatchCanceled` event is not dispatched: it needs a `Batch` object, and Orrery never unserializes a batch's options. Only Laravel's database batch repository is supported.
 
-**Audit.** Each delete, clear, run-now and batch cancel dispatches the event `Justrau\Orrery\Events\OperatorActionPerformed` (the action, its target, the actor, the time, the result and the counts) and writes one `info` line to your log. Orrery keeps no activity log of its own: listen to the event to store one.
+**Audit.** Each delete, clear, run-now and batch cancel dispatches the event `Justrau\Orrery\Events\OperatorActionPerformed` (the action, its target, the actor, the time, the result and the counts) and writes one `info` line to your log, also while Orrery's storage is unreachable. Control characters in names are escaped in the line and its context. A refused batch cancel is recorded too. Orrery keeps no activity log of its own: listen to the event to store one.
 
 ## Deploys and restarts
 

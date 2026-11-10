@@ -15,13 +15,17 @@ namespace Justrau\Orrery\Actions;
  *   unknown later).
  * - `complete`: every waiting job of the queue was handled; else `reason`
  *   says why it stopped: `probe_failed` (the unresolved bulk rows could not
- *   be checked, so that batch was kept) or `time_budget`.
+ *   be checked, so that batch was kept), `time_budget`, or `write_failed`
+ *   (a later batch failed after earlier ones committed; the counts are those
+ *   of the committed batches, and the error is reported).
  */
 final class ClearResult
 {
     public const PROBE_FAILED = 'probe_failed';
 
     public const TIME_BUDGET = 'time_budget';
+
+    public const WRITE_FAILED = 'write_failed';
 
     public function __construct(
         public readonly int $deleted,

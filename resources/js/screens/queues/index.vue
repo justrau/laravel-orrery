@@ -49,7 +49,7 @@
         normalizeMarkers,
         normalizeWorkload,
         isPaused,
-        queueActionUrl,
+        queueRequest,
         num,
         pauseHint,
         pausedFrom,
@@ -81,7 +81,7 @@
     const BACKGROUND_STATUSES = [...SECTION_STATUSES, ANY_ERROR_STATUS, ...BACKGROUND_FAILURES];
 
     /** A clear's answer is read inline: these statuses and failures never raise the global alert (a 403 does). */
-    const CLEAR_HANDLES = [409, 422, 500, 502, 503, 504, ...BACKGROUND_FAILURES];
+    const CLEAR_HANDLES = [404, 409, 422, 500, 502, 503, 504, ...BACKGROUND_FAILURES];
 
     /**
      * The Queues screen.
@@ -465,11 +465,9 @@
                 const tasks = rows.map(row => {
                     const sequence = this.startRequest(`history:${row.key}`);
 
-                    return () => this.get(
-                        `/api/queues/${encodeURIComponent(row.connection)}/${row.name.split('/').map(encodeURIComponent).join('/')}/history`,
-                        {minutes: HISTORY_MINUTES},
-                        background,
-                    ).then(
+                    const request = queueRequest('history', row.connection, row.name, {minutes: HISTORY_MINUTES});
+
+                    return () => this.get(request.url, request.params, background).then(
                         data => this.applyHistory(row.key, sequence, {window: historyWindow(data), buckets: historyBuckets(data), error: false}),
                         () => this.applyHistory(row.key, sequence, {...(this.histories[row.key] || {window: null, buckets: []}), error: true}),
                     );
@@ -720,7 +718,9 @@
 
                 const sequence = this.startRequest('operation');
 
-                return this.$http.post(Orrery.basePath + queueActionUrl(row.connection, row.name, 'waiting'), {}, {handles: [ANY_ERROR_STATUS, ...BACKGROUND_FAILURES]})
+                const request = queueRequest('waiting', row.connection, row.name);
+
+                return this.$http.post(Orrery.basePath + request.url, request.body, {handles: [ANY_ERROR_STATUS, ...BACKGROUND_FAILURES]})
                     .then(response => (response && response.data && typeof response.data === 'object' ? response.data : null))
                     .catch(() => null)
                     .then(count => {
@@ -740,7 +740,10 @@
                 this.busy = true;
                 this.controlResult = null;
 
-                return this.$http.post(Orrery.basePath + queueActionUrl(selection.connection, selection.queue, 'clear'), {}, {handles: CLEAR_HANDLES})
+                // Exactly the frozen connection and queue that the sheet names.
+                const request = queueRequest('clear', selection.connection, selection.queue);
+
+                return this.$http.post(Orrery.basePath + request.url, request.body, {handles: CLEAR_HANDLES})
                     .then(response => {
                         this.controlResult = clearOutcome(selection, response ? response.data : null);
                     })

@@ -263,7 +263,7 @@ final class EveryEndpointCanaryTest extends RetryTestCase
             'GET orrery/api/batches/{id}' => $ok($api.'/batches/'.$f['batch']),
             'GET orrery/api/throughput' => $ok($api.'/throughput'),
             'GET orrery/api/markers' => $ok($api.'/markers'),
-            'GET orrery/api/queues/{connection}/{queue}/history' => $ok($api.'/queues/database/default/history'),
+            'GET orrery/api/queues/history' => $ok($api.'/queues/history?connection=database&queue=default'),
             'GET orrery/api/settings/retention' => $ok($api.'/settings/retention'),
             'GET orrery/api/classes' => $ok($api.'/classes'),
             'GET orrery/api/classes/series' => $ok($api.'/classes/series?name='.rawurlencode(CanaryJob::class)),
@@ -299,8 +299,8 @@ final class EveryEndpointCanaryTest extends RetryTestCase
             // The operator actions on the queue tables: the run-now first (the pending job is not delayed), then its delete.
             'POST orrery/api/jobs/{uuid}/run-now' => [[$api.'/jobs/'.$f['pending'].'/run-now', [], 200]],
             'POST orrery/api/jobs/{uuid}/delete' => [[$api.'/jobs/'.$f['pending'].'/delete', [], 200]],
-            'POST orrery/api/queues/{connection}/{queue}/waiting' => [[$api.'/queues/database/default/waiting', [], 200]],
-            'POST orrery/api/queues/{connection}/{queue}/clear' => [[$api.'/queues/database/default/clear', [], 200]],
+            'POST orrery/api/queues/waiting' => [[$api.'/queues/waiting', ['connection' => 'database', 'queue' => 'default'], 200]],
+            'POST orrery/api/queues/clear' => [[$api.'/queues/clear', ['connection' => 'database', 'queue' => 'default'], 200]],
             // The member's retry is still queued, so the batch is open: the cancel answers without the batch name.
             'POST orrery/api/batches/{id}/cancel' => [[$api.'/batches/'.$f['batch'].'/cancel', [], 200]],
         ];

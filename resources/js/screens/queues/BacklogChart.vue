@@ -14,7 +14,7 @@
 
     /**
      * The ready backlog of one queue over the history window
-     * (`GET /api/queues/{c}/{q}/history`), as a line with an area:
+     * (`GET /api/queues/history`), as a line with an area:
      *
      * - `window` ({ from, to, retentionFrom }) and `buckets` ({ at, ready })
      *   from historyBuckets(); one slot per minute;

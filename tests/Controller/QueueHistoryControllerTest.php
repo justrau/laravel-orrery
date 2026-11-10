@@ -12,7 +12,7 @@ use Justrau\Orrery\Tests\ControllerTest;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
- * GET /api/queues/{connection}/{queue}/history?minutes= (the queue state and
+ * GET /api/queues/history?connection=&queue=&minutes= (the queue state and
  * the counts of orrery_samples).
  */
 final class QueueHistoryControllerTest extends ControllerTest
@@ -49,7 +49,7 @@ final class QueueHistoryControllerTest extends ControllerTest
         $this->sample('database', 'mail', self::M - 60, 7, 1.0, false);
         $this->sample('other', 'reports', self::M - 60, 7, 1.0, false);
 
-        $response = $this->getJson('/orrery/api/queues/database/reports/history?minutes=5')->assertOk();
+        $response = $this->getJson('/orrery/api/queues/history?connection=database&queue=reports&minutes=5')->assertOk();
 
         self::assertSame('database', $response->json('connection'));
         self::assertSame('reports', $response->json('queue'));
@@ -94,7 +94,7 @@ final class QueueHistoryControllerTest extends ControllerTest
         $this->finished('HIGH', self::M + 3.0);
         $this->finished('high', self::M + 4.0, connection: 'other');
 
-        $buckets = $this->getJson('/orrery/api/queues/database/high/history?minutes=5')->assertOk()->json('buckets');
+        $buckets = $this->getJson('/orrery/api/queues/history?connection=database&queue=high&minutes=5')->assertOk()->json('buckets');
 
         self::assertSame([
             ['at' => self::M - 240, 'ready' => null, 'oldest_age' => null, 'over_limit' => null, 'completed' => 4, 'failed' => 1, 'partial' => false],
@@ -126,7 +126,7 @@ final class QueueHistoryControllerTest extends ControllerTest
         $this->finished('reports', self::M - 60 + 5.0, connection: 'database-twin');
 
         foreach (['database', 'database-twin'] as $name) {
-            $buckets = array_column($this->getJson('/orrery/api/queues/'.$name.'/reports/history?minutes=5')->assertOk()->json('buckets'), null, 'at');
+            $buckets = array_column($this->getJson('/orrery/api/queues/history?connection='.$name.'&queue=reports&minutes=5')->assertOk()->json('buckets'), null, 'at');
             self::assertSame([6, 4], [$buckets[self::M - 120]['ready'], $buckets[self::M - 120]['completed']], "{$name}: the state and the stored count of the primary series");
             self::assertSame(1, $buckets[self::M - 60]['completed'], "{$name}: the scanned completion of either name");
         }
@@ -137,10 +137,32 @@ final class QueueHistoryControllerTest extends ControllerTest
      */
     public function test_the_default_is_60_minutes_and_the_bounds_5_and_1440_are_accepted(): void
     {
-        self::assertSame(self::M - 59 * 60, $this->getJson('/orrery/api/queues/database/reports/history')->assertOk()->json('from'));
-        self::assertSame(self::M - 59 * 60, $this->getJson('/orrery/api/queues/database/reports/history?minutes=')->assertOk()->json('from'));
-        self::assertSame(self::M - 4 * 60, $this->getJson('/orrery/api/queues/database/reports/history?minutes=5')->assertOk()->json('from'));
-        self::assertSame(self::M - 1439 * 60, $this->getJson('/orrery/api/queues/database/reports/history?minutes=1440')->assertOk()->json('from'));
+        self::assertSame(self::M - 59 * 60, $this->getJson('/orrery/api/queues/history?connection=database&queue=reports')->assertOk()->json('from'));
+        self::assertSame(self::M - 59 * 60, $this->getJson('/orrery/api/queues/history?connection=database&queue=reports&minutes=')->assertOk()->json('from'));
+        self::assertSame(self::M - 4 * 60, $this->getJson('/orrery/api/queues/history?connection=database&queue=reports&minutes=5')->assertOk()->json('from'));
+        self::assertSame(self::M - 1439 * 60, $this->getJson('/orrery/api/queues/history?connection=database&queue=reports&minutes=1440')->assertOk()->json('from'));
+    }
+
+    /**
+     * Rejects: a queue named in the path, where `.` and `..` segments are resolved (by a browser, or here by a
+     * name that the read cleans), so `x/../default` reads the queue `default`; and a missing or empty name read as
+     * a default.
+     */
+    public function test_dot_segments_stay_part_of_the_queue_name(): void
+    {
+        $this->sample('database', 'default', self::M, 7, 1.0, false);
+
+        foreach (['x/../default', 'reports/./daily', '../other/q'] as $name) {
+            $response = $this->getJson('/orrery/api/queues/history?'.http_build_query(['connection' => 'database', 'queue' => $name, 'minutes' => 5]))->assertOk();
+            self::assertSame($name, $response->json('queue'));
+            self::assertNotContains(7, array_column((array) $response->json('buckets'), 'ready'), "{$name}: not the samples of the queue default");
+        }
+
+        self::assertSame([7], array_column((array) $this->getJson('/orrery/api/queues/history?connection=database&queue=default&minutes=5')->assertOk()->json('buckets'), 'ready'), 'the control');
+
+        foreach (['connection=database', 'connection=database&queue=', 'queue=default', 'connection=&queue=default', 'connection=database&queue[]=x'] as $query) {
+            $this->getJson('/orrery/api/queues/history?'.$query)->assertStatus(422)->assertJsonPath('error', 'invalid');
+        }
     }
 
     /**
@@ -150,7 +172,7 @@ final class QueueHistoryControllerTest extends ControllerTest
     {
         $this->sample('database', 'team/reports', self::M, 3, 1.0, false);
 
-        $response = $this->getJson('/orrery/api/queues/database/team/reports/history?minutes=5')->assertOk();
+        $response = $this->getJson('/orrery/api/queues/history?connection=database&queue=team%2Freports&minutes=5')->assertOk();
 
         self::assertSame('team/reports', $response->json('queue'));
         self::assertSame([3], array_column((array) $response->json('buckets'), 'ready'));
@@ -162,7 +184,7 @@ final class QueueHistoryControllerTest extends ControllerTest
     #[DataProvider('invalidMinutes')]
     public function test_invalid_minutes_give_422(string $query): void
     {
-        $this->getJson('/orrery/api/queues/database/reports/history?'.$query)
+        $this->getJson('/orrery/api/queues/history?connection=database&queue=reports&'.$query)
             ->assertStatus(422)
             ->assertJsonPath('error', 'invalid_parameter');
     }

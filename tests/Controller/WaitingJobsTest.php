@@ -23,8 +23,8 @@ use Justrau\Orrery\Tests\Support\TestEnvironment;
 
 /**
  * The writes on waiting jobs: POST /api/jobs/{uuid}/delete,
- * POST /api/queues/{connection}/{queue}/waiting and
- * POST /api/queues/{connection}/{queue}/clear (Actions\WaitingJobs, the
+ * POST /api/queues/waiting and POST /api/queues/clear (the connection and
+ * the queue in the JSON body; Actions\WaitingJobs, the
  * service that orrery:clear shares). The 403 of a viewer without the
  * operate ability is in OperateAbilityTest and AuthorizationTest.
  */
@@ -33,6 +33,16 @@ final class WaitingJobsTest extends HooksTestCase
     protected function defineEnvironment($app): void
     {
         parent::defineEnvironment($app);
+
+        // A queue connection on another jobs table: not an alias.
+        $app['config']->set('queue.connections.database-other', [
+            'driver' => 'database',
+            'connection' => TestEnvironment::PRIMARY,
+            'table' => 'other_jobs',
+            'queue' => 'default',
+            'retry_after' => 90,
+            'after_commit' => false,
+        ]);
 
         // A second queue connection on the same jobs table: an alias.
         $app['config']->set('queue.connections.database-twin', [
@@ -92,7 +102,7 @@ final class WaitingJobsTest extends HooksTestCase
         $queue = "evil\nOrrery operator action clear by \"admin\"\r\x1b[2K";
         [$events, $logs] = $this->recordAudit();
 
-        $this->postJson('/orrery/api/queues/database/'.implode('/', array_map('rawurlencode', explode('/', $queue))).'/clear')->assertOk();
+        $this->queueAction('clear', 'database', $queue)->assertOk();
 
         self::assertCount(1, $logs);
         $line = $logs[0]->message;
@@ -206,12 +216,123 @@ final class WaitingJobsTest extends HooksTestCase
         $this->pushed(new BasicJob, 3600);
         $this->mirror()->table('orrery_jobs')->where('uuid', $batched)->update(['batch_id' => '00000000-0000-4000-8000-0000000000bb']);
 
-        $this->postJson('/orrery/api/queues/database/default/waiting')->assertOk()->assertExactJson(['waiting' => 3, 'ready' => 2, 'delayed' => 1, 'in_batches' => 1]);
+        $this->queueAction('waiting', 'database', 'default')->assertOk()->assertExactJson(['waiting' => 3, 'ready' => 2, 'delayed' => 1, 'in_batches' => 1, 'in_batches_at_least' => false]);
+
+        // A waiting job without a row here (a bulk push not mirrored yet): the batch count is a lower bound.
+        $this->mirror()->table('orrery_jobs')->where('uuid', $batched)->delete();
+        $lower = $this->queueAction('waiting', 'database', 'default')->assertOk();
+        self::assertSame([3, 0, true], self::facts($lower, 'waiting', 'in_batches', 'in_batches_at_least'));
 
         Watcher::failOperationsForTesting(['clear:count_batches']);
-        $unknown = $this->postJson('/orrery/api/queues/database/default/waiting')->assertOk();
+        $unknown = $this->queueAction('waiting', 'database', 'default')->assertOk();
         self::assertSame(3, $unknown->json('waiting'));
         self::assertNull($unknown->json('in_batches'), 'unknown, never 0');
+        self::assertFalse($unknown->json('in_batches_at_least'));
+    }
+
+    /**
+     * Rejects: a queue named in the request path, where `.` and `..` segments are resolved (a browser does), so a
+     * clear of `x/../default` deletes the jobs of `default`; and a missing, empty or non-text name read as a default.
+     */
+    public function test_a_queue_name_with_dot_segments_is_cleared_as_sent(): void
+    {
+        $default = $this->pushed(new BasicJob);
+        $names = ['x/../default', 'reports/./daily', '../other/q'];
+
+        foreach ($names as $name) {
+            $this->pushed(new BasicJob, 0, $name);
+        }
+
+        foreach ($names as $name) {
+            self::assertSame([1, 1], self::facts($this->queueAction('waiting', 'database', $name)->assertOk(), 'waiting', 'ready'), $name);
+            self::assertSame(1, $this->queueAction('clear', 'database', $name)->assertOk()->json('deleted'), $name);
+        }
+
+        self::assertSame(['default'], DB::table('jobs')->pluck('queue')->all(), 'only the job of default stays');
+        self::assertSame('pending', $this->rowOrFail($default)->status);
+
+        foreach ([[], ['connection' => 'database'], ['connection' => 'database', 'queue' => ''], ['connection' => '', 'queue' => 'default'], ['connection' => 'database', 'queue' => ['default']], ['connection' => 'database', 'queue' => 7]] as $body) {
+            foreach (['waiting', 'clear'] as $action) {
+                $this->postJson("/orrery/api/queues/{$action}", $body)->assertStatus(422)->assertJsonPath('error', 'invalid');
+            }
+        }
+
+        self::assertSame(1, DB::table('jobs')->count());
+    }
+
+    /**
+     * Rejects: a clear whose later batch fails after earlier batches committed, answered as a 503 without counts and
+     * without its audit, although jobs are gone.
+     */
+    public function test_a_later_batch_that_fails_ends_the_clear_with_its_counts(): void
+    {
+        $this->pushed(new BasicJob);
+        $this->pushed(new BasicJob);
+        $this->pushed(new BasicJob);
+        WaitingJobs::useBatchForTesting(1);
+        [$events] = $this->recordAudit();
+        $deletes = 0;
+        $failing = true;
+        DB::connection()->beforeExecuting(static function (string $sql) use (&$deletes, &$failing): void {
+            if ($failing && preg_match('/^delete from [`"]?(?!\w*orrery_)\w*jobs[`"]?\s/i', $sql) === 1 && ++$deletes === 2) {
+                throw new QueryException('testbench', $sql, [], new \PDOException('SQLSTATE[HY000]: General error: 1 disk I/O error'));
+            }
+        });
+
+        $response = $this->queueAction('clear', 'database', 'default')->assertOk();
+        $failing = false;
+
+        self::assertSame([1, 1, false, 'write_failed'], self::facts($response, 'deleted', 'mirror_rows', 'complete', 'reason'));
+        self::assertSame(2, DB::table('jobs')->count(), 'the failed batch and the later one stay');
+        self::assertCount(1, $events);
+        self::assertSame(['write_failed', 1], [$events[0]->result, $events[0]->counts['deleted']]);
+    }
+
+    /**
+     * Rejects: a delete inside an open transaction of the queue connection, whose delete would commit or roll back
+     * with the application's transaction instead of on its own.
+     */
+    public function test_delete_refuses_a_queue_connection_inside_a_transaction(): void
+    {
+        $uuid = $this->pushed(new BasicJob);
+        DB::connection()->beginTransaction();
+
+        try {
+            self::assertSame('in_transaction', $this->deleteJob($uuid)->assertStatus(409)->json('error'));
+        } finally {
+            DB::connection()->rollBack();
+        }
+
+        self::assertNotNull($this->hostRow($uuid));
+        self::assertSame('pending', $this->rowOrFail($uuid)->status);
+    }
+
+    /**
+     * Rejects: a delete that fails at once when SQLite answers SQLITE_BUSY (in WAL, a transaction that read first
+     * cannot write after another process committed); it runs again, as a batch of the clear does.
+     * Still passes: a retry after another error code (none is raised here).
+     */
+    public function test_delete_runs_again_after_sqlite_busy(): void
+    {
+        if (DB::connection()->getDriverName() !== 'sqlite') {
+            self::markTestSkipped('SQLITE_BUSY is a SQLite answer; a server engine never repeats the transaction.');
+        }
+
+        $uuid = $this->pushed(new BasicJob);
+        $busy = 1;
+        DB::connection()->beforeExecuting(static function (string $sql) use (&$busy): void {
+            if ($busy > 0 && preg_match('/^delete from "\w*jobs"/i', $sql) === 1) {
+                $busy--;
+                $pdo = new \PDOException('SQLSTATE[HY000]: General error: 5 database is locked');
+                $pdo->errorInfo = ['HY000', 5, 'database is locked'];
+
+                throw new QueryException('testbench', $sql, [], $pdo);
+            }
+        });
+
+        self::assertSame('deleted', $this->deleteJob($uuid)->assertOk()->json('result'));
+        self::assertSame(0, $busy);
+        self::assertNull($this->hostRow($uuid));
     }
 
     /**
@@ -225,7 +346,7 @@ final class WaitingJobsTest extends HooksTestCase
         $this->pushed(new BasicJob, 3600);
         [$events] = $this->recordAudit();
 
-        $this->postJson('/orrery/api/queues/database/default/clear')->assertOk()->assertExactJson([
+        $this->queueAction('clear', 'database', 'default')->assertOk()->assertExactJson([
             'deleted' => 2, 'mirror_rows' => 2, 'unresolved_rows' => 0, 'undecodable' => 0, 'count_mismatches' => 0,
             'mirror_failed' => false, 'complete' => true, 'reason' => null,
         ]);
@@ -258,7 +379,16 @@ final class WaitingJobsTest extends HooksTestCase
         self::assertTrue((bool) $this->rowOrFail($bulk)->job_id_unresolved, 'the bulk row is unresolved');
         self::assertSame('database-twin', $this->rowOrFail($twin)->connection);
 
-        $this->postJson('/orrery/api/queues/database/default/clear')->assertOk()->assertJson(['deleted' => 3, 'mirror_rows' => 3, 'unresolved_rows' => 1, 'complete' => true]);
+        // A row of another jobs table (not an alias) with the same job id and queue: it is another job.
+        $foreign = '00000000-0000-4000-8000-0000000000cc';
+        $this->mirror()->table('orrery_jobs')->insert([
+            'uuid' => $foreign, 'connection' => 'database-other', 'queue' => 'default', 'name' => BasicJob::class, 'type' => 'job',
+            'status' => 'pending', 'silenced' => false, 'monitored' => false, 'job_id' => $this->rowOrFail($own)->job_id, 'payload' => '{}', 'payload_bytes' => 2,
+            'pushed_at' => Clock::toDecimal(Clock::now()), 'updated_at' => Clock::toDecimal(Clock::now()),
+        ]);
+
+        self::assertSame([3, 3, 1, true], self::facts($this->queueAction('clear', 'database', 'default')->assertOk(), 'deleted', 'mirror_rows', 'unresolved_rows', 'complete'));
+        self::assertSame('pending', $this->rowOrFail($foreign)->status, 'the row of the other table stays');
 
         self::assertSame(0, DB::table('jobs')->count());
         self::assertNull($this->row($own));
@@ -275,7 +405,7 @@ final class WaitingJobsTest extends HooksTestCase
         $this->pushed(new BasicJob, 0, 'high');
         $upper = $this->pushed(new BasicJob, 0, 'HIGH');
 
-        $this->postJson('/orrery/api/queues/database/high/clear')->assertOk()->assertJson(['deleted' => 1]);
+        self::assertSame(1, $this->queueAction('clear', 'database', 'high')->assertOk()->json('deleted'));
 
         self::assertSame(1, DB::table('jobs')->count());
         self::assertNotNull($this->hostRow($upper));
@@ -298,7 +428,7 @@ final class WaitingJobsTest extends HooksTestCase
             }
         });
 
-        $this->postJson('/orrery/api/queues/database/default/clear')->assertOk()->assertJson(['deleted' => 1, 'complete' => false, 'reason' => 'time_budget']);
+        self::assertSame([1, false, 'time_budget'], self::facts($this->queueAction('clear', 'database', 'default')->assertOk(), 'deleted', 'complete', 'reason'));
 
         self::assertSame(2, DB::table('jobs')->count(), 'the later batches stay');
     }
@@ -311,7 +441,7 @@ final class WaitingJobsTest extends HooksTestCase
         $this->pushed(new BasicJob);
         Watcher::failOperationsForTesting(['clear:mirror_probe']);
 
-        $this->postJson('/orrery/api/queues/database/default/clear')->assertOk()->assertJson(['deleted' => 0, 'complete' => false, 'reason' => 'probe_failed']);
+        self::assertSame([0, false, 'probe_failed'], self::facts($this->queueAction('clear', 'database', 'default')->assertOk(), 'deleted', 'complete', 'reason'));
 
         self::assertSame(1, DB::table('jobs')->count());
     }
@@ -326,14 +456,14 @@ final class WaitingJobsTest extends HooksTestCase
         DB::connection()->beginTransaction();
 
         try {
-            $this->postJson('/orrery/api/queues/database/default/clear')->assertStatus(409)->assertJson(['error' => 'in_transaction']);
+            $this->queueAction('clear', 'database', 'default')->assertStatus(409)->assertJson(['error' => 'in_transaction']);
         } finally {
             DB::connection()->rollBack();
         }
 
         $this->app['config']->set('queue.connections.sync', ['driver' => 'sync']);
-        $this->postJson('/orrery/api/queues/sync/default/clear')->assertStatus(409)->assertJson(['error' => 'not_database_queue']);
-        $this->postJson('/orrery/api/queues/sync/default/waiting')->assertStatus(409)->assertJson(['error' => 'not_database_queue']);
+        $this->queueAction('clear', 'sync', 'default')->assertStatus(409)->assertJson(['error' => 'not_database_queue']);
+        $this->queueAction('waiting', 'sync', 'default')->assertStatus(409)->assertJson(['error' => 'not_database_queue']);
 
         $failing = true;
         DB::connection()->beforeExecuting(static function (string $sql) use (&$failing): void {
@@ -341,7 +471,7 @@ final class WaitingJobsTest extends HooksTestCase
                 throw new QueryException('testbench', $sql, [], new \PDOException('SQLSTATE[HY000]: General error: 1 disk I/O error'));
             }
         });
-        $this->postJson('/orrery/api/queues/database/default/clear')->assertStatus(503)->assertJson(['error' => 'write_failed']);
+        $this->queueAction('clear', 'database', 'default')->assertStatus(503)->assertJson(['error' => 'write_failed']);
         $failing = false;
         self::assertSame(1, DB::table('jobs')->count());
     }
@@ -364,8 +494,31 @@ final class WaitingJobsTest extends HooksTestCase
         $head = self::uuidOf((string) DB::table('jobs')->orderByDesc('id')->value('payload'));
         self::assertTrue($this->getJson("/orrery/api/jobs/{$head}")->assertOk()->json('chained'));
 
+        // A chain that is not the first `chained` property of the text (a property holds another job first).
+        $nested = 'O:1:"A":2:{s:5:"inner";O:1:"B":1:{s:7:"chained";a:0:{}}s:7:"chained";a:1:{i:0;s:1:"x";}}';
+        self::assertTrue(\Justrau\Orrery\Http\Controllers\JobController::chained((string) json_encode(['data' => ['command' => $nested]])));
+        self::assertNull(\Justrau\Orrery\Http\Controllers\JobController::chained((string) json_encode(['data' => ['command' => 'eyJpdiI6']])), 'an encrypted command');
+
         $this->mirror()->table('orrery_jobs')->where('uuid', $plain)->update(['job_id' => null, 'job_id_unresolved' => true]);
         self::assertSame('job_id_unknown', $this->getJson("/orrery/api/jobs/{$plain}")->assertOk()->json('actions.pending_reason'));
+    }
+
+    /**
+     * POST /api/queues/{waiting|clear} with the connection and the queue in the body.
+     */
+    private function queueAction(string $action, string $connection, string $queue): TestResponse
+    {
+        return $this->postJson("/orrery/api/queues/{$action}", ['connection' => $connection, 'queue' => $queue]);
+    }
+
+    /**
+     * The named values of a JSON answer, in order, compared strictly by the caller.
+     *
+     * @return list<mixed>
+     */
+    private static function facts(TestResponse $response, string ...$keys): array
+    {
+        return array_map(static fn (string $key): mixed => $response->json($key), $keys);
     }
 
     private function deleteJob(string $uuid): TestResponse

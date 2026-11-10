@@ -104,6 +104,41 @@ final class BatchCancelTest extends ControllerTest
     }
 
     /**
+     * Rejects: a 404 or an `already_finished` for a batch whose update changed nothing while it reads as open
+     * again: its state is unknown, so the answer says so (409 `batch_state_unknown`); and such a refusal without
+     * its audit.
+     */
+    public function test_a_batch_whose_state_cannot_be_told_is_refused(): void
+    {
+        $id = $this->batch();
+        $events = new \ArrayObject;
+        Event::listen(OperatorActionPerformed::class, static function (OperatorActionPerformed $event) use ($events): void {
+            $events[] = $event;
+        });
+        $step = 0;
+        PackageStatements::beforeEach($this->app, TestEnvironment::PRIMARY, function (string $sql) use (&$step, $id): void {
+            $sql = strtolower(ltrim($sql));
+
+            if ($step === 0 && str_starts_with($sql, 'update') && str_contains($sql, 'cancelled_at')) {
+                // The batch finishes just before the update, so it changes nothing ...
+                $step = 1;
+                $this->batchTable()->where('id', $id)->update(['finished_at' => 1000]);
+            } elseif ($step === 1 && str_starts_with($sql, 'select')) {
+                // ... and reads as open again when it is read back.
+                $step = 2;
+                $this->batchTable()->where('id', $id)->update(['finished_at' => null]);
+            }
+        });
+
+        $this->cancel($id)->assertStatus(409)->assertJsonPath('error', 'batch_state_unknown');
+
+        self::assertSame(2, $step);
+        self::assertNull($this->batchRow($id)?->cancelled_at);
+        self::assertCount(1, $events);
+        self::assertSame('batch_state_unknown', $events[0]->result);
+    }
+
+    /**
      * Rejects: an id compared by the collation, so another letter case cancels the batch (MySQL); on the other
      * engines the comparison is byte-exact anyway.
      */

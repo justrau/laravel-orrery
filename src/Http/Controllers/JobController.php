@@ -307,9 +307,9 @@ class JobController extends Controller
     }
 
     /**
-     * Whether the payload's command carries a chain of later jobs: the count
-     * of its serialized `chained` property (Laravel's Queueable), read as
-     * text, never unserialized. A serialized object without the property has
+     * Whether the payload's command carries a chain of later jobs: true when
+     * any serialized `chained` property of the command text (Laravel's
+     * Queueable) holds an entry, read as text, never unserialized. A serialized object without the property has
      * no chain: Laravel's serialization leaves out a property at its default
      * (the empty chain). Null when it cannot be told: a payload over its
      * bound, or a command that is not a serialized object (an encrypted one).
@@ -323,7 +323,16 @@ class JobController extends Controller
             return null;
         }
 
-        return preg_match('/s:7:"chained";a:(\d+):/', $command, $match) === 1 && (int) $match[1] > 0;
+        // Every `chained` property of the text: the job's own, and those of the jobs that its chain holds.
+        preg_match_all('/s:7:"chained";a:(\d+):/', $command, $matches);
+
+        foreach ($matches[1] as $count) {
+            if ((int) $count > 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -648,14 +657,15 @@ class JobController extends Controller
 
     /**
      * @param  array<string, mixed>|null  $operation
-     * @return array{retry: bool, forget: bool, resolve: bool, read_only_reason: string|null}
+     * @return array{retry: bool, forget: bool, resolve: bool, read_only_reason: string|null, delete: bool, pending_reason: string|null, run_now: bool}
      */
     private function actions(stdClass $row, ?array $operation): array
     {
         $failed = $row->status === 'failed' && $operation === null;
         [$allowed, $reason] = $failed ? $this->adapterDecision($row) : [false, null];
         $pending = $row->status === 'pending' && $operation === null;
-        $availableAt = self::time($row->available_at ?? null);
+        // A stored time compared with Clock::now() reads through Clock::stored() (src/Storage/CLAUDE.md).
+        $availableAt = is_numeric($row->available_at ?? null) ? Clock::stored($row->available_at) : null;
 
         return [
             'retry' => $allowed,

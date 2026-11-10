@@ -23,7 +23,7 @@ use Justrau\Orrery\Storage\PackageTransaction;
 
 /**
  * The waiting (unreserved) jobs of a database queue: the one service of
- * `orrery:clear`, `POST /api/queues/{connection}/{queue}/clear` (clear()),
+ * `orrery:clear`, `POST /api/queues/clear` (clear()),
  * its count (count()) and `POST /api/jobs/{uuid}/delete` (deleteOne()).
  * Call every method inside an operator action (PackageSession::asOperator(),
  * D17): its writes may reach a host SQLite file.
@@ -89,8 +89,9 @@ use Justrau\Orrery\Storage\PackageTransaction;
  *
  * Unlike Laravel's queue:clear, it never deletes reserved jobs. A mirror
  * error after step 2 leaves those mirror rows to reconciliation, which marks
- * them `unknown` (`mirror_failed`). An error of the queue connection is not
- * caught: it reaches the caller.
+ * them `unknown` (`mirror_failed`). An error of the queue connection in the
+ * first batch reaches the caller (nothing was deleted); after a committed
+ * batch it ends the clear with the counts so far (`write_failed`).
  *
  * **deleteOne()** deletes one waiting job by its mirror row: the row must be
  * `pending` with a resolved job_id. One transaction on the queue connection
@@ -101,7 +102,9 @@ use Justrau\Orrery\Storage\PackageTransaction;
  * is gone and the mirror row is still pending); `job_id_unknown` (an
  * unresolved bulk row, which the bulk resolution may still resolve);
  * `mirror_failed` (the host row is deleted, its mirror row stays);
- * `not_found` (no mirror row).
+ * `not_found` (no mirror row). A queue connection inside a transaction is
+ * refused (`in_transaction`), and an SQLITE_BUSY answer runs the transaction
+ * again (retryBusy()).
  *
  * **count()** counts the waiting jobs of one queue (ready and delayed, by
  * the workers' clock) on the observer session, and the pending mirror rows
@@ -184,6 +187,47 @@ final class WaitingJobs
     }
 
     /**
+     * ActionRefused (`in_transaction`) when the queue connection is inside a
+     * transaction: the action's own transaction would join it, so its write
+     * would commit or roll back with the application's, not on its own.
+     *
+     * @throws ActionRefused
+     */
+    public static function refuseInTransaction(Connection $database, string $connection): void
+    {
+        if ($database->transactionLevel() > 0) {
+            throw new ActionRefused('in_transaction', "The queue connection [{$connection}] is inside a transaction, so nothing changed.");
+        }
+    }
+
+    /**
+     * $work (one transaction on the queue connection), again at most
+     * BUSY_ATTEMPTS times in all when SQLite answers SQLITE_BUSY: in WAL, a
+     * deferred transaction that read first cannot write after another
+     * process committed, and SQLite then fails at once instead of waiting.
+     * The transaction rolled back, so the work runs again from its start.
+     * Only the driver's result code counts, never a message (which can hold
+     * a bound value).
+     *
+     * @template T
+     *
+     * @param  \Closure(): T  $work
+     * @return T
+     */
+    public static function retryBusy(Connection $database, \Closure $work): mixed
+    {
+        for ($attempt = 1; ; $attempt++) {
+            try {
+                return $work();
+            } catch (\Throwable $error) {
+                if ($attempt >= self::BUSY_ATTEMPTS || $database->getDriverName() !== 'sqlite' || ! self::isSqliteBusy($error)) {
+                    throw $error;
+                }
+            }
+        }
+    }
+
+    /**
      * Deletes the waiting jobs of one queue (see the class docblock).
      *
      * @param  float|null  $budgetSeconds  the time after which no new batch starts; null: no limit
@@ -195,9 +239,7 @@ final class WaitingJobs
         $queue = $this->queue($connection);
         $database = $queue->getDatabase();
 
-        if ($database->transactionLevel() > 0) {
-            throw new ActionRefused('in_transaction', "The queue connection [{$connection}] is inside a transaction, so nothing was cleared.");
-        }
+        self::refuseInTransaction($database, $connection);
 
         $aliases = $this->waits->aliasesOf($connection);
         $table = self::tableOf($queue);
@@ -223,23 +265,36 @@ final class WaitingJobs
                 break;
             }
 
-            $ids = self::whereQueue($observer->table($table), $observer, $queueName)
-                ->whereNull('reserved_at')
-                ->where('id', '>', $after)
-                ->orderBy('id')
-                ->limit($batch)
-                ->pluck('id')
-                ->map(static fn (mixed $id): int => (int) $id)
-                ->all();
+            try {
+                $ids = self::whereQueue($observer->table($table), $observer, $queueName)
+                    ->whereNull('reserved_at')
+                    ->where('id', '>', $after)
+                    ->orderBy('id')
+                    ->limit($batch)
+                    ->pluck('id')
+                    ->map(static fn (mixed $id): int => (int) $id)
+                    ->all();
 
-            if ($ids === []) {
+                if ($ids === []) {
+                    break;
+                }
+
+                $after = max($ids);
+                $batches++;
+                $early = $probeFirst ? $this->probe($aliases) : null;
+                $result = $this->deleteWaitingRetried($database, $table, $queueName, $aliases, $ids, $early);
+            } catch (\Throwable $error) {
+                if ($batches <= 1 && $jobs === 0) {
+                    // Nothing committed yet: the caller sees the error itself.
+                    throw $error;
+                }
+
+                // Earlier batches committed: their counts are the answer, with the stop's reason.
+                Watcher::instance()->report('clear:batch', $error);
+                $reason = ClearResult::WRITE_FAILED;
+
                 break;
             }
-
-            $after = max($ids);
-            $batches++;
-            $early = $probeFirst ? $this->probe($aliases) : null;
-            $result = $this->deleteWaitingRetried($database, $table, $queueName, $aliases, $ids, $early);
             $deleted = $result['deleted'];
             $countMismatches += $result['mismatch'] ? 1 : 0;
             $undecodable += $result['undecodable'];
@@ -279,9 +334,11 @@ final class WaitingJobs
      * and `in_batches`, the pending mirror rows of the queue (on any alias)
      * with a batch. A part that cannot be read is null, never 0 (the mirror
      * part is reported through the watcher; the queue part reaches the
-     * caller).
+     * caller). `in_batches_at_least` is true when the mirror has fewer
+     * pending rows than the queue has waiting jobs: jobs without a row may
+     * be in batches too. Both reads are bounded (PackageSession::bounded()).
      *
-     * @return array{ready: int, delayed: int, in_batches: int|null}
+     * @return array{ready: int, delayed: int, in_batches: int|null, in_batches_at_least: bool}
      *
      * @throws ActionRefused
      */
@@ -291,25 +348,31 @@ final class WaitingJobs
         $table = self::tableOf($queue);
         $observer = $this->sessions->forAction($this->sessions->databaseConnectionFor($connection));
         $now = Carbon::now()->getTimestamp();
-        $row = self::whereQueue($observer->table($table), $observer, $queueName)
+        $row = $this->sessions->bounded($observer, static fn (Connection $session): ?\stdClass => self::whereQueue($session->table($table), $session, $queueName)
             ->whereNull('reserved_at')
             ->selectRaw('SUM(CASE WHEN available_at <= ? THEN 1 ELSE 0 END) AS ready_count, SUM(CASE WHEN available_at > ? THEN 1 ELSE 0 END) AS delayed_count', [$now, $now])
-            ->first();
+            ->first());
+        $ready = (int) ($row->ready_count ?? 0);
+        $delayed = (int) ($row->delayed_count ?? 0);
         $aliases = $this->waits->aliasesOf($connection);
-        $inBatches = Watcher::instance()->run('clear:count_batches', function () use ($aliases, $queueName): int {
-            $mirror = $this->sessions->mirror();
+        $mirror = Watcher::instance()->run('clear:count_batches', function () use ($aliases, $queueName): array {
+            return $this->sessions->bounded($this->sessions->mirror(), static function (Connection $session) use ($aliases, $queueName): array {
+                $counts = self::whereQueue($session->table(JobStore::TABLE), $session, $queueName)
+                    ->whereIn('connection', $aliases)
+                    ->where('status', 'pending')
+                    ->selectRaw('COUNT(*) AS pending_count, SUM(CASE WHEN batch_id IS NOT NULL THEN 1 ELSE 0 END) AS batched_count')
+                    ->first();
 
-            return self::whereQueue($mirror->table(JobStore::TABLE), $mirror, $queueName)
-                ->whereIn('connection', $aliases)
-                ->where('status', 'pending')
-                ->whereNotNull('batch_id')
-                ->count();
+                return [(int) ($counts->pending_count ?? 0), (int) ($counts->batched_count ?? 0)];
+            });
         }, null);
 
         return [
-            'ready' => (int) ($row->ready_count ?? 0),
-            'delayed' => (int) ($row->delayed_count ?? 0),
-            'in_batches' => is_int($inBatches) ? $inBatches : null,
+            'ready' => $ready,
+            'delayed' => $delayed,
+            'in_batches' => is_array($mirror) ? $mirror[1] : null,
+            // Fewer pending rows here than waiting jobs: some jobs have no row yet, so the batch count is a lower bound.
+            'in_batches_at_least' => is_array($mirror) && $mirror[0] < $ready + $delayed,
         ];
     }
 
@@ -343,8 +406,10 @@ final class WaitingJobs
 
         $jobId = (int) $row->job_id;
         $queue = $this->queue($facts['connection']);
+        $database = $queue->getDatabase();
+        self::refuseInTransaction($database, $facts['connection']);
         $table = self::tableOf($queue);
-        $locked = $queue->getDatabase()->transaction(static function (Connection $database) use ($table, $jobId, $uuid): string {
+        $locked = self::retryBusy($database, static fn (): string => $database->transaction(static function (Connection $database) use ($table, $jobId, $uuid): string {
             $job = $database->table($table)->where('id', $jobId)->whereNull('reserved_at')->lockForUpdate()->first(['id', 'payload']);
 
             if ($job === null) {
@@ -357,7 +422,7 @@ final class WaitingJobs
             }
 
             return $database->table($table)->where('id', $jobId)->whereNull('reserved_at')->delete() === 1 ? self::DELETED : self::NOT_PENDING;
-        });
+        }));
 
         if ($locked === self::GONE) {
             // The host row is gone: the mirror row decides whether the job ran or is lost.
@@ -378,7 +443,7 @@ final class WaitingJobs
     private function mirrorRow(string $uuid): ?\stdClass
     {
         /** @var \stdClass|null */
-        return $this->sessions->mirror()->table(JobStore::TABLE)->where('uuid', $uuid)->first(['uuid', 'connection', 'queue', 'status', 'job_id', 'batch_id']);
+        return $this->sessions->bounded($this->sessions->mirror(), static fn (Connection $session): ?\stdClass => $session->table(JobStore::TABLE)->where('uuid', $uuid)->first(['uuid', 'connection', 'queue', 'status', 'job_id', 'batch_id']));
     }
 
     /**
@@ -421,15 +486,7 @@ final class WaitingJobs
      */
     private function deleteWaitingRetried(Connection $database, string $table, string $queueName, array $aliases, array $ids, ?WatchResult $early): array
     {
-        for ($attempt = 1; ; $attempt++) {
-            try {
-                return $this->deleteWaiting($database, $table, $queueName, $aliases, $ids, $early);
-            } catch (\Throwable $error) {
-                if ($attempt >= self::BUSY_ATTEMPTS || $database->getDriverName() !== 'sqlite' || ! self::isSqliteBusy($error)) {
-                    throw $error;
-                }
-            }
-        }
+        return self::retryBusy($database, fn (): array => $this->deleteWaiting($database, $table, $queueName, $aliases, $ids, $early));
     }
 
     /**

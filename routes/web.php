@@ -24,9 +24,9 @@ Route::prefix('api')->group(function (): void {
     Route::post('/jobs/{uuid}/delete', 'WaitingJobsController@delete')->where('uuid', JobController::UUID_PATTERN);
     Route::post('/jobs/{uuid}/run-now', 'DelayedJobsController@runNow')->where('uuid', JobController::UUID_PATTERN);
 
-    // The waiting jobs of a queue: the count of the clear's sheet (a read-only POST) and the clear.
-    Route::post('/queues/{connection}/{queue}/waiting', 'WaitingJobsController@waiting')->where('queue', '.+');
-    Route::post('/queues/{connection}/{queue}/clear', 'WaitingJobsController@clear')->where('queue', '.+');
+    // The waiting jobs of a queue, named in the JSON body: the count of the clear's sheet (a read-only POST) and the clear.
+    Route::post('/queues/waiting', 'WaitingJobsController@waiting');
+    Route::post('/queues/clear', 'WaitingJobsController@clear');
 
     // The bulk runs.
     Route::get('/bulk', 'BulkController@index');
@@ -51,7 +51,7 @@ Route::prefix('api')->group(function (): void {
 
     Route::get('/throughput', 'ThroughputController@index');
     Route::get('/markers', 'MarkersController@index');
-    Route::get('/queues/{connection}/{queue}/history', 'QueueHistoryController@show')->where('queue', '.+');
+    Route::get('/queues/history', 'QueueHistoryController@show');
     Route::get('/settings/retention', 'RetentionSettingsController@index');
     Route::get('/classes', 'JobClassesController@index');
     Route::get('/classes/series', 'JobClassesController@series');

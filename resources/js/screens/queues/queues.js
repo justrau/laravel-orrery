@@ -885,9 +885,20 @@ export function controlConfirmLabel(selection) {
 // Clear waiting jobs
 // ---------------------------------------------------------------------------
 
-/** The API path of a queue's waiting jobs: `/api/queues/{connection}/{queue}/{action}`, the name's "/" kept. */
-export function queueActionUrl(connection, queue, action) {
-    return `/api/queues/${encodeURIComponent(connection)}/${String(queue).split('/').map(encodeURIComponent).join('/')}/${action}`;
+/**
+ * A request about one queue: the queue connection and the queue name travel
+ * as values (a JSON body, or query parameters), never as path segments. A
+ * browser resolves `.` and `..` segments of a path, also encoded ones, so a
+ * name like `x/../default` in a path would reach another queue.
+ * `{url, body}` for `waiting` and `clear` (POST), `{url, params}` for
+ * `history` (GET).
+ */
+export function queueRequest(action, connection, queue, extra = {}) {
+    const target = {connection: String(connection), queue: String(queue)};
+
+    if (action === 'history') return {url: '/api/queues/history', params: {...target, ...extra}};
+
+    return {url: `/api/queues/${action === 'clear' ? 'clear' : 'waiting'}`, body: target};
 }
 
 function wholeCount(value) {
@@ -907,9 +918,18 @@ export function clearCountText(count) {
     if (waiting === null || delayed === null) return 'The number of waiting jobs is unknown.';
 
     const inBatches = wholeCount(count.in_batches);
-    const batches = inBatches === null
-        ? 'how many are in batches is unknown'
-        : (inBatches === 0 ? 'none in batches' : `${formatCount(inBatches)} in batches, whose batches will not finish`);
+    let batches;
+
+    if (inBatches === null) {
+        batches = 'how many are in batches is unknown';
+    } else if (count.in_batches_at_least === true) {
+        // Some waiting jobs have no row in Orrery yet: they may be in batches too.
+        batches = inBatches === 0
+            ? 'none known in batches; some jobs are not in Orrery yet'
+            : `at least ${formatCount(inBatches)} in batches, whose batches will not finish`;
+    } else {
+        batches = inBatches === 0 ? 'none known in batches' : `${formatCount(inBatches)} in batches, whose batches will not finish`;
+    }
 
     return `${formatCount(waiting)} waiting (including ${formatCount(delayed)} delayed; ${batches}).`;
 }
@@ -924,7 +944,9 @@ export function clearSheet(row, count) {
 
     return {
         title: `Clear waiting jobs of ${row.name}?`,
-        message: `${clearCountText(count)} Every job of ${row.connection}:${row.name} that no worker has reserved is deleted, with its rows in Orrery. Reserved jobs keep running. This cannot be undone.`,
+        message: `${clearCountText(count)} Every job of ${row.connection}:${row.name} that no worker has reserved is deleted, with its rows in Orrery`
+            + (aliases.length > 1 ? ` (also those of ${aliases.filter(alias => alias !== row.connection).join(', ')}, which share its jobs table)` : '')
+            + '. Reserved jobs keep running. This cannot be undone.',
         confirmLabel: 'Clear waiting jobs',
         tone: 'danger',
         selection: {kind: 'clear', connection: row.connection, queue: row.name, aliases: aliases.slice()},
@@ -943,6 +965,7 @@ export function clearOutcome(selection, data) {
     if (wholeCount(data.undecodable) > 0) notes.push(`${formatCount(data.undecodable)} payload(s) could not be decoded, so their unresolved rows in Orrery stay.`);
     if (data.reason === 'time_budget') notes.push('It stopped at its time limit: waiting jobs remain. Clear again to go on.');
     if (data.reason === 'probe_failed') notes.push('Orrery could not check its unresolved rows, so it stopped before the next batch: those jobs are still queued. Clear again.');
+    if (data.reason === 'write_failed') notes.push('A later batch could not be deleted, so it stopped: the jobs counted here are gone, the others are still queued. Clear again.');
 
     const title = `Cleared ${formatCount(deleted)} waiting ${deleted === 1 ? 'job' : 'jobs'} of ${selection.queue}`;
     const tone = data.complete === true && data.mirror_failed !== true ? 'success' : 'warning';
@@ -952,7 +975,7 @@ export function clearOutcome(selection, data) {
 
 /**
  * A clear that did not answer 200: a refusal (409 `in_transaction`,
- * `not_database_queue`) changed nothing; a 403 is left to the global alert
+ * `not_database_queue`, 422 `invalid`, 404) changed nothing; a 403 is left to the global alert
  * (null); any other failure has an unknown outcome.
  */
 export function clearFailure(selection, error) {
@@ -960,7 +983,7 @@ export function clearFailure(selection, error) {
     const body = error && error.response && error.response.data && typeof error.response.data === 'object' ? error.response.data : {};
 
     if (status === 403) return null;
-    if (status === 409 && typeof body.error === 'string') return {tone: 'danger', title: `${selection.queue} was not cleared`, detail: codeText(body.error)};
+    if ((status === 404 || status === 409 || status === 422) && typeof body.error === 'string') return {tone: 'danger', title: `${selection.queue} was not cleared`, detail: codeText(body.error)};
 
     return {tone: 'warning', title: `Clear of ${selection.queue}: outcome unknown`, detail: codeText('write_failed')};
 }
