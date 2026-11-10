@@ -39,6 +39,12 @@ final class WorkbenchLauncherTest extends TestCase
             'serve: serve --ansi',
             'workbench:worker: workbench:slow --ansi',
             'workbench:worker: queue:work database --queue=slow --max-time=600 --ansi',
+            'workbench:showcase:build: workbench:drop-database --ansi',
+            'workbench:showcase:build: workbench:create-sqlite-db --ansi',
+            'workbench:showcase:build: cache:clear --ansi',
+            'workbench:showcase:build: migrate:fresh --force --seed --seeder=Workbench\\\\Database\\\\Seeders\\\\ShowcaseSeeder --ansi',
+            'workbench:showcase: serve --ansi',
+            'workbench:showcase-workers: workbench:showcase-workers --ansi',
         ], $launched);
         $this->assertSame(['@prepare'], $scripts['post-autoload-dump']);
         $this->assertContains('@build', (array) $scripts['serve']);
