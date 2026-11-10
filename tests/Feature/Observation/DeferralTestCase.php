@@ -6,6 +6,7 @@ namespace Justrau\Orrery\Tests\Feature\Observation;
 
 use ArrayObject;
 use Closure;
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\Connection;
 use Illuminate\Database\DatabaseTransactionRecord;
 use Illuminate\Database\DatabaseTransactionsManager;
@@ -220,6 +221,45 @@ abstract class DeferralTestCase extends TestCase
             ['unverified' => $this->drops->unverifiedCount(), 'rollback_unverified' => $this->drops->rollbackUnverifiedCount()],
             $message,
         );
+    }
+
+    /**
+     * Replaces the exception handler with one that records each report.
+     *
+     * @return ArrayObject<int, Throwable>
+     */
+    protected function recordReports(): ArrayObject
+    {
+        $reports = new ArrayObject;
+
+        $this->app->instance(ExceptionHandler::class, new class($reports) implements ExceptionHandler
+        {
+            /** @param ArrayObject<int, Throwable> $reports */
+            public function __construct(private readonly ArrayObject $reports)
+            {
+            }
+
+            public function report(Throwable $e): void
+            {
+                $this->reports[] = $e;
+            }
+
+            public function shouldReport(Throwable $e): bool
+            {
+                return true;
+            }
+
+            public function render($request, Throwable $e)
+            {
+                throw $e;
+            }
+
+            public function renderForConsole($output, Throwable $e): void
+            {
+            }
+        });
+
+        return $reports;
     }
 
     protected function manager(): DatabaseTransactionsManager

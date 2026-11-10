@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Observation;
 
+use ArrayObject;
 use Closure;
 use Illuminate\Queue\DatabaseQueue as LaravelDatabaseQueue;
 use Illuminate\Support\Str;
+use Justrau\Orrery\Lifecycle\JobStore;
 use Justrau\Orrery\Lifecycle\Observation;
+use Justrau\Orrery\Lifecycle\StoreOutcome;
 use Justrau\Orrery\Observation\CommitDeferral;
 use Justrau\Orrery\Observation\DegradationDropCounter;
 use Justrau\Orrery\Observation\TrackedRoot;
@@ -66,7 +69,7 @@ final class DeferralByteBudgetHookTest extends EndToEndTestCase
         $sum = array_sum(array_map(static fn (object $row): int => strlen((string) $row->payload), $this->qJobs()));
         self::assertCount(3, $this->qJobs());
         self::assertSame(1, $this->deferral()->held(), 'The bulk insert is one item.');
-        self::assertSame(CommitDeferral::estimate($sum, 3), $this->deferral()->heldBytes());
+        self::assertSame(CommitDeferral::bulkEstimate($sum, 3), $this->deferral()->heldBytes());
 
         $q->commit();
         self::assertSame(0, $this->deferral()->heldBytes());
@@ -131,7 +134,7 @@ final class DeferralByteBudgetHookTest extends EndToEndTestCase
             $rows = $this->qJobs();
             self::assertCount(3, $rows, 'The push and the two deferred jobs.');
             $expected = CommitDeferral::estimate(strlen((string) $rows[0]->payload))
-                + CommitDeferral::estimate(strlen((string) $rows[1]->payload) + strlen((string) $rows[2]->payload), 2);
+                + CommitDeferral::bulkEstimate(strlen((string) $rows[1]->payload) + strlen((string) $rows[2]->payload), 2);
             $inside = $this->deferral()->heldBytes();
         });
         $this->push(new BasicJob);
@@ -174,11 +177,47 @@ final class DeferralByteBudgetHookTest extends EndToEndTestCase
         self::assertGreaterThan($deferral->byteBudget(), 4 * array_sum($sizes), 'The batch would not fit with a decoded copy per payload.');
 
         self::assertSame(1, $deferral->held(), 'The batch is held as one item.');
-        self::assertSame(CommitDeferral::estimate(array_sum($sizes), 4000), $deferral->heldBytes());
+        self::assertSame(CommitDeferral::bulkEstimate(array_sum($sizes), 4000), $deferral->heldBytes());
         self::assertSame(0, Degradation::record()['unverified'] ?? 0, 'Nothing is dropped.');
         $q->rollBack();
 
         self::assertSame(0, $deferral->heldBytes());
+    }
+
+    /**
+     * Rejects: compacting an observation that runs at once (its write then
+     * decodes the payload a second time), or writing a held one with its
+     * decoded copy still kept.
+     */
+    public function test_only_a_held_observation_frees_its_decoded_copy_before_its_write(): void
+    {
+        $store = $this->app->make(JobStore::class);
+        $seen = new ArrayObject;
+        $this->app->instance(JobStore::class, new class($store, $seen)
+        {
+            /** @param ArrayObject<int, bool> $seen whether each write found the decoded copy */
+            public function __construct(private readonly JobStore $store, private readonly ArrayObject $seen)
+            {
+            }
+
+            public function observe(Observation $observation): StoreOutcome
+            {
+                $this->seen[] = (new ReflectionProperty(Observation::class, 'decoded'))->getValue($observation) !== null;
+
+                return $this->store->observe($observation);
+            }
+        });
+
+        $this->push(new BasicJob);
+        self::assertSame([true], $seen->getArrayCopy(), 'An observation that runs at once writes with the copy of its build.');
+
+        $q = $this->q();
+        $q->beginTransaction();
+        $this->push(new BasicJob);
+        $q->commit();
+
+        self::assertSame([true, false], $seen->getArrayCopy(), 'A held observation was compacted.');
+        self::assertSame(2, $this->mirrorCount());
     }
 
     /**

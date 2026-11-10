@@ -9,6 +9,8 @@ use Illuminate\Queue\DatabaseQueue as BaseDatabaseQueue;
 use Justrau\Orrery\Lifecycle\JobStore;
 use Justrau\Orrery\Lifecycle\Observation;
 use Justrau\Orrery\Maintenance\TickBudget;
+use Justrau\Orrery\Observation\CommitDeferral;
+use Justrau\Orrery\Observation\DeferredWork;
 use Justrau\Orrery\Observation\PayloadIdentity;
 use Justrau\Orrery\Runtime\Hooks;
 use Justrau\Orrery\Runtime\Watcher;
@@ -148,8 +150,26 @@ class BulkResolver
      */
     public function observe(string $connection, string $queue, array $payloads, int $floor, array $delays = []): ?Closure
     {
+        $work = $this->deferred($connection, $queue, $payloads, $floor, $delays);
+
+        return $work === null ? null : $work->run;
+    }
+
+    /**
+     * The work of observe() for the commit deferral: its byte estimate
+     * counts the payloads that it observes (CommitDeferral::bulkEstimate()),
+     * and its compaction frees their decoded copies when the deferral holds
+     * it (each write decodes its payload again). A bulk that runs at once
+     * writes with the copies of its build.
+     *
+     * @param  list<string>  $payloads  the inserted payloads, in insert order
+     * @param  array<int, int|null>  $delays  the delay of each payload in seconds, by position
+     */
+    public function deferred(string $connection, string $queue, array $payloads, int $floor, array $delays = []): ?DeferredWork
+    {
         $batch = new BulkBatch($connection, $queue, $floor);
         $at = Clock::now();
+        $bytes = 0;
 
         foreach ($payloads as $index => $payload) {
             $observation = Observation::fromPayload(Observation::BULK_PUSH, $payload, $connection, $queue, [
@@ -160,9 +180,8 @@ class BulkResolver
             ]);
 
             if ($observation !== null) {
-                // The held batch keeps only the payload strings; each write decodes its payload again.
-                $observation->forgetDecoded();
                 $batch->add($observation);
+                $bytes += strlen($payload);
             }
         }
 
@@ -172,7 +191,7 @@ class BulkResolver
 
         $store = $this->store;
 
-        return function () use ($store, $batch): void {
+        $run = function () use ($store, $batch): void {
             $watcher = Watcher::instance();
 
             // Each bulkPush row on its own: one row's error skips neither the
@@ -188,6 +207,12 @@ class BulkResolver
 
             $this->resolveBatch($batch);
         };
+
+        return new DeferredWork($run, CommitDeferral::bulkEstimate($bytes, $batch->count()), $batch->count(), static function () use ($batch): void {
+            foreach ($batch->observations() as $observation) {
+                $observation->forgetDecoded();
+            }
+        });
     }
 
     /**

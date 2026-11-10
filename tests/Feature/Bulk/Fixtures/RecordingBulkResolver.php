@@ -4,13 +4,14 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Bulk\Fixtures;
 
-use Closure;
+use Justrau\Orrery\Observation\DeferredWork;
 use Justrau\Orrery\Queue\BulkResolver;
 use RuntimeException;
 
 /**
- * A BulkResolver that records each observe() call. With $throw, observe()
- * throws before it builds anything.
+ * A BulkResolver that records each observation of a bulk insert (the
+ * hook's deferred() call). With $throw, it throws before it builds
+ * anything.
  */
 class RecordingBulkResolver extends BulkResolver
 {
@@ -19,7 +20,7 @@ class RecordingBulkResolver extends BulkResolver
 
     public bool $throw = false;
 
-    public function observe(string $connection, string $queue, array $payloads, int $floor, array $delays = []): ?Closure
+    public function deferred(string $connection, string $queue, array $payloads, int $floor, array $delays = []): ?DeferredWork
     {
         $this->observed[] = $payloads;
 
@@ -27,6 +28,6 @@ class RecordingBulkResolver extends BulkResolver
             throw new RuntimeException('bulk observe failed');
         }
 
-        return parent::observe($connection, $queue, $payloads, $floor, $delays);
+        return parent::deferred($connection, $queue, $payloads, $floor, $delays);
     }
 }

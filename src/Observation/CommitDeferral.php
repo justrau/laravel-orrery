@@ -70,12 +70,15 @@ use WeakReference;
  *
  * Two budgets bound the held items, both checked before a root is tracked:
  * the count (MAX_HELD) and the bytes (byteBudget()). Each item carries the
- * byte estimate of its hook (estimate(): its payload strings and a fixed
- * size per observation; a bulk insert all its payloads), and
- * the held bytes follow every move of an item: hold(), untrack() and the
+ * byte estimate of its hook (DeferredWork: estimate() for one job,
+ * bulkEstimate() for a bulk insert), and
+ * the held bytes follow every move of an item: place(), untrack() and the
  * walk transfer of rootCommitted(). An item over a budget is dropped and
  * counted `unverified` with its reason, `count_cap` or `byte_budget`
- * (DropCounter::overBudget()).
+ * (DropCounter::overBudget()), and the first drop of each reason is
+ * reported through the watcher. A held item is compacted when it is placed
+ * (DeferredWork::$compact: the hooks free the decoded payload copies); an
+ * item that runs at once keeps them.
  */
 final class CommitDeferral
 {
@@ -89,18 +92,19 @@ final class CommitDeferral
     public const MEMORY_SHARE = 8;
 
     /**
-     * The bytes that a held item keeps per payload byte: only the payload
-     * string, because each hook frees the decoded copy once the observation
-     * is built (Observation::forgetDecoded()).
+     * The bytes that a held item of one job keeps beside its payload string
+     * (the decoded copy is freed when the item is held): the Observation
+     * object, its closures and the item. Measured at about 1.7 KB on
+     * PHP 8.4, for every payload size.
      */
-    public const BYTES_PER_PAYLOAD_BYTE = 1;
+    public const OBSERVATION_BYTES = 1792;
 
     /**
-     * The bytes that a held item keeps per observation beside its payload
-     * string: the Observation object, its closure and the item. Measured at
-     * about 1.3 KB on PHP 8.4, for every payload size.
+     * The bytes that each job of a held bulk insert keeps beside its payload
+     * string: its Observation in the shared batch. Measured at about 0.5 KB
+     * on PHP 8.4.
      */
-    public const OBSERVATION_BYTES = 1536;
+    public const BULK_MEMBER_BYTES = 640;
 
     /** The drop reason of an item over MAX_HELD. */
     public const COUNT_CAP = 'count_cap';
@@ -152,19 +156,17 @@ final class CommitDeferral
      * observation that $observe builds from the parent's result. The result
      * and the exception of $parent reach the caller unchanged; $parent runs
      * exactly once, outside the watcher. $observe runs at once (eagerly),
-     * inside the watcher: it returns the work to defer, or null when there
-     * is nothing to observe. A build error records nothing. $bytes is the
-     * byte estimate of the item (estimate()), or a closure that gives it
-     * from the parent's result; it runs only when there is work to defer.
+     * inside the watcher: it returns the work to defer (a DeferredWork with
+     * its byte estimate, or a bare run of $bytes), or null when there is
+     * nothing to observe. A build error records nothing.
      *
      * @template T
      *
      * @param  Closure(): T  $parent
-     * @param  Closure(T): ((Closure(): mixed)|null)  $observe
-     * @param  int|(Closure(T): int)  $bytes
+     * @param  Closure(T): (DeferredWork|(Closure(): mixed)|null)  $observe
      * @return T
      */
-    public function around(Connection $q, int $ownBegins, Closure $parent, Closure $observe, string $operation = self::OPERATION, int|Closure $bytes = 0): mixed
+    public function around(Connection $q, int $ownBegins, Closure $parent, Closure $observe, string $operation = self::OPERATION, int $bytes = 0): mixed
     {
         $capture = $this->capture($q, $ownBegins);
         $this->enter($q, $capture);
@@ -175,20 +177,11 @@ final class CommitDeferral
             $this->leave($q, $capture);
         }
 
-        $run = null;
-        $estimate = 0;
+        $work = null;
 
         try {
-            $built = $this->watcher->attempt($operation.'.build', static function () use ($observe, $result, $bytes, &$estimate): mixed {
-                $run = $observe($result);
-
-                if ($run instanceof Closure) {
-                    $estimate = is_int($bytes) ? $bytes : $bytes($result);
-                }
-
-                return $run;
-            });
-            $run = $built->succeeded() ? $built->value() : null;
+            $built = $this->watcher->attempt($operation.'.build', static fn () => $observe($result));
+            $work = $built->succeeded() ? $built->value() : null;
         } catch (TimeoutExceededException $timeout) {
             // The worker's own timeout (Worker::$killOnTimeout false) belongs to the job (Watcher).
             throw $timeout;
@@ -197,8 +190,8 @@ final class CommitDeferral
             $this->reportOnce($operation.'.build', $error);
         }
 
-        if ($run instanceof Closure) {
-            $this->after($q, $capture, $run, $operation, $estimate);
+        if ($work instanceof Closure || $work instanceof DeferredWork) {
+            $this->after($q, $capture, $work, $operation, $bytes);
         }
 
         return $result;
@@ -265,16 +258,16 @@ final class CommitDeferral
 
     /**
      * Decides where $run goes, after the parent call of $capture returned
-     * normally. It runs in the watcher and never throws. $bytes is the byte
-     * estimate of the item (estimate()).
+     * normally. It runs in the watcher and never throws. A bare run carries
+     * $bytes as its byte estimate.
      *
-     * @param  Closure(): mixed  $run
+     * @param  DeferredWork|(Closure(): mixed)  $work
      */
-    public function after(Connection $q, Capture $capture, Closure $run, string $operation = self::OPERATION, int $bytes = 0): void
+    public function after(Connection $q, Capture $capture, DeferredWork|Closure $work, string $operation = self::OPERATION, int $bytes = 0): void
     {
         try {
-            $this->watcher->attempt('deferral.after', function () use ($q, $capture, $run, $operation, $bytes): void {
-                $this->decide($q, $capture, $run, $operation, max(0, $bytes));
+            $this->watcher->attempt('deferral.after', function () use ($q, $capture, $work, $operation, $bytes): void {
+                $this->decide($q, $capture, $work instanceof DeferredWork ? $work : new DeferredWork($work, $bytes), $operation);
             });
         } catch (TimeoutExceededException $timeout) {
             // The worker's own timeout (Worker::$killOnTimeout false) belongs to the job (Watcher).
@@ -455,13 +448,22 @@ final class CommitDeferral
     }
 
     /**
-     * The byte estimate of an item of $observations observations whose
-     * payloads have $payloadBytes bytes: the payload strings and a fixed
-     * size per observation.
+     * The byte estimate of a held item of one job whose payload has
+     * $payloadBytes bytes: the payload string and OBSERVATION_BYTES.
      */
-    public static function estimate(int $payloadBytes, int $observations = 1): int
+    public static function estimate(int $payloadBytes): int
     {
-        return max(0, $payloadBytes) * self::BYTES_PER_PAYLOAD_BYTE + max(0, $observations) * self::OBSERVATION_BYTES;
+        return max(0, $payloadBytes) + self::OBSERVATION_BYTES;
+    }
+
+    /**
+     * The byte estimate of a held bulk insert of $jobs jobs whose payloads
+     * have $payloadBytes bytes in all: the payload strings and
+     * BULK_MEMBER_BYTES per job.
+     */
+    public static function bulkEstimate(int $payloadBytes, int $jobs): int
+    {
+        return max(0, $payloadBytes) + max(0, $jobs) * self::BULK_MEMBER_BYTES;
     }
 
     /**
@@ -509,10 +511,7 @@ final class CommitDeferral
         $capture->ownMark = $mark;
     }
 
-    /**
-     * @param  Closure(): mixed  $run
-     */
-    private function decide(Connection $q, Capture $capture, Closure $run, string $operation, int $bytes): void
+    private function decide(Connection $q, Capture $capture, DeferredWork $work, string $operation): void
     {
         if (! $capture->verified) {
             $this->drops->unverified();
@@ -556,7 +555,7 @@ final class CommitDeferral
             return;
         }
 
-        $item = ['run' => $run, 'operation' => $operation, 'chain' => [], 'ambiguous' => $capture->levelBefore !== $level, 'decided' => false, 'bytes' => $bytes];
+        $item = ['run' => $work->run, 'operation' => $operation, 'chain' => [], 'ambiguous' => $capture->levelBefore !== $level, 'decided' => false, 'bytes' => max(0, $work->bytes)];
 
         if ($level === 0) {
             $walking = $this->outermostWalkingRoot($q, null);
@@ -568,7 +567,7 @@ final class CommitDeferral
             }
 
             $item['decided'] = true;
-            $this->hold($walking, $item);
+            $this->hold($walking, $item, $work);
 
             return;
         }
@@ -589,7 +588,7 @@ final class CommitDeferral
         }
 
         // The budgets first, so a dropped item leaves no callback on any record.
-        if (! $this->admits($bytes)) {
+        if (! $this->admits($item['bytes'], $work->jobs)) {
             return;
         }
 
@@ -612,7 +611,7 @@ final class CommitDeferral
         }
 
         $item['chain'] = $chain;
-        $this->place($root, $item);
+        $this->place($root, $item, $work->compact);
     }
 
     /**
@@ -641,46 +640,70 @@ final class CommitDeferral
     /**
      * @param  array{run: Closure(): mixed, operation: string, chain: list<RecordMark>, ambiguous: bool, decided: bool, bytes: int}  $item
      */
-    private function hold(TrackedRoot $root, array $item): void
+    private function hold(TrackedRoot $root, array $item, DeferredWork $work): void
     {
-        if ($this->admits($item['bytes'])) {
-            $this->place($root, $item);
+        if ($this->admits($item['bytes'], $work->jobs)) {
+            $this->place($root, $item, $work->compact);
         }
     }
 
     /**
      * Adds an admitted item to $root (decide() checks the budgets before it
-     * tracks the root).
+     * tracks the root), then compacts it: a held item keeps only what its
+     * run needs. A failed compaction keeps the item whole.
      *
      * @param  array{run: Closure(): mixed, operation: string, chain: list<RecordMark>, ambiguous: bool, decided: bool, bytes: int}  $item
+     * @param  (Closure(): void)|null  $compact
      */
-    private function place(TrackedRoot $root, array $item): void
+    private function place(TrackedRoot $root, array $item, ?Closure $compact): void
     {
         $root->items[] = $item;
         $this->held++;
         $this->heldBytes += $item['bytes'];
+
+        if ($compact === null) {
+            return;
+        }
+
+        try {
+            $compact();
+        } catch (Throwable $error) {
+            $this->reportOnce('deferral.compact', $error);
+        }
     }
 
     /**
      * Whether one more item of $bytes fits both budgets. A dropped item is
      * counted with its reason: the count cap first, then the bytes. An item
-     * larger than the whole byte budget never fits.
+     * larger than the whole byte budget never fits. The first drop of each
+     * reason in this process is reported (counts only, no job value).
      */
-    private function admits(int $bytes): bool
+    private function admits(int $bytes, int $jobs): bool
     {
         if ($this->held >= self::MAX_HELD) {
-            $this->drops->overBudget(self::COUNT_CAP);
+            $this->overBudget(self::COUNT_CAP, sprintf('the count cap of %d held observations', self::MAX_HELD), $jobs);
 
             return false;
         }
 
         if ($bytes > 0 && $this->heldBytes + $bytes > $this->byteBudget()) {
-            $this->drops->overBudget(self::BYTE_BUDGET);
+            $budget = $this->byteBudget();
+            $this->overBudget(self::BYTE_BUDGET, sprintf('the byte budget of %d bytes (an item of %d bytes on %d held)', $budget, $bytes, $this->heldBytes), $jobs);
 
             return false;
         }
 
         return true;
+    }
+
+    private function overBudget(string $reason, string $limit, int $jobs): void
+    {
+        $this->drops->overBudget($reason);
+        $this->reportOnce('deferral.'.$reason, sprintf(
+            'The commit deferral dropped the observation of %d job(s) that wait for a commit: the held observations reached %s. They are counted as unverified; a dropped push appears only when a worker reserves the job.',
+            $jobs,
+            $limit,
+        ));
     }
 
     private function track(Connection $q, DatabaseTransactionRecord $record): ?TrackedRoot

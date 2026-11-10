@@ -4,9 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Observation;
 
-use ArrayObject;
 use Closure;
-use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Database\Connection;
 use Illuminate\Database\DatabaseTransactionsManager;
 use Illuminate\Database\Events\QueryExecuted;
@@ -2416,44 +2414,5 @@ final class CommitDeferralTest extends DeferralTestCase
         self::assertSame(['in the new unit'], $this->ran());
         $this->assertCounts(0, 0);
         $deferral->endUnit($second);
-    }
-
-    /**
-     * Replaces the exception handler with one that records each report.
-     *
-     * @return ArrayObject<int, Throwable>
-     */
-    private function recordReports(): ArrayObject
-    {
-        $reports = new ArrayObject;
-
-        $this->app->instance(ExceptionHandler::class, new class($reports) implements ExceptionHandler
-        {
-            /** @param ArrayObject<int, Throwable> $reports */
-            public function __construct(private readonly ArrayObject $reports)
-            {
-            }
-
-            public function report(Throwable $e): void
-            {
-                $this->reports[] = $e;
-            }
-
-            public function shouldReport(Throwable $e): bool
-            {
-                return true;
-            }
-
-            public function render($request, Throwable $e)
-            {
-                throw $e;
-            }
-
-            public function renderForConsole($output, Throwable $e): void
-            {
-            }
-        });
-
-        return $reports;
     }
 }

@@ -2,7 +2,6 @@
 
 namespace Justrau\Orrery;
 
-use Closure;
 use Illuminate\Container\Container;
 use Illuminate\Queue\DatabaseQueue as BaseQueue;
 use Illuminate\Queue\Jobs\DatabaseJob;
@@ -13,6 +12,7 @@ use Justrau\Orrery\Lifecycle\Observation;
 use Justrau\Orrery\Listeners\RecordWorkerHeartbeat;
 use Justrau\Orrery\Observation\Capture;
 use Justrau\Orrery\Observation\CommitDeferral;
+use Justrau\Orrery\Observation\DeferredWork;
 use Justrau\Orrery\Observation\Generation;
 use Justrau\Orrery\Observation\PayloadIdentity;
 use Justrau\Orrery\Queue\BulkCapture;
@@ -114,9 +114,8 @@ class DatabaseQueue extends BaseQueue
                 $this->database,
                 0,
                 fn (): mixed => parent::pushRaw($stamped, $queue, $options),
-                fn (mixed $id): ?Closure => $this->observing(Observation::REPUBLISH, $stamped, $this->getQueue($queue), ['jobId' => $id]),
+                fn (mixed $id): ?DeferredWork => $this->observing(Observation::REPUBLISH, $stamped, $this->getQueue($queue), ['jobId' => $id]),
                 'hook:push_raw',
-                CommitDeferral::estimate(is_string($stamped) ? strlen($stamped) : 0),
             );
         } finally {
             $this->nextInsertOwned = false;
@@ -219,12 +218,11 @@ class DatabaseQueue extends BaseQueue
                 $this->database,
                 0,
                 fn (): mixed => parent::pushToDatabase($queue, $payload, $delay, $attempts),
-                fn (mixed $id): ?Closure => $this->observing(Observation::PUSH, (string) $payload, $this->getQueue($queue), [
+                fn (mixed $id): ?DeferredWork => $this->observing(Observation::PUSH, (string) $payload, $this->getQueue($queue), [
                     'jobId' => $id,
                     'delay' => $this->secondsUntil($delay),
                 ]),
                 'hook:push',
-                CommitDeferral::estimate(strlen((string) $payload)),
             );
         } finally {
             BulkCapture::restore($suspended);
@@ -312,7 +310,7 @@ class DatabaseQueue extends BaseQueue
             $this->database,
             0,
             fn (): mixed => parent::bulk($jobs, $data, $queue),
-            function () use ($capture, $deferral, $connection, $floor): ?Closure {
+            function () use ($capture, $deferral, $connection, $floor): ?DeferredWork {
                 $capture->close();
                 // Registered before the immediate records are decided, so
                 // nothing runs between Laravel's addCallback() and this one.
@@ -321,7 +319,6 @@ class DatabaseQueue extends BaseQueue
                 return $this->observingBulk($connection, $capture->records(), $floor);
             },
             'hook:bulk',
-            static fn (): int => CommitDeferral::estimate(self::payloadBytes($capture->records()), count($capture->records())),
         );
     }
 
@@ -363,30 +360,12 @@ class DatabaseQueue extends BaseQueue
      */
     private function observeDeferred(CommitDeferral $deferral, Capture $insert, string $connection, array $records, int $floor): void
     {
-        $built = Watcher::instance()->attempt('hook:bulk.build', fn (): ?Closure => $this->observingBulk($connection, $records, $floor));
-        $run = $built->succeeded() ? $built->value() : null;
+        $built = Watcher::instance()->attempt('hook:bulk.build', fn (): ?DeferredWork => $this->observingBulk($connection, $records, $floor));
+        $work = $built->succeeded() ? $built->value() : null;
 
-        if ($run instanceof Closure) {
-            $deferral->after($this->database, $insert, $run, 'hook:bulk', CommitDeferral::estimate(self::payloadBytes($records), count($records)));
+        if ($work instanceof DeferredWork) {
+            $deferral->after($this->database, $insert, $work, 'hook:bulk');
         }
-    }
-
-    /**
-     * The payload bytes of a bulk insert's records: the sum over their
-     * payloads.
-     *
-     * @param  array<int, array<string, mixed>>  $records
-     */
-    private static function payloadBytes(array $records): int
-    {
-        $bytes = 0;
-
-        foreach ($records as $record) {
-            $payload = $record['payload'] ?? null;
-            $bytes += is_string($payload) ? strlen($payload) : 0;
-        }
-
-        return $bytes;
     }
 
     /**
@@ -403,12 +382,12 @@ class DatabaseQueue extends BaseQueue
 
     /**
      * The deferred work of one bulk insert: its bulkPush rows and their
-     * resolution (BulkResolver::observe()), or null when no record has a
+     * resolution (BulkResolver::deferred()), or null when no record has a
      * payload to mirror.
      *
      * @param  array<int, array<string, mixed>>  $records
      */
-    private function observingBulk(string $connection, array $records, int $floor): ?Closure
+    private function observingBulk(string $connection, array $records, int $floor): ?DeferredWork
     {
         $payloads = [];
         $delays = [];
@@ -430,7 +409,7 @@ class DatabaseQueue extends BaseQueue
             return null;
         }
 
-        return Container::getInstance()->make(BulkResolver::class)->observe($connection, (string) $queue, $payloads, $floor, $delays);
+        return Container::getInstance()->make(BulkResolver::class)->deferred($connection, (string) $queue, $payloads, $floor, $delays);
     }
 
     /**
@@ -526,7 +505,7 @@ class DatabaseQueue extends BaseQueue
             $this->database,
             1,
             fn (): mixed => $this->popFromParent($arguments),
-            function (mixed $job) use ($connection): ?Closure {
+            function (mixed $job) use ($connection): ?DeferredWork {
                 if (! $job instanceof DatabaseJob) {
                     // No job, so nothing to observe.
                     return null;
@@ -545,7 +524,6 @@ class DatabaseQueue extends BaseQueue
                 ], $connection);
             },
             'hook:pop',
-            static fn (mixed $job): int => $job instanceof DatabaseJob ? CommitDeferral::estimate(strlen($job->getRawBody())) : 0,
         );
     }
 
@@ -609,7 +587,7 @@ class DatabaseQueue extends BaseQueue
 
                     return $this->releasedId;
                 },
-                function (mixed $newJobId) use ($job, $delay, $payload, $queue, $connection): ?Closure {
+                function (mixed $newJobId) use ($job, $delay, $payload, $queue, $connection): ?DeferredWork {
                     $newJobId = self::jobId($newJobId);
 
                     if ($newJobId === null) {
@@ -625,7 +603,6 @@ class DatabaseQueue extends BaseQueue
                     ], $connection);
                 },
                 'hook:release',
-                CommitDeferral::estimate(strlen($payload)),
             );
         } finally {
             $this->releasingRecord = $releasing;
@@ -670,14 +647,16 @@ class DatabaseQueue extends BaseQueue
     /**
      * The deferred work of one observation: the JobStore write of the
      * observation built now (one payload decode, `at` = now), or null when
-     * the payload has no usable uuid. The observation frees its decoded copy
-     * at once, so a held item keeps only the payload string: the write
-     * decodes the payload again (Observation::payloadData()), and frees
-     * that copy too.
+     * the payload has no usable uuid. Its byte estimate is the payload
+     * string and one observation (CommitDeferral::estimate()). When the
+     * deferral holds it, its compaction frees the decoded copy, so a held
+     * item keeps only the payload string and its write decodes the payload
+     * again; an observation that runs at once writes with the copy of its
+     * build. The write frees its copy.
      *
      * @param  array<string, mixed>  $fields
      */
-    private function observing(string $kind, string $payload, UnitEnum|string|null $queue, array $fields, ?string $connection = null): ?Closure
+    private function observing(string $kind, string $payload, UnitEnum|string|null $queue, array $fields, ?string $connection = null): ?DeferredWork
     {
         $observation = Observation::fromPayload($kind, $payload, $connection ?? (string) $this->getConnectionName(), $queue, $fields + [
             'at' => Clock::now(),
@@ -688,16 +667,22 @@ class DatabaseQueue extends BaseQueue
             return null;
         }
 
-        $observation->forgetDecoded();
         $store = Container::getInstance()->make(JobStore::class);
 
-        return static function () use ($store, $observation): void {
-            try {
-                $store->observe($observation);
-            } finally {
+        return new DeferredWork(
+            static function () use ($store, $observation): void {
+                try {
+                    $store->observe($observation);
+                } finally {
+                    $observation->forgetDecoded();
+                }
+            },
+            CommitDeferral::estimate(strlen($payload)),
+            1,
+            static function () use ($observation): void {
                 $observation->forgetDecoded();
-            }
-        };
+            },
+        );
     }
 
     private static function jobId(mixed $id): ?int

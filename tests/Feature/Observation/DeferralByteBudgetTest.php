@@ -11,6 +11,7 @@ use Justrau\Orrery\Observation\DegradationDropCounter;
 use Justrau\Orrery\Runtime\Degradation;
 use Justrau\Orrery\Tests\Support\FailingCommitPdo;
 use PDOException;
+use Throwable;
 
 /**
  * The byte budget of the commit deferral: each held item carries the byte
@@ -260,16 +261,57 @@ final class DeferralByteBudgetTest extends DeferralTestCase
 
     /**
      * Rejects: an estimate that still counts a decoded copy (a factor above
-     * 1), one without the fixed size per observation (a bulk of small
-     * payloads would look free), or one that a negative size makes negative.
+     * 1), one without the fixed size per held item or per bulk member (a
+     * bulk of small payloads would look free), one size for both, or one
+     * that a negative size makes negative.
      */
-    public function test_the_estimate_is_the_payload_strings_and_a_size_per_observation(): void
+    public function test_the_estimate_is_the_payload_strings_and_a_size_per_job(): void
     {
-        self::assertSame(1, CommitDeferral::BYTES_PER_PAYLOAD_BYTE);
-        self::assertSame(1536, CommitDeferral::OBSERVATION_BYTES);
-        self::assertSame(1000 + 1536, CommitDeferral::estimate(1000));
-        self::assertSame(3000 + 3 * 1536, CommitDeferral::estimate(3000, 3));
-        self::assertSame(0, CommitDeferral::estimate(-1, 0));
+        self::assertSame(1792, CommitDeferral::OBSERVATION_BYTES);
+        self::assertSame(640, CommitDeferral::BULK_MEMBER_BYTES);
+        self::assertSame(1000 + 1792, CommitDeferral::estimate(1000));
+        self::assertSame(1792, CommitDeferral::estimate(-1));
+        self::assertSame(3000 + 3 * 640, CommitDeferral::bulkEstimate(3000, 3));
+        self::assertSame(0, CommitDeferral::bulkEstimate(-1, -1));
+    }
+
+    /**
+     * Rejects: a budget drop that only the health window shows (whose
+     * errors map is not stored), a report per drop instead of the first of
+     * each reason, or one report for both reasons.
+     */
+    public function test_the_first_drop_of_each_reason_is_reported(): void
+    {
+        $reports = $this->recordReports();
+        $q = $this->q();
+        $budget = $this->deferral()->byteBudget();
+
+        $q->beginTransaction();
+        $this->raiseBytes('fills the budget', $budget);
+        $this->raiseBytes('first over the budget', 1);
+        $this->raiseBytes('second over the budget', 1);
+        $q->rollBack();
+
+        $q->beginTransaction();
+
+        for ($index = 0; $index < CommitDeferral::MAX_HELD; $index++) {
+            $this->raiseWithoutStatement('item');
+        }
+
+        $this->raise('first over the cap');
+        $this->raise('second over the cap');
+        $q->rollBack();
+
+        $messages = array_map(static fn (Throwable $error): string => $error->getMessage(), $reports->getArrayCopy());
+        $bytes = array_values(array_filter($messages, static fn (string $message): bool => str_contains($message, 'deferral.byte_budget')));
+        $cap = array_values(array_filter($messages, static fn (string $message): bool => str_contains($message, 'deferral.count_cap')));
+
+        self::assertCount(1, $bytes, 'One report of the byte budget.');
+        self::assertCount(1, $cap, 'One report of the count cap.');
+        self::assertStringContainsString('the byte budget of '.$budget.' bytes', $bytes[0]);
+        self::assertStringContainsString('1 job(s)', $bytes[0]);
+        self::assertSame(2, $this->drops->overBudgetCount(CommitDeferral::BYTE_BUDGET));
+        self::assertSame(2, $this->drops->overBudgetCount(CommitDeferral::COUNT_CAP));
     }
 
     /**
