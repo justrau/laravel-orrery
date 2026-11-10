@@ -21,7 +21,7 @@
     },
     "require-dev": {
         "larastan/larastan": "^3.4",
-        "laravel/pint": "^1.32",
+        "laravel/pint": "1.32.1",
         "laravel/slack-notification-channel": "^3.8",
         "mockery/mockery": "^1.6",
         "orchestra/testbench": "^10.0|^11.0",
