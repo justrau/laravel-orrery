@@ -1,0 +1,7 @@
+# The zizmor configuration (zizmor.yml runs it on every change to .github/).
+rules:
+  # self-repository asks for the newer `$/` syntax of a local reusable
+  # workflow. quick.yml keeps `./.github/workflows/...`, the documented form,
+  # which actionlint also checks; the finding is informational only.
+  self-repository:
+    disable: true

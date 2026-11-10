@@ -1,0 +1,36 @@
+# zizmor, the security linter of GitHub Actions, on every push and pull
+# request that changes .github/. The configuration is .github/zizmor.yml.
+# It runs offline: the audits that need the GitHub API are left out, so the
+# job needs no token.
+
+name: zizmor
+
+on:
+  push:
+    paths:
+      - '.github/**'
+  pull_request:
+    paths:
+      - '.github/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: zizmor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: zizmor (offline)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lint the workflows
+        run: pipx run zizmor==1.31.1 --offline --format=github .github
