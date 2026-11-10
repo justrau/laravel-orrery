@@ -62,7 +62,7 @@ Manages the containers and the registry; every command prints one JSON object. `
 
 ## bin/matrix
 
-Every supported PHP × Laravel × engine combination (8 legs, hours), serially on purpose: the machine is shared. Run it before a release; CI runs the same legs in parallel (`.github/workflows/tests.yml` with `--ci`). `--quick` is a three-leg preset. `--memory-only` runs only the in-memory SQLite runs of each leg (the quick CI tier). `--dry-run` prints the legs, units, databases and runs; use it first. `--ci` is for GitHub Actions only. Runs go to `.matrix/<run-id>/` (gitignored; `summary.md`, `summary.json`). Exit codes: 0 pass (listed known failures allowed), 1 a leg failed, 64 invalid arguments, 72 slot wait passed, 255 internal error.
+Every supported PHP × Laravel × engine combination (8 legs, hours), serially on purpose: the machine is shared. Run it before a release; CI runs the same legs in parallel, nightly (`.github/workflows/tests.yml` with `--ci`). `--quick` is a three-leg preset. `--memory-only` runs only the in-memory SQLite runs of each leg (the quick CI tier). `--dry-run` prints the legs, units, databases and runs; use it first. `--ci` is for GitHub Actions only. Runs go to `.matrix/<run-id>/` (gitignored; `summary.md`, `summary.json`). Exit codes: 0 pass (listed known failures allowed), 1 a leg failed, 64 invalid arguments, 72 slot wait passed, 255 internal error.
 
 Schema modes: in-memory SQLite is always fresh. The file and server runs are fresh on the lowest legs and on php8.5-laravel13. The variant leg (php8.4-laravel12) runs its file runs fresh and its server runs in reuse; it has no separate reuse block. The other latest legs run in reuse. `--all-fresh` and `--ci` make every run fresh.
 

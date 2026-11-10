@@ -69,7 +69,7 @@ To check the dashboard in a browser, run `composer serve` (it builds and seeds t
 - Commit subjects are shorter than 70 characters, with a conventional prefix: `feat:`, `fix:`, `docs:`, `test:`, `chore:` or `refactor:`.
 - Stage explicit paths only. Never `git add -A` or `git add .`.
 - Never commit anything under `.excluded/`.
-- The workflows in `.github/workflows/` run only when started by hand.
+- CI has three tiers. `quick.yml` runs on every push to `main` and every pull request (not for a change of only `docs/` or Markdown): static analysis, Pint, the assets check, four in-memory SQLite legs and one PHP 8.5 and Laravel 13 job on every engine. `tests.yml` (the full matrix) runs nightly when `main` has a commit from the last 24 hours, `framework-latest.yml` weekly; both also start by hand (`gh workflow run tests.yml --ref main`). `zizmor.yml` lints a change of `.github/`, and Dependabot updates the actions, which are pinned by commit SHA.
 
 ## Where to read more
 
