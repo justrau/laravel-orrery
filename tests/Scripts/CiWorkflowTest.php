@@ -195,6 +195,29 @@ final class CiWorkflowTest extends TestCase
     }
 
     /**
+     * Rejects: a zizmor workflow that a change of .github/ does not start, that runs zizmor at a
+     * floating version, and a Dependabot configuration that updates anything but the GitHub
+     * Actions, or less often than weekly.
+     * Still passes: a pinned zizmor version that does not exist (only CI can show that).
+     */
+    public function test_zizmor_lints_workflow_changes_and_dependabot_updates_the_actions_weekly(): void
+    {
+        $workflow = self::workflow('zizmor.yml');
+
+        self::assertSame(['.github/**'], $workflow['on']['push']['paths']);
+        self::assertSame(['.github/**'], $workflow['on']['pull_request']['paths']);
+        self::assertMatchesRegularExpression('/zizmor==\d+\.\d+\.\d+ --offline /', implode("\n", array_column($workflow['jobs']['zizmor']['steps'], 'run')));
+
+        $dependabot = Yaml::parse((string) file_get_contents(self::root().'/.github/dependabot.yml'));
+        self::assertIsArray($dependabot);
+        self::assertSame(2, $dependabot['version']);
+        self::assertSame([['package-ecosystem' => 'github-actions', 'directory' => '/', 'schedule' => ['interval' => 'weekly']]], array_map(
+            static fn (array $update): array => array_intersect_key($update, array_flip(['package-ecosystem', 'directory', 'schedule'])),
+            $dependabot['updates'],
+        ));
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private static function workflow(string $name): array
