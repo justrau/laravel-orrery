@@ -163,10 +163,12 @@ class WorkbenchServiceProvider extends OrreryApplicationServiceProvider
 
     /**
      * The directories that Laravel expects in a storage path, for example for `testbench down`.
+     * The file cache store needs framework/cache/data: its flush() fails without it, so the
+     * build step cache:clear fails in a fresh checkout.
      */
     private static function createStorageDirectories(string $storage): void
     {
-        foreach (['app/private', 'framework/cache', 'framework/sessions', 'framework/views', 'logs'] as $directory) {
+        foreach (['app/private', 'framework/cache/data', 'framework/sessions', 'framework/views', 'logs'] as $directory) {
             $path = $storage.DIRECTORY_SEPARATOR.$directory;
 
             if (! is_dir($path) && ! mkdir($path, 0775, true) && ! is_dir($path)) {
