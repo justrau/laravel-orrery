@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Testing\TestResponse;
+use Justrau\Orrery\Actions\OperatorAudit;
 use Justrau\Orrery\Actions\WaitingJobs;
 use Justrau\Orrery\Events\OperatorActionPerformed;
 use Justrau\Orrery\Orrery;
@@ -77,7 +78,31 @@ final class WaitingJobsTest extends HooksTestCase
         self::assertSame(['delete', ['uuid' => $uuid, 'connection' => 'database', 'queue' => 'default', 'batch_id' => null], 'ops@example.test', 'deleted'], [$events[0]->action, $events[0]->target, $events[0]->actor, $events[0]->result]);
         self::assertCount(1, $logs);
         self::assertSame('info', $logs[0]->level);
-        self::assertStringContainsString('delete by ops@example.test', $logs[0]->message);
+        self::assertSame('Orrery operator action delete by "ops@example.test" on uuid="'.$uuid.'" connection="database" queue="default" batch_id=null: deleted', $logs[0]->message);
+    }
+
+    /**
+     * Rejects: a log line that writes a queue name or an actor as it is, so a line break, a carriage return or an
+     * escape sequence in it forges another log line or rewrites the terminal; and an event that carries the escaped
+     * text instead of the value.
+     * Still passes: an escape of the visible characters (only control characters are checked).
+     */
+    public function test_the_log_line_escapes_control_characters(): void
+    {
+        $queue = "evil\nOrrery operator action clear by \"admin\"\r\x1b[2K";
+        [$events, $logs] = $this->recordAudit();
+
+        $this->postJson('/orrery/api/queues/database/'.implode('/', array_map('rawurlencode', explode('/', $queue))).'/clear')->assertOk();
+
+        self::assertCount(1, $logs);
+        $line = $logs[0]->message;
+        self::assertDoesNotMatchRegularExpression('/[\x00-\x1F\x7F\x{80}-\x{9F}]/u', $line, 'no control character reaches the log line');
+        self::assertStringContainsString('queue="evil\\nOrrery operator action clear by \\"admin\\"\\r\\u001b[2K"', $line, 'each one is visibly escaped');
+        self::assertSame($queue, $events[0]->target['queue'], 'the event keeps the value');
+
+        // DEL and the C1 controls, which JSON leaves as they are, and an actor (Orrery::actor() cleans it already).
+        $direct = OperatorAudit::line(new OperatorActionPerformed('clear', ['queue' => "a\u{85}\x7fb"], "x\ny", 0.0, 'done'));
+        self::assertSame('Orrery operator action clear by "x\\ny" on queue="a\\u0085\\u007fb": done', $direct);
     }
 
     /**

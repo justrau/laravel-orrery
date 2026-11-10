@@ -46,16 +46,45 @@ final class OperatorAudit
     }
 
     /**
-     * "Orrery operator action clear by ops@example.test on connection=database queue=default: done".
+     * The log line: `Orrery operator action clear by "ops@example.test" on
+     * connection="database" queue="default": done`. Every value from outside
+     * (the actor, the names of the target) is a JSON string, with every
+     * control character escaped (C0 by JSON, DEL and C1 as `\u00XX`), so a
+     * queue name with a line break can never forge another log line. The
+     * event keeps the values as they are.
      */
     public static function line(OperatorActionPerformed $event): string
     {
         $target = [];
 
         foreach ($event->target as $key => $value) {
-            $target[] = $key.'='.($value ?? '-');
+            $target[] = $key.'='.self::quoted($value);
         }
 
-        return sprintf('Orrery operator action %s by %s on %s: %s', $event->action, $event->actor ?? 'unknown actor', implode(' ', $target), $event->result);
+        return sprintf('Orrery operator action %s by %s on %s: %s', self::word($event->action), self::quoted($event->actor), implode(' ', $target), self::word($event->result));
+    }
+
+    /**
+     * A value as a JSON string on one line (null as `null`).
+     */
+    private static function quoted(?string $value): string
+    {
+        if ($value === null) {
+            return 'null';
+        }
+
+        $json = (string) json_encode($value, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE | JSON_INVALID_UTF8_SUBSTITUTE);
+
+        // JSON leaves DEL and the C1 controls (U+0080 to U+009F) as they are.
+        return (string) preg_replace_callback('/[\x{7F}-\x{9F}]/u', static fn (array $match): string => sprintf('\\u%04x', mb_ord($match[0], 'UTF-8')), $json);
+    }
+
+    /**
+     * An action or result code: the package's own words, kept to
+     * letters, digits and `_`.
+     */
+    private static function word(string $value): string
+    {
+        return (string) preg_replace('/[^a-z0-9_]/', '?', $value);
     }
 }
