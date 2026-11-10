@@ -67,11 +67,35 @@ use WeakReference;
  * end them: each unit (a job, a command, a request) ends the roots that it
  * began, so a leaked root is counted at the end of its unit, and the
  * MAX_HELD cap is one limit for the process.
+ *
+ * Two budgets bound the held items, both checked before a root is tracked:
+ * the count (MAX_HELD) and the bytes (byteBudget()). Each item carries the
+ * byte estimate of its hook (estimate(): the payload bytes times a fixed
+ * factor for the decoded copy; a bulk insert the sum over its payloads), and
+ * the held bytes follow every move of an item: hold(), untrack() and the
+ * walk transfer of rootCommitted(). An item over a budget is dropped and
+ * counted `unverified` with its reason, `count_cap` or `byte_budget`
+ * (DropCounter::overBudget()).
  */
 final class CommitDeferral
 {
     /** The most items that the deferral holds in this process. */
     public const MAX_HELD = 10000;
+
+    /** The ceiling of the byte budget: min(MAX_HELD_BYTES, memory_limit / MEMORY_SHARE). */
+    public const MAX_HELD_BYTES = 32 * 1024 * 1024;
+
+    /** The byte budget's share of memory_limit. */
+    public const MEMORY_SHARE = 8;
+
+    /** The estimate of the bytes that a held item keeps per payload byte: the payload and its decoded copy. */
+    public const BYTES_PER_PAYLOAD_BYTE = 4;
+
+    /** The drop reason of an item over MAX_HELD. */
+    public const COUNT_CAP = 'count_cap';
+
+    /** The drop reason of an item over the byte budget. */
+    public const BYTE_BUDGET = 'byte_budget';
 
     public const OPERATION = 'deferral.observe';
 
@@ -82,6 +106,9 @@ final class CommitDeferral
     private array $marks = [];
 
     private int $held = 0;
+
+    /** The byte estimates of the held items. */
+    private int $heldBytes = 0;
 
     /** @var array<int, array<int, DatabaseTransactionRecord>> the records that each open unit found at its start, keyed by its token, in begin order */
     private array $units = [];
@@ -113,15 +140,18 @@ final class CommitDeferral
      * and the exception of $parent reach the caller unchanged; $parent runs
      * exactly once, outside the watcher. $observe runs at once (eagerly),
      * inside the watcher: it returns the work to defer, or null when there
-     * is nothing to observe. A build error records nothing.
+     * is nothing to observe. A build error records nothing. $bytes is the
+     * byte estimate of the item (estimate()), or a closure that gives it
+     * from the parent's result; it runs only when there is work to defer.
      *
      * @template T
      *
      * @param  Closure(): T  $parent
      * @param  Closure(T): ((Closure(): mixed)|null)  $observe
+     * @param  int|(Closure(T): int)  $bytes
      * @return T
      */
-    public function around(Connection $q, int $ownBegins, Closure $parent, Closure $observe, string $operation = self::OPERATION): mixed
+    public function around(Connection $q, int $ownBegins, Closure $parent, Closure $observe, string $operation = self::OPERATION, int|Closure $bytes = 0): mixed
     {
         $capture = $this->capture($q, $ownBegins);
         $this->enter($q, $capture);
@@ -133,9 +163,18 @@ final class CommitDeferral
         }
 
         $run = null;
+        $estimate = 0;
 
         try {
-            $built = $this->watcher->attempt($operation.'.build', static fn () => $observe($result));
+            $built = $this->watcher->attempt($operation.'.build', static function () use ($observe, $result, $bytes, &$estimate): mixed {
+                $run = $observe($result);
+
+                if ($run instanceof Closure) {
+                    $estimate = is_int($bytes) ? $bytes : $bytes($result);
+                }
+
+                return $run;
+            });
             $run = $built->succeeded() ? $built->value() : null;
         } catch (TimeoutExceededException $timeout) {
             // The worker's own timeout (Worker::$killOnTimeout false) belongs to the job (Watcher).
@@ -146,7 +185,7 @@ final class CommitDeferral
         }
 
         if ($run instanceof Closure) {
-            $this->after($q, $capture, $run, $operation);
+            $this->after($q, $capture, $run, $operation, $estimate);
         }
 
         return $result;
@@ -213,15 +252,16 @@ final class CommitDeferral
 
     /**
      * Decides where $run goes, after the parent call of $capture returned
-     * normally. It runs in the watcher and never throws.
+     * normally. It runs in the watcher and never throws. $bytes is the byte
+     * estimate of the item (estimate()).
      *
      * @param  Closure(): mixed  $run
      */
-    public function after(Connection $q, Capture $capture, Closure $run, string $operation = self::OPERATION): void
+    public function after(Connection $q, Capture $capture, Closure $run, string $operation = self::OPERATION, int $bytes = 0): void
     {
         try {
-            $this->watcher->attempt('deferral.after', function () use ($q, $capture, $run, $operation): void {
-                $this->decide($q, $capture, $run, $operation);
+            $this->watcher->attempt('deferral.after', function () use ($q, $capture, $run, $operation, $bytes): void {
+                $this->decide($q, $capture, $run, $operation, max(0, $bytes));
             });
         } catch (TimeoutExceededException $timeout) {
             // The worker's own timeout (Worker::$killOnTimeout false) belongs to the job (Watcher).
@@ -370,6 +410,47 @@ final class CommitDeferral
     }
 
     /**
+     * The byte estimates of the items that wait for a commit.
+     */
+    public function heldBytes(): int
+    {
+        return $this->heldBytes;
+    }
+
+    /**
+     * The byte budget of the held items: min(MAX_HELD_BYTES, memory_limit /
+     * MEMORY_SHARE), read at each check, so a later ini_set() counts.
+     */
+    public function byteBudget(): int
+    {
+        return self::byteBudgetFor((string) ini_get('memory_limit'));
+    }
+
+    /**
+     * The byte budget for a memory_limit value. No limit (-1), or a value
+     * that does not parse to a positive size, gives MAX_HELD_BYTES.
+     */
+    public static function byteBudgetFor(string $memoryLimit): int
+    {
+        try {
+            $limit = @ini_parse_quantity($memoryLimit);
+        } catch (Throwable) {
+            $limit = 0;
+        }
+
+        return $limit > 0 ? min(self::MAX_HELD_BYTES, intdiv($limit, self::MEMORY_SHARE)) : self::MAX_HELD_BYTES;
+    }
+
+    /**
+     * The byte estimate of an item whose payloads have $payloadBytes bytes:
+     * the payloads and their decoded copies.
+     */
+    public static function estimate(int $payloadBytes): int
+    {
+        return max(0, $payloadBytes) * self::BYTES_PER_PAYLOAD_BYTE;
+    }
+
+    /**
      * The watched connection instances (tests).
      */
     public function watchedInstances(): int
@@ -417,7 +498,7 @@ final class CommitDeferral
     /**
      * @param  Closure(): mixed  $run
      */
-    private function decide(Connection $q, Capture $capture, Closure $run, string $operation): void
+    private function decide(Connection $q, Capture $capture, Closure $run, string $operation, int $bytes): void
     {
         if (! $capture->verified) {
             $this->drops->unverified();
@@ -461,7 +542,7 @@ final class CommitDeferral
             return;
         }
 
-        $item = ['run' => $run, 'operation' => $operation, 'chain' => [], 'ambiguous' => $capture->levelBefore !== $level, 'decided' => false];
+        $item = ['run' => $run, 'operation' => $operation, 'chain' => [], 'ambiguous' => $capture->levelBefore !== $level, 'decided' => false, 'bytes' => $bytes];
 
         if ($level === 0) {
             $walking = $this->outermostWalkingRoot($q, null);
@@ -493,10 +574,8 @@ final class CommitDeferral
             return;
         }
 
-        // The limit first, so a dropped item leaves no callback on any record.
-        if ($this->held >= self::MAX_HELD) {
-            $this->drops->unverified();
-
+        // The budgets first, so a dropped item leaves no callback on any record.
+        if (! $this->admits($bytes)) {
             return;
         }
 
@@ -546,18 +625,39 @@ final class CommitDeferral
     }
 
     /**
-     * @param  array{run: Closure(): mixed, operation: string, chain: list<RecordMark>, ambiguous: bool, decided: bool}  $item
+     * @param  array{run: Closure(): mixed, operation: string, chain: list<RecordMark>, ambiguous: bool, decided: bool, bytes: int}  $item
      */
     private function hold(TrackedRoot $root, array $item): void
     {
-        if ($this->held >= self::MAX_HELD) {
-            $this->drops->unverified();
-
+        if (! $this->admits($item['bytes'])) {
             return;
         }
 
         $root->items[] = $item;
         $this->held++;
+        $this->heldBytes += $item['bytes'];
+    }
+
+    /**
+     * Whether one more item of $bytes fits both budgets. A dropped item is
+     * counted with its reason: the count cap first, then the bytes. An item
+     * larger than the whole byte budget never fits.
+     */
+    private function admits(int $bytes): bool
+    {
+        if ($this->held >= self::MAX_HELD) {
+            $this->drops->overBudget(self::COUNT_CAP);
+
+            return false;
+        }
+
+        if ($bytes > 0 && $this->heldBytes + $bytes > $this->byteBudget()) {
+            $this->drops->overBudget(self::BYTE_BUDGET);
+
+            return false;
+        }
+
+        return true;
     }
 
     private function track(Connection $q, DatabaseTransactionRecord $record): ?TrackedRoot
@@ -656,10 +756,12 @@ final class CommitDeferral
         }
 
         if ($walking !== null) {
+            // A move, not a new item: no budget check.
             foreach ($runnable as $item) {
                 $item['decided'] = true;
                 $walking->items[] = $item;
                 $this->held++;
+                $this->heldBytes += $item['bytes'];
             }
 
             return;
@@ -824,6 +926,7 @@ final class CommitDeferral
         }
 
         $this->held = max(0, $this->held - count($root->items));
+        $this->heldBytes = max(0, $this->heldBytes - array_sum(array_column($root->items, 'bytes')));
 
         foreach ($root->items as $item) {
             foreach ($item['chain'] as $mark) {
@@ -837,7 +940,7 @@ final class CommitDeferral
     }
 
     /**
-     * @param  list<array{run: Closure(): mixed, operation: string, chain: list<RecordMark>, ambiguous: bool, decided: bool}>  $items
+     * @param  list<array{run: Closure(): mixed, operation: string, chain: list<RecordMark>, ambiguous: bool, decided: bool, bytes: int}>  $items
      */
     private function runAll(array $items): void
     {
@@ -859,8 +962,8 @@ final class CommitDeferral
     }
 
     /**
-     * @param  list<array{run: Closure(): mixed, operation: string, chain: list<RecordMark>, ambiguous: bool, decided: bool}>  $items
-     * @param  Closure(array{run: Closure(): mixed, operation: string, chain: list<RecordMark>, ambiguous: bool, decided: bool}): bool  $filter
+     * @param  list<array{run: Closure(): mixed, operation: string, chain: list<RecordMark>, ambiguous: bool, decided: bool, bytes: int}>  $items
+     * @param  Closure(array{run: Closure(): mixed, operation: string, chain: list<RecordMark>, ambiguous: bool, decided: bool, bytes: int}): bool  $filter
      */
     private function count(array $items, Closure $filter): void
     {

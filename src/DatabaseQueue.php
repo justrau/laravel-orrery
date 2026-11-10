@@ -116,6 +116,7 @@ class DatabaseQueue extends BaseQueue
                 fn (): mixed => parent::pushRaw($stamped, $queue, $options),
                 fn (mixed $id): ?Closure => $this->observing(Observation::REPUBLISH, $stamped, $this->getQueue($queue), ['jobId' => $id]),
                 'hook:push_raw',
+                CommitDeferral::estimate(is_string($stamped) ? strlen($stamped) : 0),
             );
         } finally {
             $this->nextInsertOwned = false;
@@ -223,6 +224,7 @@ class DatabaseQueue extends BaseQueue
                     'delay' => $this->secondsUntil($delay),
                 ]),
                 'hook:push',
+                CommitDeferral::estimate(strlen((string) $payload)),
             );
         } finally {
             BulkCapture::restore($suspended);
@@ -319,6 +321,7 @@ class DatabaseQueue extends BaseQueue
                 return $this->observingBulk($connection, $capture->records(), $floor);
             },
             'hook:bulk',
+            static fn (): int => CommitDeferral::estimate(self::payloadBytes($capture->records())),
         );
     }
 
@@ -364,8 +367,26 @@ class DatabaseQueue extends BaseQueue
         $run = $built->succeeded() ? $built->value() : null;
 
         if ($run instanceof Closure) {
-            $deferral->after($this->database, $insert, $run, 'hook:bulk');
+            $deferral->after($this->database, $insert, $run, 'hook:bulk', CommitDeferral::estimate(self::payloadBytes($records)));
         }
+    }
+
+    /**
+     * The payload bytes of a bulk insert's records: the sum over their
+     * payloads.
+     *
+     * @param  array<int, array<string, mixed>>  $records
+     */
+    private static function payloadBytes(array $records): int
+    {
+        $bytes = 0;
+
+        foreach ($records as $record) {
+            $payload = $record['payload'] ?? null;
+            $bytes += is_string($payload) ? strlen($payload) : 0;
+        }
+
+        return $bytes;
     }
 
     /**
@@ -524,6 +545,7 @@ class DatabaseQueue extends BaseQueue
                 ], $connection);
             },
             'hook:pop',
+            static fn (mixed $job): int => $job instanceof DatabaseJob ? CommitDeferral::estimate(strlen($job->getRawBody())) : 0,
         );
     }
 
@@ -603,6 +625,7 @@ class DatabaseQueue extends BaseQueue
                     ], $connection);
                 },
                 'hook:release',
+                CommitDeferral::estimate(strlen($payload)),
             );
         } finally {
             $this->releasingRecord = $releasing;
@@ -647,7 +670,7 @@ class DatabaseQueue extends BaseQueue
     /**
      * The deferred work of one observation: the JobStore write of the
      * observation built now (one payload decode, `at` = now), or null when
-     * the payload has no usable uuid.
+     * the payload has no usable uuid. The write frees the decoded copy.
      *
      * @param  array<string, mixed>  $fields
      */
@@ -665,7 +688,11 @@ class DatabaseQueue extends BaseQueue
         $store = Container::getInstance()->make(JobStore::class);
 
         return static function () use ($store, $observation): void {
-            $store->observe($observation);
+            try {
+                $store->observe($observation);
+            } finally {
+                $observation->forgetDecoded();
+            }
         };
     }
 

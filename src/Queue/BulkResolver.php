@@ -174,9 +174,14 @@ class BulkResolver
             $watcher = Watcher::instance();
 
             // Each bulkPush row on its own: one row's error skips neither the
-            // later rows nor the resolution.
+            // later rows nor the resolution. Each write frees its decoded
+            // copy; the resolution reads only the uuid and the generation.
             foreach ($batch->observations() as $observation) {
-                $watcher->attempt(self::P2_ROW, static fn () => $store->observe($observation));
+                try {
+                    $watcher->attempt(self::P2_ROW, static fn () => $store->observe($observation));
+                } finally {
+                    $observation->forgetDecoded();
+                }
             }
 
             $this->resolveBatch($batch);

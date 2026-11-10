@@ -482,6 +482,8 @@ final class CommitDeferralTest extends DeferralTestCase
 
         self::assertSame($limit, $this->deferral()->held());
         $this->assertCounts(1, 0, 'The 10,001st item is dropped and counted.');
+        self::assertSame(1, $this->drops->overBudgetCount(CommitDeferral::COUNT_CAP), 'The drop has the reason of the count cap.');
+        self::assertSame(0, $this->drops->overBudgetCount(CommitDeferral::BYTE_BUDGET));
 
         $q->commit();
 
@@ -2323,6 +2325,11 @@ final class CommitDeferralTest extends DeferralTestCase
 
             public function rollbackUnverified(int $items = 1): void
             {
+            }
+
+            public function overBudget(string $reason, int $items = 1): void
+            {
+                $this->unverified($items);
             }
 
             public function unverifiedCount(): int

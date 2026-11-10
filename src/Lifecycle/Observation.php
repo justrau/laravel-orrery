@@ -162,6 +162,16 @@ final class Observation
     }
 
     /**
+     * Frees the decoded payload copy once the observation's write ran: a
+     * held observation keeps it only until then. payloadData() decodes the
+     * payload again when it is read later.
+     */
+    public function forgetDecoded(): void
+    {
+        $this->decoded = null;
+    }
+
+    /**
      * Whether the payload is a package retry of the operation ledger:
      * orreryRetry.operation equals the observation's own
      * generation. A republish gets a fresh generation, so it never matches a
