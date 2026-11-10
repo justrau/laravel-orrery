@@ -295,7 +295,7 @@
 
     .o-sidebar__logo {
         align-items: center;
-        background-image: linear-gradient(180deg, #3d3f44 0%, #26272b 100%);
+        background-image: var(--gradient-logo);
         border-radius: 8px;
         display: flex;
         flex-shrink: 0;

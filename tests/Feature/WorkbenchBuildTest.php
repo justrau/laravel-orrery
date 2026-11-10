@@ -3,8 +3,12 @@
 namespace Justrau\Orrery\Tests\Feature;
 
 use Justrau\Orrery\Tests\Support\WorkbenchCliTestCase;
+use FilesystemIterator;
 use PDO;
 use PHPUnit\Framework\Attributes\Group;
+use RecursiveDirectoryIterator;
+use RecursiveIteratorIterator;
+use SplFileInfo;
 use Symfony\Component\Yaml\Yaml;
 use Workbench\App\Providers\WorkbenchServiceProvider;
 
@@ -20,6 +24,37 @@ use Workbench\App\Providers\WorkbenchServiceProvider;
 final class WorkbenchBuildTest extends WorkbenchCliTestCase
 {
     private const EARLIER_BUILD_MARK = 4242;
+
+    /**
+     * Rejects: a Workbench that creates framework/cache but not its data directory, so in a
+     * fresh checkout the build step cache:clear fails ("Failed to clear cache"): the file
+     * store's flush() returns false when its directory does not exist.
+     * Still passes: a data directory that exists but cannot be written.
+     */
+    public function test_a_fresh_storage_gets_the_cache_data_directory_and_cache_clear_succeeds(): void
+    {
+        $data = WorkbenchServiceProvider::storagePath().'/framework/cache/data';
+        $this->removeTree($data);
+        $this->assertDirectoryDoesNotExist($data);
+
+        $clear = $this->testbench(['cache:clear'], ['DB_DATABASE' => $this->ownedDirectory.DIRECTORY_SEPARATOR.'database.sqlite']);
+
+        $this->assertSucceeded($clear, 'cache:clear in a fresh storage');
+        $this->assertDirectoryExists($data);
+    }
+
+    private function removeTree(string $path): void
+    {
+        if (! is_dir($path)) {
+            return;
+        }
+
+        $entries = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($path, FilesystemIterator::SKIP_DOTS), RecursiveIteratorIterator::CHILD_FIRST);
+        foreach ($entries as $entry) {
+            $entry instanceof SplFileInfo && $entry->isDir() ? rmdir($entry->getPathname()) : unlink((string) $entry);
+        }
+        rmdir($path);
+    }
 
     public function test_the_build_accepts_an_owned_path_and_rebuilds_it_from_no_database_under_production(): void
     {

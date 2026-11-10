@@ -758,6 +758,12 @@ final class TickBenchmark extends TestCase
     {
         $connection = DB::connection(TestEnvironment::PRIMARY);
 
+        // MySQL caches the information_schema sizes (24 hours by default), so
+        // without this the server-wide sum misses the rows the run just wrote.
+        if ($this->engine() === 'mysql') {
+            $connection->statement('SET SESSION information_schema_stats_expiry = 0');
+        }
+
         return match ($this->engine()) {
             'mysql' => (int) ($connection->selectOne('select coalesce(sum(data_length + index_length), 0) as b from information_schema.tables')->b ?? 0),
             'pgsql' => (int) ($connection->selectOne('select coalesce(sum(pg_database_size(datname)), 0) as b from pg_database')->b ?? 0),

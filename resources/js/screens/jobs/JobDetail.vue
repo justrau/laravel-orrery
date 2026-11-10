@@ -1519,7 +1519,7 @@
 
     .o-jd__segment--on {
         background-color: var(--color-bg);
-        box-shadow: #0000001F 0 1px 2px;
+        box-shadow: var(--shadow-raised);
         font-weight: var(--font-weight-semibold);
     }
 

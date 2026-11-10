@@ -2,7 +2,10 @@
 
 Orrery (`justrau/laravel-orrery`) is a Horizon-style dashboard for the `database` queue driver of Laravel. It shows your queues, jobs, failures, batches and workers, and it lets you retry failed jobs and pause workers. It is a watcher only: it never starts, supervises or scales queue workers. You keep running `queue:work` under systemd, supervisord, Forge or another process manager.
 
-<img src="docs/images/overview.png" alt="The Orrery Overview screen: what needs attention, one card per queue with a wait gauge, the completed and failed jobs per minute of the last hour, and the latest failure groups" width="900">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png">
+  <img src="docs/images/overview.png" alt="The Orrery Overview screen: what needs attention, one card per queue with a wait gauge, the completed and failed jobs per minute of the last hour, and the latest failure groups" width="900">
+</picture>
 
 ## What you get
 
