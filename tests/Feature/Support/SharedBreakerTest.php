@@ -15,6 +15,7 @@ use Justrau\Orrery\Runtime\ProcessState;
 use Justrau\Orrery\Runtime\SharedBreaker;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Tests\Support\FreshSchema;
+use Justrau\Orrery\Tests\Support\MirrorOutage;
 use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\TestCase;
 use PDOException;
@@ -209,10 +210,17 @@ final class SharedBreakerTest extends TestCase
     #[FreshSchema]
     public function test_a_terminating_flush_that_loses_the_mirror_shares_the_breaker(): void
     {
-        $outage = $this->mirrorOutage();
-        Degradation::error('test:recorded', 'a recorded error');
-        Degradation::flush(terminating: true);
-        $outage->end();
+        // The rename outage in every mode: a missing table is a data error. A separate mirror's
+        // default outage is a lost server, a dependency error that rightly opens the breaker.
+        $outage = MirrorOutage::begin($this->app, $this->testEnvironment(), MirrorOutage::RENAME);
+
+        try {
+            Degradation::error('test:recorded', 'a recorded error');
+            Degradation::flush(terminating: true);
+        } finally {
+            $outage->end();
+        }
+
         self::assertFalse(Watcher::instance()->breakerOpen(), 'a data error opened the breaker');
 
         $this->failHealthWrites();
