@@ -543,7 +543,7 @@ final class Reconciliation
                 continue;
             }
 
-            if ($now - (float) $row->absent_since >= $grace) {
+            if ($now - Clock::stored($row->absent_since) >= $grace) {
                 $this->store->markUnknown((string) $row->uuid, $jobId, $cycle, $reason, $now);
             }
         }
@@ -792,7 +792,7 @@ final class Reconciliation
                 continue;
             }
 
-            if ($now - (float) $row->absent_since < $this->grace((string) $row->connection)) {
+            if ($now - Clock::stored($row->absent_since) < $this->grace((string) $row->connection)) {
                 continue;
             }
 

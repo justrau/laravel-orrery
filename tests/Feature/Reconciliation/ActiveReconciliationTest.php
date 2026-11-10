@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Reconciliation;
 
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Event;
 use Justrau\Orrery\Maintenance\Reconciliation;
 use Justrau\Orrery\Storage\Clock;
+use Justrau\Orrery\Tests\Support\OffGridTime;
 
 /**
  * The reconciliation of active rows (rule U1).
@@ -109,6 +111,32 @@ final class ActiveReconciliationTest extends ReconciliationTestCase
         $row = $this->rowOrFail($uuid);
         self::assertSame(['unknown', Reconciliation::REMOVED_REASON, $jobId], [$row->status, $row->unknown_reason, (int) $row->job_id]);
         self::assertSame(['pending', null], [$this->rowOrFail($present)->status, $this->rowOrFail($present)->absent_since]);
+    }
+
+    /**
+     * Rejects: a grace check on absent_since as SQLite returns it. SQLite 3.45
+     * on x86-64 stores 1796604698.689484 as the float above it, so the check
+     * at the exact end of the grace read 599.99999976 s and the row stayed
+     * pending (CI). Other engines keep the decimal; there the test checks
+     * only the boundary. Still passes: a check that is exact only for times
+     * before 2^31 s.
+     */
+    public function test_an_absence_stored_off_the_float_grid_ends_at_the_grace(): void
+    {
+        $start = '1796604698.689484';
+        Carbon::setTestNow(Carbon::createFromFormat('U.u', $start));
+        [$uuid, $jobId] = $this->pushed();
+        $this->queueTable()->where('id', $jobId)->delete();
+
+        $this->runActive();
+        self::assertSame($start, $this->absentSince($uuid));
+        $this->mirror()->table('orrery_jobs')->where('uuid', $uuid)->update(['absent_since' => OffGridTime::stored($this->mirror(), $start, 1)]);
+
+        $this->moveClock(Reconciliation::MIN_GRACE_SECONDS);
+        $this->runActive();
+
+        $row = $this->rowOrFail($uuid);
+        self::assertSame(['unknown', Reconciliation::UNKNOWN_REASON, $jobId], [$row->status, $row->unknown_reason, (int) $row->job_id]);
     }
 
     /**

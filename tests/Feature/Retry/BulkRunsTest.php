@@ -17,6 +17,7 @@ use Justrau\Orrery\Retry\Phases\OperationRetentionPhase;
 use Justrau\Orrery\Runtime\Hooks;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Storage\PackageSession;
+use Justrau\Orrery\Tests\Support\OffGridTime;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
 use PHPUnit\Framework\Attributes\DataProvider;
 use Justrau\Orrery\Tests\Controller\Fakes\User;
@@ -464,6 +465,31 @@ final class BulkRunsTest extends RetryTestCase
         // Idle for more than an hour: expired.
         $this->moveClock(3601);
         $this->runPage($frozen, null, null)->assertStatus(422)->assertJsonPath('error', 'frozen_expired');
+    }
+
+    /**
+     * Rejects: an idle check on last_run_at as SQLite returns it. SQLite 3.45
+     * on x86-64 keeps some decimals as the float next to the nearest one;
+     * read as it is, a run idle for exactly the hour (below the float of its
+     * decimal) read as idle for longer and expired. Other engines keep the
+     * decimal; there the test checks only the boundary. Still passes: a
+     * check that is exact only for times before 2^31 s.
+     */
+    public function test_a_run_stored_off_the_float_grid_expires_only_after_the_hour(): void
+    {
+        $start = '1796604698.689484';
+        Carbon::setTestNow(Carbon::createFromFormat('U.u', $start));
+        $this->useNullFailer();
+        $this->seedFailures(2, ['queue' => 'e']);
+        $source = $this->listSource(['connection' => 'database', 'queue' => 'e']);
+
+        $frozen = $this->freeze('retry', $source)->assertOk();
+        $first = $this->app->make(BulkRun::class)->run($frozen->json('frozen.token'), null, null, 'operator', null, $this->stopAfter(1));
+        self::assertSame(1, $this->mirror()->table('orrery_bulk_runs')->where('last_run_at', $start)->count());
+        $this->mirror()->table('orrery_bulk_runs')->update(['last_run_at' => OffGridTime::stored($this->mirror(), $start, -1)]);
+
+        $this->moveClock(BulkRun::EXPIRY_SECONDS);
+        $this->runPage($frozen, $first['next_after'], null)->assertOk();
     }
 
     /**

@@ -453,7 +453,7 @@ final class StuckNotifications
         if (! $job instanceof stdClass
             || (int) $job->cycle !== $cycle
             || ! StuckIncidents::stillHolds($signal, (string) $job->status)
-            || $now - (float) $incident->first_seen_at > self::MAX_AGE_SECONDS) {
+            || $now - Clock::stored($incident->first_seen_at) > self::MAX_AGE_SECONDS) {
             // The job is gone, its cycle ended, it left the state of its signal (it finished in the
             // same cycle), or the incident is older than MAX_AGE_SECONDS (a channel was down for
             // long): nothing more to send for this incident.
@@ -656,7 +656,7 @@ final class StuckNotifications
                     continue;
                 }
 
-                $until = (float) $row->cooldown_until;
+                $until = Clock::stored($row->cooldown_until);
 
                 if ($until > $now || isset($reserved[$id])) {
                     $tx->table(self::COOLDOWNS)->where('key', $id)->update(['held' => (int) $row->held + 1]);
@@ -824,7 +824,7 @@ final class StuckNotifications
                 $row = $tx->table(self::COOLDOWNS)->where('key', $id)->lockForUpdate()->first(['cooldown_until', 'held', 'summary_tries']);
                 $now = Clock::now();
 
-                if (! $row instanceof stdClass || (int) $row->held === 0 || (float) $row->cooldown_until > $now) {
+                if (! $row instanceof stdClass || (int) $row->held === 0 || Clock::stored($row->cooldown_until) > $now) {
                     return null;
                 }
 
