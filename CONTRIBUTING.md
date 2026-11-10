@@ -48,7 +48,7 @@ composer format        # Pint with the Laravel preset (pint.json)
 composer format:check  # reports, changes nothing
 ```
 
-Run `composer format` before committing. `pint.json` excludes the files that tests pin byte for byte: the main migration and the frozen pre-D8 configuration fixture. It also turns off `php_unit_method_casing`, which renames every method whose name starts with `test`, helpers too, without their callers.
+Run `composer format` before committing. `pint.json` excludes the files that tests pin byte for byte: the main migration and the frozen pre-D8 configuration fixture. It also turns off `php_unit_method_casing`, which renames every method whose name starts with `test`, helpers too, without their callers. `.git-blame-ignore-revs` lists the commit that applied Pint to the whole code base: run `git config blame.ignoreRevsFile .git-blame-ignore-revs` once, so `git blame` skips it.
 
 ## Frontend
 

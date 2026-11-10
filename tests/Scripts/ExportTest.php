@@ -38,7 +38,7 @@ final class ExportTest extends TestCase
 
     /** The top-level paths that only the development of the package uses. */
     private const IGNORED = [
-        '.gitattributes', '.github', '.gitignore', '.npmrc', '.nvmrc',
+        '.git-blame-ignore-revs', '.gitattributes', '.github', '.gitignore', '.npmrc', '.nvmrc',
         'CLAUDE.md', 'CONTRIBUTING.md', 'SECURITY.md', 'bin', 'docker', 'docs',
         'package.json', 'phpstan.neon.dist', 'phpunit.xml.dist', 'pint.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
         'testbench.yaml', 'tests', 'tools', 'vite.config.js', 'workbench',
