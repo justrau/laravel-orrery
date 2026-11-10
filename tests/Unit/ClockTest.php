@@ -10,6 +10,7 @@ use Illuminate\Support\Carbon;
 use Justrau\Orrery\Registration\Modules\StorageModule;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\Clock;
+use Justrau\Orrery\Tests\Support\OffGridTime;
 use PHPUnit\Framework\TestCase;
 
 final class ClockTest extends TestCase
@@ -258,5 +259,29 @@ final class ClockTest extends TestCase
 
             self::assertSame(5.0, $elapsed, sprintf('5 s across 2^%d s read as %.17g s.', (int) log($power, 2), $elapsed));
         }
+    }
+
+    /**
+     * Rejects: a stored time read with a plain (float) cast. SQLite 3.45 on
+     * x86-64 keeps 1796604698.689484 as the float above it, so 600 s after
+     * it read as 599.99999976 s and a row at the exact end of its grace
+     * stayed pending on CI (ActiveReconciliationTest). Still passes: a
+     * reader that is exact only for times before 2^31 s (the float grid is
+     * coarser after it; no case here).
+     */
+    public function test_a_stored_time_off_the_float_grid_reads_as_its_decimal(): void
+    {
+        foreach (['1796604698.689484', '1802792363.274526', '1790000000.000001', '1100000000.999999'] as $decimal) {
+            foreach ([1, -1] as $direction) {
+                $stored = (float) OffGridTime::neighbour($decimal, $direction);
+                self::assertNotSame((float) $decimal, $stored, 'the stored float is off the grid');
+                self::assertSame((float) $decimal, Clock::stored($stored), $decimal);
+            }
+
+            self::assertSame((float) $decimal, Clock::stored($decimal), 'a decimal string, as MySQL and Postgres give it');
+        }
+
+        $start = (float) OffGridTime::neighbour('1796604698.689484', 1);
+        self::assertSame(600.0, (float) '1796605298.689484' - Clock::stored($start));
     }
 }

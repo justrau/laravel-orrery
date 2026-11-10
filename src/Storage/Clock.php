@@ -93,6 +93,23 @@ final class Clock
     }
 
     /**
+     * A time read from a decimal(16,6) column, as the float that now() gives
+     * for the same decimal. MySQL and Postgres return the decimal text.
+     * SQLite keeps a REAL from its own text conversion, and some builds
+     * (3.45 on x86-64) round a decimal to the float next to the nearest one.
+     * A difference with now() then misses whole seconds by a hair, and a
+     * check at the exact end of a grace or a lease decides wrongly. Every
+     * stored time that PHP compares with now(), or with a bound computed
+     * from it, reads through this: it rounds to the microsecond grid of the
+     * column, so whole seconds add to the result and subtract from it
+     * exactly.
+     */
+    public static function stored(int|float|string $value): float
+    {
+        return round((float) $value * 1_000_000) / 1_000_000;
+    }
+
+    /**
      * The decimal(16,6) text of a time that was already sampled or computed:
      * six decimal places, a point as the separator in every locale, and no
      * dependency on PHP's precision setting.

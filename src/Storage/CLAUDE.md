@@ -33,6 +33,7 @@ An unreachable server costs one connect timeout (`CONNECT_TIMEOUT_SECONDS`, 5 s)
 ## Clocks and times
 
 - Every stored package time is epoch seconds in a `decimal(16,6)` column, bound through `Clock::toDecimal()` from one sampled value. Exceptions: `retry_until` (integer), `orrery_signals.expires_at` (`dateTime` in UTC, `Models\Casts\UtcDateTime`), `orrery_samples.minute` and `over_limit_since` (integer minute epochs).
+- A stored time that PHP compares with `Clock::now()`, or with a bound computed from it, reads through `Clock::stored()`, never a plain `(float)` cast: some SQLite builds keep a decimal as the float next to the nearest one, so a check at the exact end of a grace, a lease or a cooldown decided wrongly. Tests write such a float with `Support\OffGridTime`.
 - `DatabaseClock::now($connection)` reads a database server's clock. Operations use it for every deadline, each in its own database's clock; terminate signals use the mirror's clock. `DatabaseClock::expression()` gives the SQL form.
 
 ## SQLite host files (D17, D18)

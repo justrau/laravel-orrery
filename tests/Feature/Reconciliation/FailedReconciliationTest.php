@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Reconciliation;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Justrau\Orrery\Maintenance\Reconciliation;
@@ -11,6 +12,7 @@ use Justrau\Orrery\Retry\ForgetService;
 use Justrau\Orrery\Runtime\Hooks;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\Support\FreshSchema;
+use Justrau\Orrery\Tests\Support\OffGridTime;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
 use PHPUnit\Framework\Attributes\DataProvider;
 
@@ -147,6 +149,41 @@ final class FailedReconciliationTest extends ReconciliationTestCase
         $this->moveClock(1);
         $this->runFailed();
         self::assertNull($this->row($uuid));
+    }
+
+    /**
+     * Rejects: a grace check on absent_since as SQLite returns it: SQLite 3.45
+     * on x86-64 stores 1796604698.689484 as the float above it, so the check
+     * at the exact end of the grace kept the row. Other engines keep the
+     * decimal; there the test checks only the boundary. The test asserts the
+     * guarded delete, not its effect: the guard binds the decimal, which
+     * SQLite 3.45 converts to the same neighbour as the stored value, but a
+     * SQLite that converts exactly (the test's machine) does not. Still
+     * passes: a check that is exact only for times before 2^31 s.
+     */
+    public function test_an_absence_stored_off_the_float_grid_ends_at_the_grace(): void
+    {
+        $start = '1796604698.689484';
+        Carbon::setTestNow(Carbon::createFromFormat('U.u', $start));
+        [$uuid] = $this->failedJob();
+        DB::table('failed_jobs')->delete();
+
+        $this->runFailed();
+        self::assertSame($start, $this->absentSince($uuid));
+        $this->mirror()->table('orrery_jobs')->where('uuid', $uuid)->update(['absent_since' => OffGridTime::stored($this->mirror(), $start, 1)]);
+
+        $deletes = [];
+        $this->app['events']->listen(\Illuminate\Database\Events\QueryExecuted::class, static function (\Illuminate\Database\Events\QueryExecuted $query) use (&$deletes): void {
+            if (preg_match('/^delete from [`"]?\w*orrery_jobs[`"]? /i', $query->sql) === 1) {
+                $deletes[] = $query->bindings;
+            }
+        });
+
+        $this->moveClock(Reconciliation::MIN_GRACE_SECONDS);
+        $this->runFailed();
+
+        self::assertCount(1, $deletes, 'the removal runs at the exact end of the grace');
+        self::assertContains($start, $deletes[0], 'guarded by the absence that the check read');
     }
 
     /**
