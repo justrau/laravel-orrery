@@ -205,7 +205,7 @@
     .o-alert {
         background-color: var(--color-bg);
         border-radius: 0 0 var(--radius-window) var(--radius-window);
-        box-shadow: 0 12px 32px rgba(0, 0, 0, 0.25), 0 0 0 0.5px rgba(0, 0, 0, 0.14);
+        box-shadow: var(--shadow-alert);
         box-sizing: border-box;
         display: flex;
         flex-direction: column;

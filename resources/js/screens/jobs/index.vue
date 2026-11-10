@@ -953,7 +953,7 @@
 
     .o-jobs__segment--active {
         background-color: var(--color-bg);
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+        box-shadow: var(--shadow-raised);
         font-weight: var(--font-weight-semibold);
     }
 
@@ -1094,9 +1094,9 @@
     }
 
     .o-jobs__switch-knob {
-        background-color: var(--color-bg);
+        background-color: var(--color-knob);
         border-radius: 50%;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+        box-shadow: var(--shadow-knob);
         height: 12px;
         width: 12px;
     }
@@ -1147,7 +1147,7 @@
         background-color: var(--color-bg);
         border: 1px solid var(--color-separator);
         border-radius: 8px;
-        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+        box-shadow: var(--shadow-popover);
         display: flex;
         flex-direction: column;
         min-width: 180px;

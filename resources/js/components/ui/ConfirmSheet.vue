@@ -166,7 +166,7 @@
 <style scoped>
     .o-sheet-backdrop {
         align-items: flex-start;
-        background-color: rgba(0, 0, 0, 0.18);
+        background-color: var(--color-backdrop);
         display: flex;
         inset: 0;
         justify-content: center;
@@ -178,7 +178,7 @@
     .o-sheet {
         background-color: var(--color-bg);
         border-radius: 0 0 var(--radius-window) var(--radius-window);
-        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.14);
+        box-shadow: var(--shadow-sheet);
         box-sizing: border-box;
         display: flex;
         flex-direction: column;

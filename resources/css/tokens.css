@@ -7,8 +7,14 @@
  * native Mac look of the design), and the mono stack adds fallbacks after
  * its named family. The page bundles and loads no font. The shell and the
  * screens use these properties, and so do the element defaults of base.css.
+ *
+ * Dark mode follows the viewer's prefers-color-scheme (there is no toggle):
+ * the block at the end gives every colour, shadow and gradient a dark value.
+ * Body text keeps WCAG AA contrast in both schemes. Components take every
+ * colour and shadow from here; none writes one of its own.
  */
 :root {
+    color-scheme: light dark;
     --color-bg: #FFFFFF;
     --color-sidebar: #F3F3F5;
     --color-subtle: #F7F7F9;
@@ -29,6 +35,18 @@
     --color-on-accent: #FFFFFF;
     --color-success-tint: #EAF8EE;
     --color-success-text: #1E7A36;
+    --color-knob: #FFFFFF;
+    --color-shade: #000000;
+    --color-backdrop: rgba(0, 0, 0, 0.18);
+    --color-scrim: rgba(29, 29, 31, 0.24);
+    --gradient-logo: linear-gradient(180deg, #3D3F44 0%, #26272B 100%);
+    --shadow-button: 0 0.5px 1px rgba(0, 0, 0, 0.06);
+    --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.12);
+    --shadow-knob: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-popover: 0 6px 18px rgba(0, 0, 0, 0.12);
+    --shadow-panel: 0 0 24px rgba(29, 29, 31, 0.17);
+    --shadow-sheet: 0 16px 40px rgba(0, 0, 0, 0.18), 0 0 0 0.5px rgba(0, 0, 0, 0.14);
+    --shadow-alert: 0 12px 32px rgba(0, 0, 0, 0.25), 0 0 0 0.5px rgba(0, 0, 0, 0.14);
     --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     --text-caption: 12px;
@@ -59,4 +77,41 @@
     --radius-control: 6px;
     --radius-card: 10px;
     --radius-window: 12px;
+}
+
+@media (prefers-color-scheme: dark) {
+    :root {
+        --color-bg: #1C1C1E;
+        --color-sidebar: #26262A;
+        --color-subtle: #232326;
+        --color-separator: #3A3A3C;
+        --color-text: #F2F2F7;
+        --color-text-secondary: #AEAEB2;
+        --color-text-tertiary: #8E8E93;
+        --color-accent: #3890F5;
+        --color-accent-tint: #12304F;
+        --color-warning: #FF9F0A;
+        --color-warning-tint: #3A2A10;
+        --color-danger: #FF453A;
+        --color-danger-tint: #3D1A18;
+        --color-success: #30D158;
+        --color-paused: #8E8E93;
+        --color-warning-text: #FFB340;
+        --color-danger-text: #FF6961;
+        --color-on-accent: #FFFFFF;
+        --color-success-tint: #15301E;
+        --color-success-text: #5BD27A;
+        --color-knob: #F2F2F7;
+        --color-shade: #000000;
+        --color-backdrop: rgba(0, 0, 0, 0.5);
+        --color-scrim: rgba(0, 0, 0, 0.55);
+        --gradient-logo: linear-gradient(180deg, #4A4C52 0%, #333438 100%);
+        --shadow-button: 0 0.5px 1px rgba(0, 0, 0, 0.4);
+        --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.5);
+        --shadow-knob: 0 1px 2px rgba(0, 0, 0, 0.6);
+        --shadow-popover: 0 6px 18px rgba(0, 0, 0, 0.5), 0 0 0 0.5px rgba(255, 255, 255, 0.1);
+        --shadow-panel: 0 0 24px rgba(0, 0, 0, 0.6);
+        --shadow-sheet: 0 16px 40px rgba(0, 0, 0, 0.6), 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+        --shadow-alert: 0 12px 32px rgba(0, 0, 0, 0.6), 0 0 0 0.5px rgba(255, 255, 255, 0.12);
+    }
 }

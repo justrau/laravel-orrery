@@ -1,6 +1,7 @@
 // Screenshots of the Orrery dashboard for the README and the docs.
 //
 //   node screenshots.mjs --base=http://127.0.0.1:8000 --out=../../docs/images [--path=orrery] [--chrome=<path>]
+//       [--scheme=dark] [--only=overview,jobs]
 //
 // Serve the showcase Workbench first (`composer workbench:showcase`, which
 // builds the shop app of ShowcaseSeeder; every visitor may open it), and start
@@ -11,6 +12,9 @@
 // (`sips --resampleWidth 1600 *.png`); a file that stays above 400 KB can go
 // to 256 colours (Pillow, FASTOCTREE, no dither). The job detail stops above
 // the exception text, which holds local paths.
+// --scheme=dark emulates prefers-color-scheme: dark and adds "-dark" to each
+// file name (overview-dark.png); the default is light. --only takes the
+// listed shots only.
 // --chrome=<path>, else PW_EXE, names the Chrome binary. Exit 0 pass, 1 fail, 64 usage.
 
 import {chromium} from 'playwright-core';
@@ -22,7 +26,7 @@ const SCREEN_TIMEOUT_MS = 20000;
 const JOB_DETAIL_CLASS = 'ChargeSubscription';
 
 function parseArgs(argv) {
-    const options = {path: 'orrery'};
+    const options = {path: 'orrery', scheme: 'light', only: null};
 
     for (const arg of argv) {
         const match = /^--([a-z-]+)=(.*)$/s.exec(arg);
@@ -37,6 +41,8 @@ function parseArgs(argv) {
         else if (name === 'out') options.out = value;
         else if (name === 'chrome') options.chrome = value;
         else if (name === 'path') options.path = value.replace(/^\/+|\/+$/g, '');
+        else if (name === 'scheme' && (value === 'light' || value === 'dark')) options.scheme = value;
+        else if (name === 'only') options.only = value.split(',').filter(file => file !== '');
         else throw new Error(`unknown option: --${name}`);
     }
 
@@ -102,11 +108,11 @@ async function main() {
     const browser = await chromium.launch({executablePath: options.chrome || process.env.PW_EXE || DEFAULT_CHROME, headless: true});
 
     try {
-        const context = await browser.newContext({viewport: {width: 1440, height: 900}, deviceScaleFactor: 2, colorScheme: 'light'});
+        const context = await browser.newContext({viewport: {width: 1440, height: 900}, deviceScaleFactor: 2, colorScheme: options.scheme});
         const page = await context.newPage();
         page.on('pageerror', error => problems.push(`page error: ${error.message}`));
 
-        for (const {file, route, title, height = 900, open = null} of SHOTS) {
+        for (const {file, route, title, height = 900, open = null} of SHOTS.filter(shot => options.only === null || options.only.includes(shot.file))) {
             const target = route ?? `jobs/${await failedJobOf(page, options, JOB_DETAIL_CLASS)}`;
             await page.setViewportSize({width: 1440, height});
             const response = await page.goto(`${options.base}/${options.path}/${target}`, {waitUntil: 'load'});
@@ -129,7 +135,7 @@ async function main() {
                 continue;
             }
 
-            const path = `${options.out}/${file}.png`;
+            const path = `${options.out}/${file}${options.scheme === 'dark' ? '-dark' : ''}.png`;
             await page.screenshot({path});
             written.push(path);
         }

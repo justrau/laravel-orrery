@@ -167,7 +167,7 @@
     /* Below 1024 px: over the pane, the full width below 768. */
     .o-layout__inspector--overlay {
         bottom: 0;
-        box-shadow: 0 0 24px color-mix(in srgb, var(--color-text) 16%, transparent);
+        box-shadow: var(--shadow-panel);
         max-width: 100%;
         position: absolute;
         right: 0;

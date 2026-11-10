@@ -817,7 +817,7 @@
         background: var(--color-bg);
         border: 1px solid var(--color-separator);
         border-radius: var(--radius-control);
-        box-shadow: 0 6px 18px rgb(0 0 0 / 12%);
+        box-shadow: var(--shadow-popover);
         padding: 4px;
         position: absolute;
         right: 0;
@@ -1036,7 +1036,7 @@
         .o-tags__tabs { border-bottom: 0; gap: 8px; }
         .o-tags__tablist { background: var(--color-separator); border-radius: 7px; flex: 1 1 100%; gap: 0; padding: 2px; }
         .o-tags__tab { border: 0; border-radius: 5px; flex: 1 1 0%; font-size: var(--text-table); justify-content: center; padding: 5px 0; }
-        .o-tags__tab--active { background: var(--color-bg); box-shadow: 0 1px 2px rgb(0 0 0 / 12%); }
+        .o-tags__tab--active { background: var(--color-bg); box-shadow: var(--shadow-raised); }
         .o-tags__meta { padding-bottom: 0; }
 
     }

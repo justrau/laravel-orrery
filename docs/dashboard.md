@@ -32,7 +32,7 @@ The old paths `/`, `/dashboard`, `/metrics…`, `/monitoring…`, `/failed/<id>`
 - The write buttons show only for users with `operateOrrery`.
 - Times show in the browser's time zone, or in `orrery.display_timezone`. Every absolute time has its zone label.
 - Below 1024 px the sidebar is behind a toggle, and below 768 px a list and its detail are two screens. The keyboard reaches every control, and Escape closes a sheet, the inspector or the sidebar.
-- There is no dark mode yet.
+- The dashboard follows the dark or light appearance of the operating system (the browser's `prefers-color-scheme`). It has no toggle of its own.
 
 ## What the numbers mean
 

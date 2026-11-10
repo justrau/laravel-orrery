@@ -149,7 +149,7 @@
                 <path v-for="zone in zones" :key="zone.kind" :d="zone.path" fill="none" :stroke="zone.color" :stroke-width="g.stroke"
                       :stroke-linecap="zone.round ? 'round' : null" />
                 <path v-if="valuePath" :d="valuePath" fill="none" :stroke="valueColor" :stroke-width="g.stroke" stroke-linecap="round" />
-                <circle v-if="knob" :cx="knob.x.toFixed(2)" :cy="knob.y.toFixed(2)" :r="g.knob" fill="#FFFFFF" :stroke="valueColor" stroke-width="2" />
+                <circle v-if="knob" :cx="knob.x.toFixed(2)" :cy="knob.y.toFixed(2)" :r="g.knob" class="o-gauge__knob" :stroke="valueColor" stroke-width="2" />
                 <path :d="limitTick" fill="none" stroke="var(--color-text)" stroke-width="1.5" stroke-linecap="round" />
             </template>
         </svg>
@@ -183,6 +183,10 @@
         overflow: visible;
         position: absolute;
         top: 0;
+    }
+
+    .o-gauge__knob {
+        fill: var(--color-knob);
     }
 
     .o-gauge__limit {

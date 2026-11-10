@@ -302,7 +302,7 @@
 
     /* Below 1024 px the sidebar is a drawer over the content. */
     .o-shell--narrow .o-shell__nav {
-        box-shadow: 0 0 24px color-mix(in srgb, var(--color-text) 18%, transparent);
+        box-shadow: var(--shadow-panel);
         height: 100vh;
         left: 0;
         max-width: calc(100vw - 48px);
@@ -312,7 +312,7 @@
     }
 
     .o-shell__scrim {
-        background-color: color-mix(in srgb, var(--color-text) 24%, transparent);
+        background-color: var(--color-scrim);
         inset: 0;
         position: fixed;
         z-index: 39;

@@ -721,7 +721,7 @@
 
     .o-classes__segment--active {
         background-color: var(--color-bg);
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+        box-shadow: var(--shadow-raised);
         font-weight: var(--font-weight-semibold);
     }
 

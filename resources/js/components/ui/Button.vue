@@ -137,7 +137,7 @@
     .o-button--write {
         background-color: var(--color-bg);
         border-color: var(--color-separator);
-        box-shadow: #0000000F 0 0.5px 1px;
+        box-shadow: var(--shadow-button);
         color: var(--color-text);
     }
 
@@ -161,7 +161,7 @@
     }
 
     .o-button--primary:hover:not(:disabled) {
-        background-color: color-mix(in srgb, var(--color-accent) 88%, #000);
+        background-color: color-mix(in srgb, var(--color-accent) 88%, var(--color-shade));
     }
 
     .o-button--danger {
@@ -185,7 +185,7 @@
     }
 
     .o-button--danger-solid:hover:not(:disabled) {
-        background-color: color-mix(in srgb, var(--color-danger) 88%, #000);
+        background-color: color-mix(in srgb, var(--color-danger) 88%, var(--color-shade));
     }
 
     .o-button--link {
