@@ -37,8 +37,7 @@ final class TickRunner
 
     public function __construct(
         private readonly Watcher $watcher,
-    ) {
-    }
+    ) {}
 
     /**
      * @param  iterable<TickPhase>  $phases

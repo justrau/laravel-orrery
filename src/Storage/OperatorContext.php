@@ -25,9 +25,7 @@ final class OperatorContext
     /**
      * @internal PackageSession::operator() makes the contexts.
      */
-    public function __construct()
-    {
-    }
+    public function __construct() {}
 
     public function isActive(): bool
     {

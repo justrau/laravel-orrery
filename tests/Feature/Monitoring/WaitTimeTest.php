@@ -9,6 +9,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
+use Justrau\Orrery\Contracts\WorkloadRepository;
 use Justrau\Orrery\Events\LongWaitDetected;
 use Justrau\Orrery\Monitoring\SampleCounts;
 use Justrau\Orrery\Monitoring\WaitTime;
@@ -102,7 +103,7 @@ final class WaitTimeTest extends TestCase
     {
         $minute = intdiv((int) Carbon::now()->getTimestamp(), 60) * 60;
         $this->mirror()->table('orrery_samples')->insert([
-            'scope' => 'queue', 'series' => \Justrau\Orrery\Monitoring\SampleCounts::series('queue', 'database', 'default'), 'connection' => 'database', 'queue' => 'default',
+            'scope' => 'queue', 'series' => SampleCounts::series('queue', 'database', 'default'), 'connection' => 'database', 'queue' => 'default',
             'minute' => $minute - 600, 'completed' => 3, 'runtime_ms_sum' => 0, 'runtime_count' => 0,
         ]);
 
@@ -216,7 +217,7 @@ final class WaitTimeTest extends TestCase
         self::assertSame(1, $reads, 'measure() reads the heartbeats once for all queues');
 
         $reads = 0;
-        $workload = $this->app->make(\Justrau\Orrery\Contracts\WorkloadRepository::class)->get();
+        $workload = $this->app->make(WorkloadRepository::class)->get();
 
         self::assertSame(['default' => 1, 'emails' => 1, 'high' => 1], array_column(array_map(static fn (array $row): array => [$row['name'], $row['processes']], $workload), 1, 0));
         self::assertSame(1, $reads, 'the workload reads the heartbeats once, for its waits and its processes (UI v1 B1)');

@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Operations\Fixtures;
 
+use Justrau\Orrery\Tests\Support\PdoFromConfig;
 use PDO;
 use PDOException;
-use Justrau\Orrery\Tests\Support\PdoFromConfig;
 
 /**
  * A PDO whose rollBack() throws and leaves the transaction open.

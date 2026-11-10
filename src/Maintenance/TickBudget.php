@@ -17,8 +17,7 @@ final class TickBudget
     public function __construct(
         private readonly float $deadlineMonotonic,
         private readonly ?TickBudget $run = null,
-    ) {
-    }
+    ) {}
 
     /**
      * @phpstan-impure

@@ -252,9 +252,7 @@ final class ForgetAllTest extends TestCase
     public function test_forget_all_of_a_read_only_failer_is_refused_without_a_statement(): void
     {
         [$uuid, , $recordId] = $this->failedOccurrence();
-        $this->app->instance('queue.failer', new class($this->app['db'], TestEnvironment::PRIMARY, 'failed_jobs') extends LaravelUuidProvider
-        {
-        });
+        $this->app->instance('queue.failer', new class($this->app['db'], TestEnvironment::PRIMARY, 'failed_jobs') extends LaravelUuidProvider {});
         $statements = 0;
         DB::listen(static function (QueryExecuted $event) use (&$statements): void {
             if (str_contains($event->sql, 'failed_jobs')) {

@@ -22,9 +22,7 @@ class HookedJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public function __construct(public string $point)
-    {
-    }
+    public function __construct(public string $point) {}
 
     public function handle(): void
     {

@@ -76,8 +76,7 @@ final class ProcessContext
         private float $startedAt,
         private string $startSource,
         private ?WorkerEvidence $evidence,
-    ) {
-    }
+    ) {}
 
     /**
      * Records the first package registration of this process. A package

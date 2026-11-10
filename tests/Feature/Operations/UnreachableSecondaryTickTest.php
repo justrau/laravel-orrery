@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Operations;
 
 use Justrau\Orrery\Console\TickCommand;
+use Justrau\Orrery\Maintenance\TickPhase;
 use Justrau\Orrery\Maintenance\TickReport;
 use Justrau\Orrery\Maintenance\TickRunner;
 use Justrau\Orrery\Retry\Operations;
@@ -122,7 +123,7 @@ final class UnreachableSecondaryTickTest extends RetryProtocolTestCase
 
     private function tick(): TickReport
     {
-        /** @var iterable<\Justrau\Orrery\Maintenance\TickPhase> $phases */
+        /** @var iterable<TickPhase> $phases */
         $phases = $this->app->tagged(TickCommand::PHASES_TAG);
 
         return $this->app->make(TickRunner::class)->run($phases);

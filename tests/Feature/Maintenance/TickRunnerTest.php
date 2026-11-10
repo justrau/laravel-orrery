@@ -13,9 +13,7 @@ use Justrau\Orrery\Maintenance\TickRunner;
 use Justrau\Orrery\Runtime\Degradation;
 use Justrau\Orrery\Runtime\ProcessContext;
 use Justrau\Orrery\Storage\Clock;
-use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Support\FreshSchema;
-use Justrau\Orrery\Tests\Support\TestEnvironment;
 use Justrau\Orrery\Tests\TestCase;
 use RuntimeException;
 
@@ -255,9 +253,7 @@ final class TickRunnerTest extends TestCase
     {
         return new class($name, $priority, $work) implements TickPhase
         {
-            public function __construct(private string $name, private int $priority, private ?\Closure $work)
-            {
-            }
+            public function __construct(private string $name, private int $priority, private ?\Closure $work) {}
 
             public function name(): string
             {

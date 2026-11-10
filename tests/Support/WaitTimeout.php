@@ -11,6 +11,4 @@ use RuntimeException;
  * passed, or the process that it waited for is gone (see Barrier::await()
  * and WorkerProcess::waitUntil()).
  */
-final class WaitTimeout extends RuntimeException
-{
-}
+final class WaitTimeout extends RuntimeException {}

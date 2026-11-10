@@ -19,11 +19,13 @@ use Justrau\Orrery\Failed\FailedRecord;
 use Justrau\Orrery\Failed\FailedRecords;
 use Justrau\Orrery\Failed\FailerProvenance;
 use Justrau\Orrery\Failed\NoFailedRecords;
+use Justrau\Orrery\Failed\ProviderRegistrar;
 use Justrau\Orrery\Failed\ReadOnlyFailedRecords;
 use Justrau\Orrery\Failed\SqlFailedRecords;
 use Justrau\Orrery\Retry\ForgetAllRecords;
 use Justrau\Orrery\Retry\ForgetService;
 use Justrau\Orrery\Retry\Operations;
+use Justrau\Orrery\Retry\RetryService;
 use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Feature\Jobs\FailingJob;
 use Justrau\Orrery\Tests\Support\FreshSchema;
@@ -31,7 +33,6 @@ use Justrau\Orrery\Tests\Support\PackageStatements;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
 use Justrau\Orrery\Tests\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
-use RuntimeException;
 
 /**
  * The failed-record adapters:
@@ -49,8 +50,6 @@ final class FailedRecordsTest extends TestCase
     /**
      * Rejects: a mode decided by the physical database instead of the connection names, and
      * a null failer that gets a SQL mode.
-     *
-     * @param  string|null  $failedConnection
      */
     #[DataProvider('modes')]
     public function test_mode_follows_the_connection_names(?string $failedConnection, ?string $queueConnection, string $expected): void
@@ -163,9 +162,7 @@ final class FailedRecordsTest extends TestCase
                 return false;
             }
 
-            public function flush($hours = null)
-            {
-            }
+            public function flush($hours = null) {}
         };
 
         try {
@@ -181,7 +178,7 @@ final class FailedRecordsTest extends TestCase
                 $this->app->extend('queue.failer', static fn () => $make());
 
                 self::assertSame(FailedRecords::READ_ONLY, FailedRecords::for($this->app, $config)->kind(), $case);
-                $retry = $this->app->make(\Justrau\Orrery\Retry\RetryService::class)->retry($uuid, 1, 'cli', 'cli');
+                $retry = $this->app->make(RetryService::class)->retry($uuid, 1, 'cli', 'cli');
                 self::assertSame(['refused', FailedRecords::PROVIDER_READ_ONLY], [$retry->result, $retry->code], $case);
                 $forget = $this->app->make(ForgetService::class)->forget($uuid, 1, 'cli', 'cli');
                 self::assertSame(['refused', FailedRecords::PROVIDER_READ_ONLY], [$forget->result, $forget->code], $case);
@@ -189,7 +186,7 @@ final class FailedRecordsTest extends TestCase
                 // Back to the package's extender alone (registered before any resolution, as at boot).
                 $this->app->forgetExtenders('queue.failer');
                 $this->app->forgetInstance('queue.failer');
-                \Justrau\Orrery\Failed\ProviderRegistrar::register($this->app);
+                ProviderRegistrar::register($this->app);
             }
 
             // An application binding (not an extend) of Laravel's own class for another table: the package's
@@ -199,7 +196,7 @@ final class FailedRecordsTest extends TestCase
             $this->app->singleton('queue.failer', static fn () => new LaravelUuidProvider($db, '1', '01'));
             self::assertSame(LaravelUuidProvider::class, $this->app['queue.failer']::class, 'the extender keeps a binding of another target');
             self::assertSame(FailedRecords::READ_ONLY, FailedRecords::for($this->app, $config)->kind());
-            $retry = $this->app->make(\Justrau\Orrery\Retry\RetryService::class)->retry($uuid, 1, 'cli', 'cli');
+            $retry = $this->app->make(RetryService::class)->retry($uuid, 1, 'cli', 'cli');
             self::assertSame(['refused', FailedRecords::PROVIDER_READ_ONLY], [$retry->result, $retry->code], 'a binding of another target');
             $this->app->forgetInstance('queue.failer');
             $this->app->bind('queue.failer', $laravel['concrete'], $laravel['shared']);
@@ -233,9 +230,7 @@ final class FailedRecordsTest extends TestCase
         self::assertTrue(FailerProvenance::targetsConfiguration($this->app, new CapturingUuidFailedJobProvider($db, '1', '1')));
 
         // A subclass with no property of its own: the same (array) cast, so only the exact class check refuses it.
-        $subclass = new class($db, TestEnvironment::PRIMARY, '1') extends CapturingUuidFailedJobProvider
-        {
-        };
+        $subclass = new class($db, TestEnvironment::PRIMARY, '1') extends CapturingUuidFailedJobProvider {};
         $config->set('queue.failed.database', TestEnvironment::PRIMARY);
         self::assertFalse(FailerProvenance::targetsConfiguration($this->app, $subclass), 'A subclass of the package provider.');
         $config->set('queue.failed.database', '1');
@@ -267,9 +262,7 @@ final class FailedRecordsTest extends TestCase
                 return false;
             }
 
-            public function flush($hours = null)
-            {
-            }
+            public function flush($hours = null) {}
         };
         self::assertFalse(FailerProvenance::targetsConfiguration($this->app, $wrapper));
 

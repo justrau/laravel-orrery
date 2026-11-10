@@ -38,8 +38,7 @@ final class SqlFailedRecords extends FailedRecords
         private readonly PackageSession $sessions,
         private readonly string $connection,
         private readonly string $table,
-    ) {
-    }
+    ) {}
 
     /**
      * The target of a failed-record table: sha256 of the endpoint identity

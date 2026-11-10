@@ -42,9 +42,7 @@ final class ReusedSchemaFingerprintTest extends TestCase
     /**
      * No package migration: the cases build their own schema.
      */
-    protected function migrateFresh(TestEnvironment $environment): void
-    {
-    }
+    protected function migrateFresh(TestEnvironment $environment): void {}
 
     protected function tearDown(): void
     {
@@ -214,7 +212,7 @@ final class ReusedSchemaFingerprintTest extends TestCase
                 $pdo->exec('CREATE UNIQUE INDEX probe_jobs_queue_index ON probe_jobs (queue)');
             }, 'CREATE UNIQUE INDEX probe_jobs_queue_index'],
             'a view' => [static fn (PDO $pdo): int|false => $pdo->exec('CREATE VIEW probe_view AS SELECT id FROM probe_jobs'), 'probe_view'],
-            'a trigger' => [static fn (PDO $pdo): int|false => $pdo->exec("CREATE TRIGGER probe_trigger AFTER INSERT ON probe_jobs BEGIN SELECT 1; END"), 'probe_trigger'],
+            'a trigger' => [static fn (PDO $pdo): int|false => $pdo->exec('CREATE TRIGGER probe_trigger AFTER INSERT ON probe_jobs BEGIN SELECT 1; END'), 'probe_trigger'],
         ];
     }
 

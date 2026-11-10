@@ -14,9 +14,7 @@ class MonitorTag
 {
     use Dispatchable;
 
-    public function __construct(public string $tag)
-    {
-    }
+    public function __construct(public string $tag) {}
 
     public function handle(MonitoringVersion $monitoring): void
     {

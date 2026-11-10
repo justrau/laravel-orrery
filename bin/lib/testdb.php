@@ -192,7 +192,7 @@ final class Run
     /**
      * @param  list<string>  $command
      * @param  array<string, string>|null  $env  the complete environment, or null to inherit
-     * @return array{0: int, 1: string, 2: string, 3: bool}  status, stdout, stderr, whether a signal ended it
+     * @return array{0: int, 1: string, 2: string, 3: bool} status, stdout, stderr, whether a signal ended it
      */
     public static function capture(array $command, ?array $env = null, float $timeout = 60.0): array
     {
@@ -346,7 +346,7 @@ final class Processes
      * @param  array<int, array{pid: int, ppid: int, pgid: int, zombie: bool, start: string}>  $all  a snapshot()
      * @param  callable(list<int>): array<int, bool>  $carriesToken  which PIDs carry the group's token
      * @param  array<int, string>  $known  processes that this caller already proved owned
-     * @return array{owned: array<int, string>, unverified: array<int, string>}|null  PID => start
+     * @return array{owned: array<int, string>, unverified: array<int, string>}|null PID => start
      */
     public static function groupMembers(array $all, int $pgid, string $leaderStart, callable $carriesToken, array $known = [], ?int $exclude = null): ?array
     {
@@ -643,9 +643,7 @@ final class Registry
     /** @var resource|null */
     private $lock = null;
 
-    public function __construct(public readonly string $dir, public readonly bool $test, private readonly bool $create = true)
-    {
-    }
+    public function __construct(public readonly string $dir, public readonly bool $test, private readonly bool $create = true) {}
 
     /**
      * The store of an owner entry: the registry of a lease, or a private
@@ -936,7 +934,7 @@ final class Environment
     }
 
     /**
-     * @throws Failure  in test mode, for a value that is not a whole number of milliseconds from 1 to 999
+     * @throws Failure in test mode, for a value that is not a whole number of milliseconds from 1 to 999
      */
     public static function testPollMilliseconds(): ?int
     {
@@ -954,7 +952,7 @@ final class Environment
     }
 
     /**
-     * @return array<string, int>  the configured port of each service of ALL_SERVICES
+     * @return array<string, int> the configured port of each service of ALL_SERVICES
      */
     public static function ports(): array
     {
@@ -1033,8 +1031,7 @@ final class Slot
         public readonly string $token,
         public readonly bool $nested,
         private readonly string $holderPath,
-    ) {
-    }
+    ) {}
 
     public static function lockPath(Registry $registry): string
     {
@@ -1054,7 +1051,7 @@ final class Slot
     /**
      * Opens a file of the registry and tries to lock it without waiting.
      *
-     * @return resource|null  the locked handle, or null while another process holds a conflicting lock
+     * @return resource|null the locked handle, or null while another process holds a conflicting lock
      */
     private static function tryLock(string $path, int $operation)
     {
@@ -1365,7 +1362,7 @@ final class Paths
      * fails, $last stays, so an owner store in $last keeps its record.
      *
      * @param  list<string>  $paths
-     * @return array{0: list<string>, 1: list<string>}  removed, failed
+     * @return array{0: list<string>, 1: list<string>} removed, failed
      */
     public static function removeAll(array $paths, ?string $last = null): array
     {
@@ -1577,7 +1574,7 @@ final class DockerOps implements Ops
     /**
      * @param  array<string, int>  $ports  the configured port of each service of ALL_SERVICES
      * @param  (\Closure(list<string> $command, array<string, string> $env, float $timeout): array{0: int, 1: string, 2: string})|null  $runner
-     *                                                                                                                                         runs every Compose command; Run::capture() by default. Tests record the commands with it.
+     *                                                                                                                                           runs every Compose command; Run::capture() by default. Tests record the commands with it.
      */
     public function __construct(private readonly string $composeFile, private readonly array $ports, ?\Closure $runner = null)
     {
@@ -2131,9 +2128,7 @@ final class App
 {
     private ?Ops $ops = null;
 
-    public function __construct(private readonly string $command)
-    {
-    }
+    public function __construct(private readonly string $command) {}
 
     private function registry(): Registry
     {
@@ -2360,7 +2355,7 @@ final class App
      *
      * @param  array<string, mixed>  $entry
      * @param  array{all: array<int, array{pid: int, ppid: int, pgid: int, zombie: bool, start: string}>|null, starts: array<int, string|null>}  $inspection
-     * @return array{0: bool, 1: list<int>}  live, and the unverified PIDs
+     * @return array{0: bool, 1: list<int>} live, and the unverified PIDs
      */
     private static function entryAlive(array $entry, array $inspection): array
     {
@@ -2424,7 +2419,7 @@ final class App
      *
      * @param  array<string, mixed>  $data
      * @param  array{all: array<int, array<string, mixed>>|null, starts: array<int, string|null>}|null  $inspection  an inspection already made in this command
-     * @return list<string>  the removed run ids
+     * @return list<string> the removed run ids
      */
     private function pruneStale(array &$data, ?array $inspection = null): array
     {
@@ -2494,7 +2489,7 @@ final class App
      * so a later --alt call under a live lease finds matching markers.
      *
      * @param  array<string, mixed>  $data
-     * @return string  "kept" or "new"
+     * @return string "kept" or "new"
      */
     private function ensureServices(array &$data, bool $alt = false): string
     {
@@ -3841,6 +3836,7 @@ final class App
             return $result;
         });
     }
+
     /**
      * Takes the heavy-run slot for the process --pid (bin/test), writes the
      * result to --out, and holds the slot until stdin reaches end-of-file:

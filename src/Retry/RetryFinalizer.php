@@ -38,8 +38,7 @@ final class RetryFinalizer
         private readonly CycleSummaries $summaries,
         private readonly History $history,
         private readonly Operations $operations,
-    ) {
-    }
+    ) {}
 
     /**
      * False when the row is not held by the operation, or the operation is

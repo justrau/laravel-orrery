@@ -105,8 +105,7 @@ class DatabaseWorkloadRepository implements WorkloadRepository
         protected MeasurementCache $measurements,
         protected Instrumentation $instrumentation,
         protected SampleCoverage $coverage,
-    ) {
-    }
+    ) {}
 
     /**
      * Get the current workload of each queue.

@@ -22,9 +22,7 @@ use Throwable;
  */
 class MarshalFailedEvent implements WatchesItself
 {
-    public function __construct(public Dispatcher $events)
-    {
-    }
+    public function __construct(public Dispatcher $events) {}
 
     public function handle(LaravelJobFailed $event): void
     {

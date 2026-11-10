@@ -192,8 +192,7 @@ final class StuckIncidents
         private readonly PackageTransaction $transactions,
         private readonly Watcher $watcher,
         private readonly StuckNotifications $notifications,
-    ) {
-    }
+    ) {}
 
     /**
      * One run: creation, then delivery, within the share and the budget.

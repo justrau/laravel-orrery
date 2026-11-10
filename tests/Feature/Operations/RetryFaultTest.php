@@ -23,7 +23,6 @@ use Justrau\Orrery\Tests\Feature\Operations\Fixtures\ThrowingRollbackPdo;
 use Justrau\Orrery\Tests\Support\LostAckCommitPdo;
 use Justrau\Orrery\Tests\Support\SessionPdo;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
-use Throwable;
 
 /**
  * Faults of the mirror and of the sessions around a retry:

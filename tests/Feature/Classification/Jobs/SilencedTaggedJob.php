@@ -25,7 +25,5 @@ class SilencedTaggedJob implements ShouldQueue, Silenced
         return ['tenant:42'];
     }
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

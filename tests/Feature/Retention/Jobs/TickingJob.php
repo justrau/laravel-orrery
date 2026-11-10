@@ -22,9 +22,7 @@ class TickingJob implements ShouldQueue
     use InteractsWithQueue;
     use Queueable;
 
-    public function __construct(public int $minutes = 20_000)
-    {
-    }
+    public function __construct(public int $minutes = 20_000) {}
 
     public function handle(): void
     {

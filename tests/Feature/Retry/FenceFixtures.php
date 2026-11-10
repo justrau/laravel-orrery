@@ -200,5 +200,4 @@ trait FenceFixtures
 
         $config->set("queue.connections.{$queue}", ['driver' => 'database', 'connection' => $database, 'table' => $table, 'queue' => 'default', 'retry_after' => 90]);
     }
-
 }

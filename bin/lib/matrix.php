@@ -59,6 +59,10 @@ declare(strict_types=1);
 
 namespace OrreryMatrix;
 
+use OrreryTestDb\Failure;
+use OrreryTestDb\Registry;
+use OrreryTestDb\Slot;
+
 require_once __DIR__.'/known-failures.php';
 require_once __DIR__.'/testdb.php';
 
@@ -109,7 +113,7 @@ const FRESH_LATEST = ['php8.5-laravel13'];
  * the Laravel 13 lowest leg (fresh). The docker group runs once, on PHP 8.4.
  * A phase end runs the full default matrix.
  *
- * @var list<array{0: string, 1: int, 2: bool}>  PHP, Laravel, lowest
+ * @var list<array{0: string, 1: int, 2: bool}> PHP, Laravel, lowest
  */
 const QUICK_LEGS = [['8.4', 12, false], ['8.5', 13, false], ['8.3', 13, true]];
 const QUICK_DOCKER_LEG = 'php8.4-laravel12';
@@ -165,9 +169,7 @@ const DEFAULT_SLOT_WAIT = 7200;
 const EXIT_SLOT = 72;
 const COMPOSER_TIMEOUT = 1200;
 
-final class UsageError extends \RuntimeException
-{
-}
+final class UsageError extends \RuntimeException {}
 
 final class Options
 {
@@ -197,8 +199,7 @@ final class Options
         public readonly bool $allFresh = false,
         public readonly bool $quick = false,
         public readonly bool $memoryOnly = false,
-    ) {
-    }
+    ) {}
 
     /**
      * @param  list<string>  $arguments  without the program name
@@ -312,7 +313,7 @@ final class Options
 
     /**
      * @param  list<string>  $allowed
-     * @return list<string>  in the order of $allowed
+     * @return list<string> in the order of $allowed
      */
     private static function list(string $value, array $allowed, string $option): array
     {
@@ -330,9 +331,7 @@ final class Options
 
 final class Variant
 {
-    public function __construct(public readonly string $mirror, public readonly string $prefix)
-    {
-    }
+    public function __construct(public readonly string $mirror, public readonly string $prefix) {}
 
     public static function base(): self
     {
@@ -375,8 +374,7 @@ final class RunSpec
         public readonly array $require,
         public readonly array $engineSkip,
         public readonly string $schema = SCHEMA_FRESH,
-    ) {
-    }
+    ) {}
 
     public function name(): string
     {
@@ -478,8 +476,7 @@ final class Leg
         public readonly bool $scripts = true,
         public readonly bool $docker = false,
         public readonly bool $memoryOnly = false,
-    ) {
-    }
+    ) {}
 
     public function id(): string
     {
@@ -607,8 +604,7 @@ final class Unit
         public readonly string $key,
         public readonly ?string $suffix,
         public readonly array $runs,
-    ) {
-    }
+    ) {}
 
     /**
      * The database suffix of a variant: s(ame) or p (a separate pair), then
@@ -828,7 +824,7 @@ final class LockRules
     }
 
     /**
-     * @return array<string, string>  package => version
+     * @return array<string, string> package => version
      */
     public static function packages(array $lock): array
     {
@@ -918,7 +914,7 @@ final class LockRules
 final class Snapshot
 {
     /**
-     * @return list<string>  the relative paths, sorted
+     * @return list<string> the relative paths, sorted
      */
     public static function files(string $source): array
     {
@@ -1117,8 +1113,7 @@ final class Command
         public readonly array $env,
         public readonly string $log,
         public readonly int $timeout,
-    ) {
-    }
+    ) {}
 }
 
 /**
@@ -1285,8 +1280,7 @@ final class RunResult
         public readonly ?array $identity,
         public readonly ?string $timedOutTest = null,
         public readonly ?string $database = null,
-    ) {
-    }
+    ) {}
 
     /**
      * @return list<string>
@@ -1332,9 +1326,7 @@ final class LegResult
     /**
      * @param  array<string, string|null>  $databases  unit key => base database name (null without a server run)
      */
-    public function __construct(public readonly Leg $leg, public readonly array $databases)
-    {
-    }
+    public function __construct(public readonly Leg $leg, public readonly array $databases) {}
 
     public function verdict(): string
     {
@@ -1365,7 +1357,6 @@ final class LegResult
     {
         $totals = ['tests' => 0, 'assertions' => 0, 'listed' => 0];
 
-
         foreach ($this->runs as $run) {
             $totals['tests'] += $run->check?->counts['tests'] ?? 0;
             $totals['assertions'] += $run->check?->counts['assertions'] ?? 0;
@@ -1393,8 +1384,7 @@ final class Prepared
         public readonly Manifest $manifest,
         public readonly Unconditional $unconditional,
         public readonly string $logs,
-    ) {
-    }
+    ) {}
 }
 
 final class Runner
@@ -1425,7 +1415,7 @@ final class Runner
     private $out;
 
     /** The heavy-run slot while this run holds it. */
-    private ?\OrreryTestDb\Slot $slot = null;
+    private ?Slot $slot = null;
 
     /**
      * @param  list<string>  $argv  the full argv, for the summary
@@ -1870,7 +1860,7 @@ final class Runner
      * bin/test run. The fixture tests take it only with a test registry
      * (ORRERY_REGISTRY_TEST=1), never in the real registry.
      *
-     * @return int|null  the exit status when the run cannot start, else null
+     * @return int|null the exit status when the run cannot start, else null
      */
     private function takeSlot(): ?int
     {
@@ -1888,8 +1878,8 @@ final class Runner
         $inherited = $this->env['ORRERY_SLOT_TOKEN'] ?? '';
 
         try {
-            $this->slot = \OrreryTestDb\Slot::acquire(
-                \OrreryTestDb\Registry::resolve(),
+            $this->slot = Slot::acquire(
+                Registry::resolve(),
                 ['run_id' => $this->runId, 'pid' => getmypid(), 'checkout' => $this->source, 'command' => 'bin/matrix '.implode(' ', array_slice($this->argv, 1))],
                 $this->options->slotWait,
                 $inherited !== '' ? $inherited : null,
@@ -1903,7 +1893,7 @@ final class Runner
                 },
                 $every,
             );
-        } catch (\OrreryTestDb\Failure $failure) {
+        } catch (Failure $failure) {
             $this->say('bin/matrix: '.$failure->getMessage());
 
             if ($this->interrupted) {
@@ -2431,8 +2421,7 @@ final class Summary
         private readonly float $seconds,
         private readonly bool $interrupted,
         private readonly ?string $error = null,
-    ) {
-    }
+    ) {}
 
     public static function duration(float $seconds): string
     {

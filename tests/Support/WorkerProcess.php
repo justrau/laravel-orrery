@@ -108,8 +108,7 @@ final class WorkerProcess
         private readonly int $pid,
         private readonly string $gates,
         private readonly array $command,
-    ) {
-    }
+    ) {}
 
     /**
      * Starts `tests/Support/bin/artisan <$artisanArgs>` and returns when the
@@ -119,7 +118,7 @@ final class WorkerProcess
      * @param  list<string>  $artisanArgs  the artisan arguments, for example ['queue:work', 'database', '--once']; options may come first
      * @param  array<string, string|false>  $extraEnv  more variables for the child; they win over the handoff; false unsets
      *
-     * @throws HarnessRefusal  when the child cannot be registered, fails its own check, or does not match $env; the child is then stopped
+     * @throws HarnessRefusal when the child cannot be registered, fails its own check, or does not match $env; the child is then stopped
      */
     public static function start(array $artisanArgs, TestEnvironment $env, array $extraEnv = []): self
     {
@@ -137,7 +136,7 @@ final class WorkerProcess
      * @param  list<string>  $artisanArgs
      * @param  array<string, string|false>  $extraEnv
      *
-     * @throws HarnessRefusal  when the child cannot be registered or prints no identity line; the child is then stopped
+     * @throws HarnessRefusal when the child cannot be registered or prints no identity line; the child is then stopped
      */
     public static function launch(array $artisanArgs, TestEnvironment $env, array $extraEnv = []): self
     {
@@ -205,7 +204,7 @@ final class WorkerProcess
      * Step 3 of the class comment: asserts the child's identity line against
      * $env, then opens the identity gate, so the child runs its command.
      *
-     * @throws HarnessRefusal  when the identity does not match; the child is then stopped
+     * @throws HarnessRefusal when the identity does not match; the child is then stopped
      */
     public function accept(TestEnvironment $env): void
     {
@@ -348,7 +347,7 @@ final class WorkerProcess
     /**
      * Waits until the child exits, and returns its exit status.
      *
-     * @throws WaitTimeout  when it still runs after $seconds (it keeps running; stop() or the test's tearDown() ends it)
+     * @throws WaitTimeout when it still runs after $seconds (it keeps running; stop() or the test's tearDown() ends it)
      */
     public function waitForExit(float $seconds = 60.0): int
     {
@@ -382,7 +381,7 @@ final class WorkerProcess
      * this helper's own child, and only while its PID still has the recorded
      * start time. Returns the exit status.
      *
-     * @throws HarnessRefusal  when the PID has another start time; nothing is signalled then
+     * @throws HarnessRefusal when the PID has another start time; nothing is signalled then
      */
     public function stop(float $grace = self::STOP_GRACE): ?int
     {
@@ -425,7 +424,7 @@ final class WorkerProcess
      * because nothing proves that it exited: it can still use the schema and
      * its barriers. Only a verified exit removes a worker from the record.
      *
-     * @throws HarnessRefusal  naming every worker that is not proved stopped
+     * @throws HarnessRefusal naming every worker that is not proved stopped
      */
     public static function stopAll(float $grace = 3.0, int $attempts = self::STOP_ATTEMPTS): void
     {
@@ -491,7 +490,7 @@ final class WorkerProcess
      * normalised as bin/lib/testdb.php does), or null when it is gone or a
      * zombie.
      *
-     * @throws HarnessRefusal  when ps fails or prints something else
+     * @throws HarnessRefusal when ps fails or prints something else
      */
     public static function processStart(int $pid): ?string
     {

@@ -12,9 +12,7 @@ class QuickJob implements ShouldQueue
 {
     use Queueable;
 
-    public function __construct(public int $number)
-    {
-    }
+    public function __construct(public int $number) {}
 
     public function handle(): void
     {

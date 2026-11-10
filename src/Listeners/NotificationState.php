@@ -7,8 +7,8 @@ use Illuminate\Cache\ArrayStore;
 use Illuminate\Cache\FailoverStore;
 use Illuminate\Cache\NullStore;
 use Illuminate\Cache\Repository as Cache;
-use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Container\Container;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Contracts\Cache\LockProvider;
 use Illuminate\Database\Connection;
 use Justrau\Orrery\Runtime\Watcher;
@@ -47,9 +47,7 @@ final class NotificationState
     /** The reported operation of a cache store that threw. */
     public const OPERATION = 'notification:state';
 
-    private function __construct(private ?Cache $cache)
-    {
-    }
+    private function __construct(private ?Cache $cache) {}
 
     public static function current(): self
     {

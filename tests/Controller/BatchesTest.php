@@ -761,7 +761,8 @@ final class BatchesTest extends ControllerTest
         $calls = new \ArrayObject;
         $repository = $kind === 'dynamodb'
             ? (new ReflectionClass(DynamoBatchRepository::class))->newInstanceWithoutConstructor()
-            : new class($this->app->make(BatchFactory::class), $this->app['db']->connection(), 'job_batches', $calls) extends LaravelDatabaseBatchRepository {
+            : new class($this->app->make(BatchFactory::class), $this->app['db']->connection(), 'job_batches', $calls) extends LaravelDatabaseBatchRepository
+            {
                 /** @param  \ArrayObject<int, string>  $calls */
                 public function __construct(BatchFactory $factory, Connection $connection, string $table, private \ArrayObject $calls)
                 {

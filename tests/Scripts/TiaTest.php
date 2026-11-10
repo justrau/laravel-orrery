@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Scripts;
 
+use Justrau\Orrery\Tests\Support\Tia\Extension;
+use Justrau\Orrery\Tests\Support\WorkerProcess;
 use OrreryTia\Checks;
 use OrreryTia\Command;
 use OrreryTia\Literals;
@@ -11,6 +13,7 @@ use OrreryTia\MapBuilder;
 use OrreryTia\PhpFile;
 use OrreryTia\Selector;
 use OrreryTia\Tree;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
 use Symfony\Component\Process\Process;
@@ -322,7 +325,7 @@ PHP;
     /**
      * @param  array<string, string|null>  $changes
      */
-    #[\PHPUnit\Framework\Attributes\DataProvider('fallbacks')]
+    #[DataProvider('fallbacks')]
     public function test_a_change_that_the_map_cannot_prove_falls_back(array $changes, string $named): void
     {
         $map = $this->map();
@@ -638,7 +641,7 @@ PHP;
     public function test_the_worker_launch_and_the_worker_cli_carry_the_recording_hook(): void
     {
         $root = dirname(__DIR__, 2);
-        $launch = new \ReflectionMethod(\Justrau\Orrery\Tests\Support\WorkerProcess::class, 'launch');
+        $launch = new \ReflectionMethod(WorkerProcess::class, 'launch');
         $lines = array_slice((array) file($root.'/tests/Support/WorkerProcess.php'), $launch->getStartLine() - 1, $launch->getEndLine() - $launch->getStartLine() + 1);
 
         self::assertStringContainsString('Recorder::childEnvironment()),null,null);', self::code("<?php\n".implode('', $lines)));
@@ -690,7 +693,7 @@ PHP;
         mkdir($record);
 
         $process = new Process(
-            [PHP_BINARY, dirname(__DIR__, 2).'/vendor/bin/phpunit', '--configuration', $root.'/phpunit.xml', '--do-not-cache-result', '--extension', \Justrau\Orrery\Tests\Support\Tia\Extension::class],
+            [PHP_BINARY, dirname(__DIR__, 2).'/vendor/bin/phpunit', '--configuration', $root.'/phpunit.xml', '--do-not-cache-result', '--extension', Extension::class],
             $root,
             ['XDEBUG_MODE' => 'coverage', 'ORRERY_TIA_RECORD' => $record, 'ORRERY_TIA_ROOT' => $root],
             null,
@@ -754,7 +757,7 @@ PHP;
         mkdir($record);
 
         $process = new Process(
-            [PHP_BINARY, dirname(__DIR__, 2).'/vendor/bin/phpunit', '--configuration', $root.'/phpunit.xml', '--do-not-cache-result', '--extension', \Justrau\Orrery\Tests\Support\Tia\Extension::class, '--filter', 'ChildTest|ScrubbedTest'],
+            [PHP_BINARY, dirname(__DIR__, 2).'/vendor/bin/phpunit', '--configuration', $root.'/phpunit.xml', '--do-not-cache-result', '--extension', Extension::class, '--filter', 'ChildTest|ScrubbedTest'],
             $root,
             ['XDEBUG_MODE' => 'coverage', 'ORRERY_TIA_RECORD' => $record, 'ORRERY_TIA_ROOT' => $root],
             null,
@@ -782,7 +785,7 @@ PHP;
         $root = $this->makeFixture(inert: true);
 
         $process = new Process(
-            [PHP_BINARY, dirname(__DIR__, 2).'/vendor/bin/phpunit', '--configuration', $root.'/phpunit.xml', '--do-not-cache-result', '--extension', \Justrau\Orrery\Tests\Support\Tia\Extension::class, '--filter', 'InertTest'],
+            [PHP_BINARY, dirname(__DIR__, 2).'/vendor/bin/phpunit', '--configuration', $root.'/phpunit.xml', '--do-not-cache-result', '--extension', Extension::class, '--filter', 'InertTest'],
             $root,
             ['XDEBUG_MODE' => 'coverage', 'ORRERY_TIA_RECORD' => false, 'ORRERY_TIA_ROOT' => $root],
             null,

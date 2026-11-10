@@ -28,9 +28,7 @@ final class RestartMarkerPhase implements TickPhase
 {
     public const CACHE_OPERATION = 'tick:restart_markers:cache';
 
-    public function __construct(private readonly Markers $markers)
-    {
-    }
+    public function __construct(private readonly Markers $markers) {}
 
     public function name(): string
     {

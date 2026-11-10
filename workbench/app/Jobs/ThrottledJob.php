@@ -21,9 +21,7 @@ class ThrottledJob implements ShouldQueue
     /** Above the releases of the seeder, so the job never fails: its rule is an attempt limit. */
     public int $tries = 25;
 
-    public function __construct(public int $number)
-    {
-    }
+    public function __construct(public int $number) {}
 
     /**
      * The limiter of the middleware. The seeder defines it before it works the queue.
@@ -43,7 +41,5 @@ class ThrottledJob implements ShouldQueue
         return [(new RateLimited(self::LIMITER))->releaseAfter(1)];
     }
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

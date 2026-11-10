@@ -11,6 +11,4 @@ use Justrau\Orrery\Tests\TestCase;
  * A parent class with the marker, for the tests of FreshSchema::marked().
  */
 #[FreshSchema]
-abstract class MarkedParent extends TestCase
-{
-}
+abstract class MarkedParent extends TestCase {}

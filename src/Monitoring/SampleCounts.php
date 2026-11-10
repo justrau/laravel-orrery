@@ -174,8 +174,7 @@ final class SampleCounts
     public function __construct(
         private readonly PackageTransaction $transactions,
         private readonly WaitTime $waits,
-    ) {
-    }
+    ) {}
 
     /**
      * One aggregation run. Returns the number of minutes that it published.

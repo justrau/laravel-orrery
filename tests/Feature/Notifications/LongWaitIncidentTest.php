@@ -6,7 +6,10 @@ namespace Justrau\Orrery\Tests\Feature\Notifications;
 
 use ArrayObject;
 use Closure;
+use Illuminate\Container\Container;
+use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Notifications\ChannelManager;
+use Illuminate\Notifications\Notification;
 use Illuminate\Support\Carbon;
 use Justrau\Orrery\Contracts\LongWaitDetectedNotification;
 use Justrau\Orrery\Contracts\LongWaitRecoveredNotification;
@@ -19,11 +22,11 @@ use Justrau\Orrery\Monitoring\Phases\LongWaitPhase;
 use Justrau\Orrery\Notifications\LongWaitRecovered as LongWaitRecoveredMessage;
 use Justrau\Orrery\Runtime\Degradation;
 use Justrau\Orrery\Storage\Clock;
+use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Support\Fixtures\Notifications\ChannelNotification;
 use Justrau\Orrery\Tests\Support\Fixtures\Notifications\RecoveredChannelNotification;
 use Justrau\Orrery\Tests\Support\Fixtures\Notifications\ScriptedChannel;
 use Justrau\Orrery\Tests\TestCase;
-use Illuminate\Notifications\Notification;
 use RuntimeException;
 
 /**
@@ -256,7 +259,7 @@ final class LongWaitIncidentTest extends TestCase
         $key = LongWaitIncidents::key('database', 'default');
         $mirror = $this->mirror();
         $done = false;
-        \Illuminate\Container\Container::getInstance()->make(\Justrau\Orrery\Storage\PackageSession::class)->mirror()->beforeExecuting(function (string $sql) use (&$done, $mirror, $key): void {
+        Container::getInstance()->make(PackageSession::class)->mirror()->beforeExecuting(function (string $sql) use (&$done, $mirror, $key): void {
             if ($done || ! str_starts_with(strtolower(ltrim($sql)), 'update')) {
                 return;
             }
@@ -394,7 +397,7 @@ final class LongWaitIncidentTest extends TestCase
         $message = new LongWaitRecoveredMessage('database', 'emails', 420);
 
         self::assertSame('Orrery: the "emails" queue on the "database" connection waits within its limit again, after 420 seconds.', $message->smsText());
-        $mail = $message->toMail(new \Illuminate\Notifications\AnonymousNotifiable);
+        $mail = $message->toMail(new AnonymousNotifiable);
         self::assertSame('success', $mail->level);
         self::assertSame('Orrery: Long Wait Recovered', $mail->subject);
         self::assertStringContainsString('"emails" queue on the "database" connection waits within its limit again, after a long wait of 420 seconds.', html_entity_decode((string) $mail->introLines[0], ENT_QUOTES | ENT_HTML5));

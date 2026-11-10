@@ -11,9 +11,7 @@ use Illuminate\Database\Connection;
  */
 final class EscapedValue
 {
-    private function __construct(public readonly string $sql)
-    {
-    }
+    private function __construct(public readonly string $sql) {}
 
     public static function of(Connection $connection, string|int|null $value): self
     {

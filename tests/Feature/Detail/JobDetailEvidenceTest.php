@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Detail;
 
+use Illuminate\Testing\TestResponse;
 use Justrau\Orrery\Lifecycle\CycleStart;
 use Justrau\Orrery\Lifecycle\CycleSummaries;
 use Justrau\Orrery\Lifecycle\JobStore;
@@ -12,6 +13,7 @@ use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\Controller\Fakes\User;
 use Justrau\Orrery\Tests\ControllerTest;
 use Justrau\Orrery\Tests\Support\Fixtures\Lifecycle\BuildsObservations;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * The effective tries and timeout of the job detail with per-attempt worker
@@ -100,9 +102,9 @@ final class JobDetailEvidenceTest extends ControllerTest
     }
 
     /**
-     * @return \Illuminate\Testing\TestResponse<\Symfony\Component\HttpFoundation\Response>
+     * @return TestResponse<Response>
      */
-    private function detail(): \Illuminate\Testing\TestResponse
+    private function detail(): TestResponse
     {
         return $this->actingAs(new User)->getJson('/orrery/api/jobs/'.self::UUID)->assertOk();
     }

@@ -21,8 +21,7 @@ final class ChannelNotification extends Notification implements LongWaitDetected
         public readonly string $queue,
         public readonly int $seconds,
         private readonly array $channels,
-    ) {
-    }
+    ) {}
 
     /**
      * @return list<string>

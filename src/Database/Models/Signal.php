@@ -3,6 +3,7 @@
 namespace Justrau\Orrery\Database\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Carbon;
 use Justrau\Orrery\Database\Models\Casts\UtcDateTime;
 use Justrau\Orrery\Database\Models\Concerns\UsesMirrorSession;
 
@@ -12,7 +13,7 @@ use Justrau\Orrery\Database\Models\Concerns\UsesMirrorSession;
  * @property string $scope
  * @property string $scope_value
  * @property float $issued_at
- * @property \Illuminate\Support\Carbon|null $expires_at
+ * @property Carbon|null $expires_at
  * @property string|null $issued_by
  */
 class Signal extends Model

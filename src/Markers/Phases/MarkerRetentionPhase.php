@@ -13,9 +13,7 @@ use Justrau\Orrery\Markers\Markers;
  */
 final class MarkerRetentionPhase implements TickPhase
 {
-    public function __construct(private readonly Markers $markers)
-    {
-    }
+    public function __construct(private readonly Markers $markers) {}
 
     public function name(): string
     {

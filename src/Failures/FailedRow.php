@@ -27,8 +27,7 @@ final class FailedRow
         public readonly ?float $retriedAt,
         public readonly int $attempts,
         public readonly string $key,
-    ) {
-    }
+    ) {}
 
     public function queueKey(): string
     {

@@ -138,10 +138,10 @@ final class PackageSession
     /** @var array<string, PooledSessionRefused> the pooled refusals by name, access mode, identity and settings */
     private array $refusals = [];
 
-    /** @var (Closure(string $kind, string $sql, ?string $session, ?Connection $connection, array<mixed> $bindings): void)|null */
+    /** @var (Closure(string, string, ?string, ?Connection, array<mixed>): void)|null */
     private ?Closure $recorder = null;
 
-    /** @var (Closure(string $sessionName, array<string, mixed> $config): ?PDO)|null */
+    /** @var (Closure(string, array<string, mixed>): ?PDO)|null */
     private ?Closure $pdoFactory = null;
 
     private ?int $idleSecondsForTesting = null;
@@ -150,7 +150,7 @@ final class PackageSession
 
     private ?int $connectTimeoutSecondsForTesting = null;
 
-    /** @var (Closure(string $dsn, array<int, mixed> $options): ?PDO)|null */
+    /** @var (Closure(string, array<int, mixed>): ?PDO)|null */
     private ?Closure $connectAttempt = null;
 
     private ?OperatorContext $operator = null;
@@ -164,9 +164,7 @@ final class PackageSession
     /** Whether this process reported that the mirror followed database.default to another target (once per process). */
     private bool $mirrorMoveReported = false;
 
-    public function __construct(private readonly Application $app)
-    {
-    }
+    public function __construct(private readonly Application $app) {}
 
     /**
      * The session of a database connection name; null is database.default.
@@ -594,7 +592,7 @@ final class PackageSession
     public static function asOperator(Closure $work): mixed
     {
         /** @var self $sessions */
-        $sessions = \Illuminate\Container\Container::getInstance()->make(self::class);
+        $sessions = Container::getInstance()->make(self::class);
 
         return $sessions->operator($work);
     }

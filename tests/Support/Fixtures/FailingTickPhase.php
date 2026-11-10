@@ -14,9 +14,7 @@ use RuntimeException;
  */
 class FailingTickPhase implements TickPhase
 {
-    public function __construct(private readonly string $name)
-    {
-    }
+    public function __construct(private readonly string $name) {}
 
     public function name(): string
     {

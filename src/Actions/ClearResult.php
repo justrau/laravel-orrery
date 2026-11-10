@@ -36,8 +36,7 @@ final class ClearResult
         public readonly bool $mirrorFailed,
         public readonly bool $complete,
         public readonly ?string $reason,
-    ) {
-    }
+    ) {}
 
     /**
      * @return array{deleted: int, mirror_rows: int, unresolved_rows: int, undecodable: int, count_mismatches: int, mirror_failed: bool, complete: bool, reason: string|null}

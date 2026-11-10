@@ -3,6 +3,9 @@
 namespace Justrau\Orrery\Console;
 
 use Illuminate\Console\Command;
+use Illuminate\Contracts\Config\Repository;
+use Illuminate\Database\Connection;
+use Illuminate\Foundation\Application;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Justrau\Orrery\Database\Schema\DeferredIndexes;
@@ -185,7 +188,7 @@ class InstallCommand extends Command
                 return;
             }
 
-            /** @var \Illuminate\Database\Connection $mirror */
+            /** @var Connection $mirror */
             $mirror = $this->laravel->make('db')->connection(PackageSchema::configuredConnection());
 
             if (PackageSchema::adoptUnmarked($mirror, PackageSchema::currentVersion())) {
@@ -203,7 +206,7 @@ class InstallCommand extends Command
      */
     protected function reportFence(): void
     {
-        /** @var \Illuminate\Contracts\Config\Repository $config */
+        /** @var Repository $config */
         $config = $this->laravel->make('config');
         $retention = self::positive($config->get('orrery.retry.fence_retention_days'), 30);
         $timeout = self::positive($config->get('orrery.retry.publish_timeout'), 60);
@@ -322,7 +325,7 @@ class InstallCommand extends Command
 
     protected function registerServiceProvider(): void
     {
-        /** @var \Illuminate\Foundation\Application $app */
+        /** @var Application $app */
         $app = $this->laravel;
         $namespace = Str::replaceLast('\\', '', $app->getNamespace());
         $providerClass = "{$namespace}\\Providers\\OrreryServiceProvider";

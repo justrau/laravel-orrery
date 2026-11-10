@@ -36,7 +36,5 @@ class InnerBulkJob implements ShouldQueue
         return ['outer-of-inner-bulk'];
     }
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

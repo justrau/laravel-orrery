@@ -18,9 +18,7 @@ final class Breaker
     /**
      * @param  Closure(): float  $monotonic
      */
-    public function __construct(private readonly float $seconds, private readonly Closure $monotonic)
-    {
-    }
+    public function __construct(private readonly float $seconds, private readonly Closure $monotonic) {}
 
     /**
      * Opens the breaker. Returns true when it changed from closed to open.

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Monitoring;
 
+use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
@@ -175,7 +176,7 @@ final class FailureSpikeTest extends TestCase
     public function test_the_notice_names_the_count_the_minute_and_the_groups(): void
     {
         $notice = new FailureSpikeDetected(57, 1_790_000_040, [['name' => 'App\\Jobs\\Sync', 'exception_class' => 'RuntimeException', 'count' => 40]]);
-        $mail = $notice->toMail(new \Illuminate\Notifications\AnonymousNotifiable);
+        $mail = $notice->toMail(new AnonymousNotifiable);
 
         self::assertSame('Orrery: Failure Spike Detected', $mail->subject);
         self::assertStringContainsString('At least 57 jobs failed in the minute of 2026-09-21 14:14 UTC. Largest groups: at least 40 x App\\Jobs\\Sync (RuntimeException).', html_entity_decode((string) $mail->introLines[0], ENT_QUOTES | ENT_HTML5));

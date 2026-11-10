@@ -5,6 +5,7 @@ namespace Justrau\Orrery\Maintenance;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Container\Container;
 use Illuminate\Database\Connection;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Collection;
 use Justrau\Orrery\Failed\FailedRecords;
 use Justrau\Orrery\Failed\SqlFailedRecords;
@@ -177,8 +178,7 @@ final class Reconciliation
         private readonly JobStore $store,
         private readonly ForgetService $forget,
         private readonly Container $app,
-    ) {
-    }
+    ) {}
 
     /**
      * The start time of the last completed sweep of the active rows of a
@@ -555,7 +555,7 @@ final class Reconciliation
      *
      * @param  \stdClass  $row
      */
-    private function inspected(Connection $mirror, object $row): \Illuminate\Database\Query\Builder
+    private function inspected(Connection $mirror, object $row): Builder
     {
         return $mirror->table(self::TABLE)
             ->where('id', $row->id)
@@ -850,7 +850,7 @@ final class Reconciliation
      *
      * @param  \stdClass  $row
      */
-    private function failedSnapshot(Connection $mirror, object $row): \Illuminate\Database\Query\Builder
+    private function failedSnapshot(Connection $mirror, object $row): Builder
     {
         $query = $mirror->table(self::TABLE)
             ->where('id', $row->id)

@@ -25,13 +25,9 @@ final class ListenerTestModule implements Module
 
     public static int $calls = 0;
 
-    public function register(Application $app): void
-    {
-    }
+    public function register(Application $app): void {}
 
-    public function boot(Application $app): void
-    {
-    }
+    public function boot(Application $app): void {}
 
     public function listeners(): array
     {

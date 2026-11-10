@@ -10,6 +10,7 @@ use Illuminate\Support\Carbon;
 use Justrau\Orrery\Maintenance\Phases\ReconcileActivePhase;
 use Justrau\Orrery\Maintenance\Phases\ReconcileFailedPhase;
 use Justrau\Orrery\Maintenance\Reconciliation;
+use Justrau\Orrery\Runtime\Degradation;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\Feature\Jobs\BasicJob;
 use Justrau\Orrery\Tests\Feature\Retry\RetryTestCase;
@@ -93,7 +94,7 @@ abstract class ReconciliationTestCase extends RetryTestCase
      */
     protected function healthErrors(): array
     {
-        $record = \Justrau\Orrery\Runtime\Degradation::record();
+        $record = Degradation::record();
 
         return is_array($record['errors'] ?? null) ? $record['errors'] : [];
     }

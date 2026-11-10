@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Reconciliation;
 
+use Illuminate\Database\Connection;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
@@ -173,7 +175,7 @@ final class FailedReconciliationTest extends ReconciliationTestCase
         $this->mirror()->table('orrery_jobs')->where('uuid', $uuid)->update(['absent_since' => OffGridTime::stored($this->mirror(), $start, 1)]);
 
         $deletes = [];
-        $this->app['events']->listen(\Illuminate\Database\Events\QueryExecuted::class, static function (\Illuminate\Database\Events\QueryExecuted $query) use (&$deletes): void {
+        $this->app['events']->listen(QueryExecuted::class, static function (QueryExecuted $query) use (&$deletes): void {
             if (preg_match('/^delete from [`"]?\w*orrery_jobs[`"]? /i', $query->sql) === 1) {
                 $deletes[] = $query->bindings;
             }
@@ -246,7 +248,7 @@ final class FailedReconciliationTest extends ReconciliationTestCase
      * the open transaction (a SQLite file locks the whole database, so the
      * queue could not run meanwhile).
      *
-     * @return array{0: \Illuminate\Database\Connection, 1: string, 2: int}
+     * @return array{0: Connection, 1: string, 2: int}
      */
     private function failInsideAnApplicationTransaction(): array
     {
@@ -254,7 +256,7 @@ final class FailedReconciliationTest extends ReconciliationTestCase
 
         $this->copyConnection('testbench_app');
         $this->useFailer('database-uuids', 'failed_jobs', 'testbench_app');
-        /** @var \Illuminate\Database\Connection $application */
+        /** @var Connection $application */
         $application = DB::connection('testbench_app');
         $application->beginTransaction();
 
@@ -504,6 +506,7 @@ final class FailedReconciliationTest extends ReconciliationTestCase
 
         self::assertSame(0, $this->mirror()->table('orrery_jobs')->count(), 'and the next tick past the grace removes every row');
     }
+
     /**
      * Rejects: a tick that walks every failed row while the deadline lasts, or a budget that loses its position.
      */

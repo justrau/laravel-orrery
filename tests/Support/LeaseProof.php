@@ -71,7 +71,7 @@ final class LeaseProof
      *
      * @param  (callable(): array<string, mixed>)|null  $status
      * @param  (callable(int, string, ?string): (array{owned: array<int, string>, unverified: array<int, string>}|null))|null  $members
-     * @return string  'lease' (proved), 'ci' (no registry) or 'none' (SQLite)
+     * @return string 'lease' (proved), 'ci' (no registry) or 'none' (SQLite)
      *
      * @throws HarnessRefusal
      */

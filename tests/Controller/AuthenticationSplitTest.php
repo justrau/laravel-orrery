@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Controller;
 
+use Illuminate\Auth\Access\Response;
 use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Http\Request;
 use Justrau\Orrery\Exceptions\WatchedOperationFailed;
@@ -75,7 +76,7 @@ final class AuthenticationSplitTest extends TestCase
      */
     public function test_only_a_true_result_of_a_callback_allows(): void
     {
-        $denied = \Illuminate\Auth\Access\Response::deny();
+        $denied = Response::deny();
         Orrery::auth(static fn () => $denied);
 
         $this->getJson('/orrery/api/workload')->assertStatus(401)->assertExactJson(['error' => 'unauthenticated']);

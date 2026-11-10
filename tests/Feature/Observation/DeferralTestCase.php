@@ -235,9 +235,7 @@ abstract class DeferralTestCase extends TestCase
         $this->app->instance(ExceptionHandler::class, new class($reports) implements ExceptionHandler
         {
             /** @param ArrayObject<int, Throwable> $reports */
-            public function __construct(private readonly ArrayObject $reports)
-            {
-            }
+            public function __construct(private readonly ArrayObject $reports) {}
 
             public function report(Throwable $e): void
             {
@@ -254,9 +252,7 @@ abstract class DeferralTestCase extends TestCase
                 throw $e;
             }
 
-            public function renderForConsole($output, Throwable $e): void
-            {
-            }
+            public function renderForConsole($output, Throwable $e): void {}
         });
 
         return $reports;

@@ -46,9 +46,7 @@ final class FailureSpikes
 
     public const DEFAULT_COOLDOWN_MINUTES = 30;
 
-    public function __construct(private readonly SampleCoverage $coverage)
-    {
-    }
+    public function __construct(private readonly SampleCoverage $coverage) {}
 
     public static function cooldownKey(string $channel): string
     {

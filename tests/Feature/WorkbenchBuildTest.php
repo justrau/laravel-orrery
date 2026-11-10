@@ -2,8 +2,8 @@
 
 namespace Justrau\Orrery\Tests\Feature;
 
-use Justrau\Orrery\Tests\Support\WorkbenchCliTestCase;
 use FilesystemIterator;
+use Justrau\Orrery\Tests\Support\WorkbenchCliTestCase;
 use PDO;
 use PHPUnit\Framework\Attributes\Group;
 use RecursiveDirectoryIterator;

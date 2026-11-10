@@ -41,8 +41,7 @@ class StuckJobDetected
         public readonly string $queue,
         public readonly string $name,
         public readonly array $evidence,
-    ) {
-    }
+    ) {}
 
     /**
      * The notification of the package's routes, built through the container,

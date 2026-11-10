@@ -8,6 +8,7 @@ use Illuminate\Container\Container;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Contracts\Foundation\Application;
 use Justrau\Orrery\Database\Schema\PackageSchema;
+use Justrau\Orrery\Storage\PackageSession;
 use LogicException;
 use PDO;
 
@@ -140,8 +141,7 @@ final class TestEnvironment
         public readonly string $sqliteJournal = 'wal',
         public readonly bool $pooled = false,
         public readonly ?string $sharedCache = null,
-    ) {
-    }
+    ) {}
 
     /**
      * This configuration with the shared `file` cache store of a test
@@ -376,7 +376,7 @@ final class TestEnvironment
             return null;
         }
 
-        return \Justrau\Orrery\Storage\PackageSession::siblingPathOf($this->database);
+        return PackageSession::siblingPathOf($this->database);
     }
 
     /**

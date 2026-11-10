@@ -19,9 +19,7 @@ class ClassifiedJob implements ShouldQueue
     /**
      * @param  list<mixed>  $tags
      */
-    public function __construct(public array $tags = [])
-    {
-    }
+    public function __construct(public array $tags = []) {}
 
     /**
      * @return list<mixed>
@@ -31,7 +29,5 @@ class ClassifiedJob implements ShouldQueue
         return $this->tags;
     }
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

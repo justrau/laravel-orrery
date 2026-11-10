@@ -26,7 +26,5 @@ class CrashCountedJob implements ShouldQueue
 
     public int $maxExceptions = 2;
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

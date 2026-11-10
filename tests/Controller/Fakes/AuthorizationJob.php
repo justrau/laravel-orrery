@@ -28,9 +28,7 @@ final class AuthorizationJob implements ShouldQueue
     /**
      * @param  list<string>  $fixtureTags
      */
-    public function __construct(public bool $fails = false, public array $fixtureTags = [])
-    {
-    }
+    public function __construct(public bool $fails = false, public array $fixtureTags = []) {}
 
     /**
      * @return list<string>

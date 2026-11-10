@@ -25,8 +25,7 @@ final class FailureScope
         public readonly ?string $queue,
         public readonly float $from,
         public readonly float $to,
-    ) {
-    }
+    ) {}
 
     /**
      * @throws InvalidFailureRequest

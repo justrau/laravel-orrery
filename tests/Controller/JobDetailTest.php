@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Controller;
 
 use Illuminate\Testing\TestResponse;
+use Justrau\Orrery\Http\Lists\Cursor;
 use Justrau\Orrery\Http\Projection\JobProjection;
 use Justrau\Orrery\Lifecycle\CycleSummaries;
 use Justrau\Orrery\Lifecycle\History;
@@ -276,7 +277,7 @@ final class JobDetailTest extends ControllerTest
         $hash = hash('sha256', 'history|'.self::UUID.'|');
 
         foreach (['2147483648.000000' => 422, '2147483647.000000' => 200] as $order => $status) {
-            $cursor = \Justrau\Orrery\Http\Lists\Cursor::at($order, 1, \Justrau\Orrery\Http\Lists\Cursor::AFTER, $hash)->encode();
+            $cursor = Cursor::at($order, 1, Cursor::AFTER, $hash)->encode();
             $this->read($this->path('/history?cursor='.$cursor))->assertStatus($status);
         }
     }

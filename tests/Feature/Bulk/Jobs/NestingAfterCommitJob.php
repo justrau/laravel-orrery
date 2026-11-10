@@ -20,9 +20,7 @@ class NestingAfterCommitJob implements ShouldQueue
     use InteractsWithQueue;
     use Queueable;
 
-    public function __construct(public string $pushTo = 'hooks')
-    {
-    }
+    public function __construct(public string $pushTo = 'hooks') {}
 
     /**
      * @return list<string>
@@ -34,7 +32,5 @@ class NestingAfterCommitJob implements ShouldQueue
         return ['outer-bulk'];
     }
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

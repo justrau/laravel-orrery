@@ -37,8 +37,7 @@ class RetryableJob implements ShouldQueue
         public array $jobTags = [],
         public ?string $untilFile = null,
         public ?string $throwFile = null,
-    ) {
-    }
+    ) {}
 
     public static function runs(string $file): int
     {

@@ -29,8 +29,7 @@ final class ContinueResult
         public readonly array $stillPausedBy,
         public readonly bool $stillPausedUnknown = false,
         public readonly bool $liftUnknown = false,
-    ) {
-    }
+    ) {}
 
     /** Whether Laravel's global pause holds the target (it hides the queue's own flag). */
     public function underLaravelGlobalPause(): bool

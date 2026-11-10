@@ -2,6 +2,8 @@
 
 namespace Justrau\Orrery;
 
+use Illuminate\Queue\Events\JobFailed;
+
 trait EventMap
 {
     /**
@@ -19,7 +21,7 @@ trait EventMap
             Listeners\SendRecoveredNotification::class,
         ],
 
-        \Illuminate\Queue\Events\JobFailed::class => [
+        JobFailed::class => [
             Listeners\MarshalFailedEvent::class,
         ],
     ];

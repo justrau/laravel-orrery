@@ -34,8 +34,7 @@ final class OperationStep
         public readonly ?string $connection = null,
         public readonly ?string $reason = null,
         public readonly ?float $nextCheckAt = null,
-    ) {
-    }
+    ) {}
 
     public static function decided(): self
     {

@@ -6,6 +6,7 @@ namespace Justrau\Orrery\Tests\Feature\Operations;
 
 use Illuminate\Support\Facades\Artisan;
 use Justrau\Orrery\Retry\Operations;
+use Justrau\Orrery\Retry\Publication;
 use Justrau\Orrery\Storage\Clock;
 
 /**
@@ -33,7 +34,7 @@ final class ResolveCommandTest extends RetryProtocolTestCase
      */
     public function test_all_resolves_every_awaiting_operation(): void
     {
-        $fingerprint = $this->app->make(\Justrau\Orrery\Retry\Publication::class)->queueFingerprint('database');
+        $fingerprint = $this->app->make(Publication::class)->queueFingerprint('database');
         $a = $this->ledgerOperation(Operations::PUBLISHED, $fingerprint, true);
         $b = $this->ledgerOperation(Operations::PUBLISHED, $fingerprint, true);
         $c = $this->ledgerOperation(Operations::PUBLISHED, $fingerprint, false);
@@ -55,7 +56,7 @@ final class ResolveCommandTest extends RetryProtocolTestCase
      */
     public function test_an_operation_that_stays_open_exits_one(): void
     {
-        $fingerprint = $this->app->make(\Justrau\Orrery\Retry\Publication::class)->queueFingerprint('database');
+        $fingerprint = $this->app->make(Publication::class)->queueFingerprint('database');
         $id = $this->ledgerOperation(Operations::CLAIMED, $fingerprint, false, Clock::now() + 3600);
 
         self::assertSame(1, Artisan::call('orrery:resolve', ['id' => $id]));

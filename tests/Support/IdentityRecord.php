@@ -33,9 +33,7 @@ final class IdentityRecord
     /**
      * @param  array<string, mixed>  $data
      */
-    private function __construct(private readonly array $data)
-    {
-    }
+    private function __construct(private readonly array $data) {}
 
     public static function capture(Application $app): self
     {
@@ -133,7 +131,7 @@ final class IdentityRecord
     }
 
     /**
-     * @throws HarnessRefusal  with every difference, when the record does not match
+     * @throws HarnessRefusal with every difference, when the record does not match
      */
     public function assertMatches(TestEnvironment $env): void
     {

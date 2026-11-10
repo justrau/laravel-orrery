@@ -32,8 +32,7 @@ final class OperationResolver
         private readonly Application $app,
         private readonly PackageSession $sessions,
         private readonly Operations $operations,
-    ) {
-    }
+    ) {}
 
     /**
      * The operation after the step, with the step's kind and code; null when

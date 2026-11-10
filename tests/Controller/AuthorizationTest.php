@@ -27,6 +27,7 @@ use Justrau\Orrery\Monitoring\MonitoringVersion;
 use Justrau\Orrery\Monitoring\SampleCounts;
 use Justrau\Orrery\Orrery;
 use Justrau\Orrery\Retry\Fence;
+use Justrau\Orrery\Retry\Operations;
 use Justrau\Orrery\Runtime\ProcessContext;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Storage\PackageSession;
@@ -1007,7 +1008,7 @@ final class AuthorizationTest extends TestCase
     {
         $mirror = $this->mirror();
         $mirror->table('orrery_operations')->where('id', self::RESOLVE_OPERATION)->delete();
-        $operations = $this->app->make(\Justrau\Orrery\Retry\Operations::class);
+        $operations = $this->app->make(Operations::class);
         $operations->insertClaimed($mirror, [
             'id' => self::RESOLVE_OPERATION, 'action' => 'retry', 'mode' => 'none', 'job_uuid' => '0c5b0c5b-0c5b-4c5b-8c5b-0c5b0c5b0c5b',
             'occurrence_id' => 1, 'queue_connection' => 'database', 'queue' => 'default', 'queue_fingerprint' => str_repeat('0', 64),
@@ -1446,7 +1447,7 @@ final class AuthorizationTest extends TestCase
      */
     private function beginCase(string $case): void
     {
-        static::resetPackageState();
+        self::resetPackageState();
         $this->app['auth']->forgetGuards();
         $this->app['env'] = $this->environmentName;
 

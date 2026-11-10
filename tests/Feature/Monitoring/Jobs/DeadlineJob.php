@@ -22,9 +22,7 @@ class DeadlineJob implements ShouldQueue
     use InteractsWithQueue;
     use Queueable;
 
-    public function __construct(public int $tries, public int $until, public string $mode = 'release')
-    {
-    }
+    public function __construct(public int $tries, public int $until, public string $mode = 'release') {}
 
     public function retryUntil(): int
     {

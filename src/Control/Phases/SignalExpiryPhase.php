@@ -45,9 +45,7 @@ final class SignalExpiryPhase implements TickPhase
     /** The orrery_settings row with the last annotation id that a run checked. */
     public const CURSOR_KEY = 'signal_expiry_cursor';
 
-    public function __construct(private readonly NativePause $native)
-    {
-    }
+    public function __construct(private readonly NativePause $native) {}
 
     public function name(): string
     {

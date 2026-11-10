@@ -7,7 +7,6 @@ namespace Justrau\Orrery\Tests\Feature\Failures;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Str;
-use Justrau\Orrery\Failures\FailureScan;
 use Justrau\Orrery\Failures\GroupKey;
 use Justrau\Orrery\Lifecycle\JobStore;
 use Justrau\Orrery\Lifecycle\Observation;

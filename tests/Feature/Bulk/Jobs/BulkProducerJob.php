@@ -21,9 +21,7 @@ class BulkProducerJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public function __construct(public int $count, public string $targetQueue)
-    {
-    }
+    public function __construct(public int $count, public string $targetQueue) {}
 
     public function handle(): void
     {

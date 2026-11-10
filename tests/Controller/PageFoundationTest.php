@@ -107,13 +107,9 @@ final class PageFoundationTest extends ControllerTest
 
         $this->app->instance(MaintenanceMode::class, new class implements MaintenanceMode
         {
-            public function activate(array $payload): void
-            {
-            }
+            public function activate(array $payload): void {}
 
-            public function deactivate(): void
-            {
-            }
+            public function deactivate(): void {}
 
             public function active(): bool
             {

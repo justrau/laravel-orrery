@@ -106,9 +106,7 @@ final class ReusedSchema
      */
     private array $plans = [];
 
-    private function __construct(private readonly TestEnvironment $env)
-    {
-    }
+    private function __construct(private readonly TestEnvironment $env) {}
 
     /**
      * The schema mode: fresh (the default) or reuse.
@@ -137,7 +135,7 @@ final class ReusedSchema
     /**
      * The one kept schema of this process.
      *
-     * @throws HarnessRefusal  when the configuration of the process changed
+     * @throws HarnessRefusal when the configuration of the process changed
      */
     public static function for(TestEnvironment $env): self
     {
@@ -241,7 +239,7 @@ final class ReusedSchema
      * fails this test with the objects that it found. The next test then
      * starts from empty databases.
      *
-     * @throws AssertionFailedError  when the test left objects (they are dropped)
+     * @throws AssertionFailedError when the test left objects (they are dropped)
      */
     public static function afterFreshTest(TestEnvironment $env, string $test): void
     {
@@ -251,7 +249,7 @@ final class ReusedSchema
             throw new AssertionFailedError(sprintf(
                 "The fresh schema rollback after %s left objects in the test databases, so the harness dropped them and the next test starts from empty databases.\n"
                 ."A test that changes the configuration that the migrations read (orrery.database, the connections) must restore it before its teardown.\n"
-                ."Left: %s",
+                .'Left: %s',
                 $test,
                 self::summary($left),
             ));
@@ -264,7 +262,7 @@ final class ReusedSchema
      * process, or a teardown that did not finish). Objects that are there
      * are dropped, and this test refuses with them.
      *
-     * @throws HarnessRefusal  when the databases were not empty (they are dropped)
+     * @throws HarnessRefusal when the databases were not empty (they are dropped)
      */
     public static function beforeFreshTest(TestEnvironment $env, string $test): void
     {
@@ -357,7 +355,7 @@ final class ReusedSchema
      * the class docblock). Every failure forgets the kept schema, so the
      * next test migrates again.
      *
-     * @throws AssertionFailedError  when the schema changed or a table is not empty after the reset
+     * @throws AssertionFailedError when the schema changed or a table is not empty after the reset
      */
     public function afterTest(string $test): void
     {
@@ -394,7 +392,7 @@ final class ReusedSchema
      * and its assertion where the state is not clean.
      *
      * @param  array<string, PDO>  $pdos
-     * @return array{0: list<string>, 1: list<string>}|null  the removed and added fingerprint lines, or null when the schema matched
+     * @return array{0: list<string>, 1: list<string>}|null the removed and added fingerprint lines, or null when the schema matched
      */
     private function checkAndReset(array $pdos): ?array
     {
@@ -555,7 +553,7 @@ final class ReusedSchema
     }
 
     /**
-     * @return list<list<string|null>>  each row: the kind, then the values
+     * @return list<list<string|null>> each row: the kind, then the values
      */
     private function rows(PDO $pdo, string $sql): array
     {
@@ -882,7 +880,7 @@ final class ReusedSchema
      * @param  array{label: string, config: array<string, mixed>, keep: string}  $database
      * @param  array{filled: list<string>, counters: list<string>}  $state
      *
-     * @throws RuntimeException  when a table has rows or a counter is used
+     * @throws RuntimeException when a table has rows or a counter is used
      */
     private function assertClean(array $database, array $state, string $when): void
     {

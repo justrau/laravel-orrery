@@ -49,8 +49,7 @@ final class SampleWindow
         private readonly array $rows,
         public readonly array $labels,
         public readonly array $scannedFrom = ['completed' => INF, 'failed' => INF],
-    ) {
-    }
+    ) {}
 
     /**
      * The minute starts of the window, oldest first.

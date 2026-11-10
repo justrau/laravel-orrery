@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Operations;
 
+use Illuminate\Database\Connection;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Queue;
+use Justrau\Orrery\Database\Schema\PackageSchema;
 use Justrau\Orrery\Maintenance\TickBudget;
+use Justrau\Orrery\Orrery;
 use Justrau\Orrery\Retry\AwaitingOperator;
 use Justrau\Orrery\Retry\Fence;
 use Justrau\Orrery\Retry\Operations;
@@ -24,6 +28,7 @@ use Justrau\Orrery\Storage\HostFiles;
 use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Support\SqliteFiles;
 use Justrau\Orrery\Tests\Support\TestClock;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 
 /**
@@ -228,7 +233,7 @@ final class HostFileRetryTest extends RetryProtocolTestCase
      *
      * @param  array<string, mixed>  $changes
      */
-    #[\PHPUnit\Framework\Attributes\DataProvider('readPolicies')]
+    #[DataProvider('readPolicies')]
     public function test_published_fence_row_is_read_only_under_the_read_policy(array $changes, bool $automatic): void
     {
         $this->useHostFile($changes);
@@ -482,21 +487,21 @@ final class HostFileRetryTest extends RetryProtocolTestCase
             $table->longText('exception');
             $table->timestamp('failed_at')->useCurrent();
         });
-        \Justrau\Orrery\Database\Schema\PackageSchema::create($schema, [Fence::TABLE]);
+        PackageSchema::create($schema, [Fence::TABLE]);
 
         $config->set('database.default', 'app');
         $this->app->forgetInstance('queue');
         $this->app->forgetInstance('queue.connection');
-        \Illuminate\Support\Facades\Queue::clearResolvedInstance('queue');
+        Queue::clearResolvedInstance('queue');
         $this->useCapturingFailer('failed_jobs', 'app');
-        \Justrau\Orrery\Orrery::auth(static fn (): bool => true);
+        Orrery::auth(static fn (): bool => true);
         TestClock::shift(TestClock::EVERY, 0.0);
     }
 
     /**
      * The package's own mirror session (the sibling of the application file).
      */
-    protected function mirror(): \Illuminate\Database\Connection
+    protected function mirror(): Connection
     {
         return $this->app->make(PackageSession::class)->mirror();
     }

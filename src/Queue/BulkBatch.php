@@ -19,8 +19,7 @@ final class BulkBatch
         public readonly string $connection,
         public readonly string $queue,
         public readonly int $floor,
-    ) {
-    }
+    ) {}
 
     public function add(Observation $observation): void
     {

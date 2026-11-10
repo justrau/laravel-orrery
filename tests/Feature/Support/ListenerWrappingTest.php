@@ -125,9 +125,7 @@ final class ListenerWrappingTest extends TestCase
             $this->app->instance($listener, new class($handled, $listener)
             {
                 /** @param list<string> $handled */
-                public function __construct(private array &$handled, private string $listener)
-                {
-                }
+                public function __construct(private array &$handled, private string $listener) {}
 
                 public function handle(JobProcessed $event): void
                 {

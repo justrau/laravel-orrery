@@ -51,9 +51,7 @@ final class Barrier
     /** @var array<string, self> the directories that forTest() created in this process */
     private static array $created = [];
 
-    private function __construct(private readonly string $directory)
-    {
-    }
+    private function __construct(private readonly string $directory) {}
 
     /**
      * A new private directory in the temporary directory.
@@ -154,7 +152,7 @@ final class Barrier
      *
      * @param  (callable(): ?string)|null  $abandon  called on every poll; a string is the reason to stop waiting
      *
-     * @throws WaitTimeout  after $seconds, or when $abandon returns a reason before the marker exists
+     * @throws WaitTimeout after $seconds, or when $abandon returns a reason before the marker exists
      */
     public function await(string $name, float $seconds, ?callable $abandon = null): void
     {

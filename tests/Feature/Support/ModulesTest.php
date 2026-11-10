@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Support;
 
+use Illuminate\Contracts\Debug\ExceptionHandler;
 use Illuminate\Contracts\Queue\ShouldQueue;
+use Illuminate\Foundation\Exceptions\Handler;
 use Justrau\Orrery\OrreryServiceProvider;
 use Justrau\Orrery\Registration\Modules;
 use Justrau\Orrery\Registration\Modules\StorageModule;
@@ -72,7 +74,7 @@ final class ModulesTest extends TestCase
     public function test_module_list_keeps_the_previous_order(): void
     {
         $expected = [
-            Modules\StorageModule::class,
+            StorageModule::class,
             Modules\RuntimeModule::class,
             Modules\ObservationModule::class,
             Modules\LifecycleModule::class,
@@ -235,7 +237,7 @@ final class ModulesTest extends TestCase
     public function test_reset_calls_every_module_and_removes_test_modules(): void
     {
         EarlyTestModule::$resets = [];
-        static::resetPackageState();
+        self::resetPackageState();
 
         self::assertSame([EarlyTestModule::class => 1, LateTestModule::class => 1], EarlyTestModule::$resets);
 
@@ -254,12 +256,10 @@ final class ModulesTest extends TestCase
     public function test_a_failing_boot_resolution_is_reported(): void
     {
         $reported = [];
-        $this->app->instance(\Illuminate\Contracts\Debug\ExceptionHandler::class, new class($reported) extends \Illuminate\Foundation\Exceptions\Handler
+        $this->app->instance(ExceptionHandler::class, new class($reported) extends Handler
         {
             /** @param  list<Throwable>  $reported */
-            public function __construct(private array &$reported)
-            {
-            }
+            public function __construct(private array &$reported) {}
 
             public function report(Throwable $e): void
             {

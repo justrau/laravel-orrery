@@ -31,6 +31,5 @@ class OperatorActionPerformed
         public readonly float $at,
         public readonly string $result,
         public readonly array $counts = [],
-    ) {
-    }
+    ) {}
 }

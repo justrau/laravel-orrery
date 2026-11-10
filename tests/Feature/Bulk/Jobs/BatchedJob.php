@@ -18,7 +18,5 @@ class BatchedJob implements ShouldQueue
     use InteractsWithQueue;
     use Queueable;
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

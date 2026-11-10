@@ -86,8 +86,7 @@ final class SchemaBaselineTest extends TestCase
         self::assertSame([], self::stepProblems(), 'upgrades() holds a step outside BASELINE + 1 to VERSION.');
 
         // The rule itself: a step at BASELINE and one above VERSION are named.
-        $step = static function (Builder $schema): void {
-        };
+        $step = static function (Builder $schema): void {};
 
         try {
             PackageSchema::useUpgradesForTesting([PackageSchema::BASELINE => $step, PackageSchema::VERSION + 1 => $step]);
@@ -415,9 +414,7 @@ final class SchemaBaselineTest extends TestCase
     {
         return new class($version) extends Migration
         {
-            public function __construct(private readonly int $version)
-            {
-            }
+            public function __construct(private readonly int $version) {}
 
             public function up(): void
             {
@@ -426,9 +423,7 @@ final class SchemaBaselineTest extends TestCase
                 PackageSchema::upgradeTo($connection, $this->version);
             }
 
-            public function down(): void
-            {
-            }
+            public function down(): void {}
         };
     }
 }

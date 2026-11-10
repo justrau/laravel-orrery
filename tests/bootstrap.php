@@ -23,6 +23,11 @@
  */
 
 declare(strict_types=1);
+use Justrau\Orrery\Tests\Support\HarnessRefusal;
+use Justrau\Orrery\Tests\Support\HarnessTiming;
+use Justrau\Orrery\Tests\Support\LeaseProof;
+use Justrau\Orrery\Tests\Support\ReusedSchema;
+use Justrau\Orrery\Tests\Support\TestEnvironment;
 
 (static function (): void {
     $gate = getenv('ORRERY_START_GATE');
@@ -71,7 +76,7 @@ require_once __DIR__.'/../vendor/autoload.php';
 
 // The opt-in harness profile reads and removes its variable now, before any
 // test can start a child process that would inherit it.
-\Justrau\Orrery\Tests\Support\HarnessTiming::enabled();
+HarnessTiming::enabled();
 
 // The configuration check and, for a MySQL or Postgres run, the lease proof:
 // the run of ORRERY_TEST_RUN_ID holds both database names and lists this
@@ -85,13 +90,13 @@ require_once __DIR__.'/../vendor/autoload.php';
 // ORRERY_BOOTSTRAP_GATE_ONLY before it requires this file, so it passes only
 // the startup gate. A constant cannot come from the environment.
 if (! defined('ORRERY_BOOTSTRAP_GATE_ONLY')) {
-    Justrau\Orrery\Tests\Support\LeaseProof::bootstrap();
+    LeaseProof::bootstrap();
 
     // The schema mode (ORRERY_TEST_SCHEMA=fresh|reuse): an invalid value, or
     // reuse on in-memory SQLite, is refused here with the same exit 78.
     try {
-        Justrau\Orrery\Tests\Support\ReusedSchema::mode(Justrau\Orrery\Tests\Support\TestEnvironment::fromEnv());
-    } catch (Justrau\Orrery\Tests\Support\HarnessRefusal $refusal) {
+        ReusedSchema::mode(TestEnvironment::fromEnv());
+    } catch (HarnessRefusal $refusal) {
         fwrite(STDERR, 'orrery: '.$refusal->getMessage()."\n");
 
         exit(78);

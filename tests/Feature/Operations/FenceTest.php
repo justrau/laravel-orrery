@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Operations;
 
 use Illuminate\Database\Connection;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Justrau\Orrery\Database\Schema\PackageSchema;
 use Justrau\Orrery\Retry\Fence;
 use Justrau\Orrery\Retry\Operations;
@@ -138,7 +139,7 @@ final class FenceTest extends TestCase
             $this->fence()->insert($q, $id, Fence::RESTORE, Fence::RESTORED, $now + 60, 77);
             self::assertSame(77, (int) $this->fence()->read($q, $id, Fence::RESTORE)?->job_id);
 
-            $this->expectException(\Illuminate\Database\UniqueConstraintViolationException::class);
+            $this->expectException(UniqueConstraintViolationException::class);
             $this->fence()->insert($q, $id, Fence::RESTORE, Fence::RESTORED, $now + 60, 78);
         });
     }

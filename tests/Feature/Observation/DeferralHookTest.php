@@ -106,8 +106,7 @@ final class DeferralHookTest extends EndToEndTestCase
         $this->app->make(ConsoleKernel::class)->rerouteSymfonyCommandEvents();
 
         // Not static: Laravel binds a closure command to the command object.
-        Artisan::command('orrery-test:noop', function (): void {
-        });
+        Artisan::command('orrery-test:noop', function (): void {});
         Artisan::command('orrery-test:push {connection}', function (string $connection): void {
             app('queue')->connection($connection)->push(new BasicJob);
         });
@@ -717,6 +716,7 @@ final class DeferralHookTest extends EndToEndTestCase
         $this->assertCounts(0, 0);
         $this->assertNothingDeferred();
     }
+
     /**
      * During job A's release hook, a listener on the hook's delete releases
      * another job record directly, or runs a nested deleteAndRelease() of a
@@ -1217,9 +1217,7 @@ final class ThrowingCommandStartModule implements Module
 
     public static bool $armed = false;
 
-    public function register(Application $app): void
-    {
-    }
+    public function register(Application $app): void {}
 
     public function boot(Application $app): void
     {
@@ -1253,9 +1251,7 @@ final class DeferralHookJob implements ShouldQueue
     /** @var array<string, Closure(): void> */
     public static array $scenarios = [];
 
-    public function __construct(public string $scenario)
-    {
-    }
+    public function __construct(public string $scenario) {}
 
     public function handle(): void
     {

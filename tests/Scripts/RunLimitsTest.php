@@ -515,7 +515,7 @@ final class RunLimitsTest extends TestCase
     {
         // The outer holder (bin/matrix): its own helper in the test registry.
         $out = $this->makeTempDir('orrery-slot-').'/outer.out';
-        $input = new InputStream();
+        $input = new InputStream;
         $outer = new Process([
             PHP_BINARY, '-n', self::testdbPath(), 'slot-hold',
             sprintf('--run-id=run_%d_%s', getmypid(), bin2hex(random_bytes(4))),

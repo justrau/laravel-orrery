@@ -25,6 +25,7 @@ use Justrau\Orrery\Tests\Feature\Projection\Jobs\EncryptedCanaryJob;
 use Justrau\Orrery\Tests\Feature\Projection\Jobs\LargeJob;
 use Justrau\Orrery\Tests\TestCase;
 use Laravel\SerializableClosure\SerializableClosure;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Throwable;
 
@@ -166,7 +167,7 @@ final class JobProjectionTest extends TestCase
     /**
      * @param  \Closure(): LargeJob  $job
      */
-    #[\PHPUnit\Framework\Attributes\DataProvider('largeJobs')]
+    #[DataProvider('largeJobs')]
     public function test_a_large_job_parses_its_command_once(\Closure $job): void
     {
         $row = $this->push($job());
@@ -527,9 +528,7 @@ final class JobProjectionTest extends TestCase
         $handler = $this->app->make(ExceptionHandler::class);
         $this->app->instance(ExceptionHandler::class, new class($handler, $spy) implements ExceptionHandler
         {
-            public function __construct(private ExceptionHandler $inner, private object $spy)
-            {
-            }
+            public function __construct(private ExceptionHandler $inner, private object $spy) {}
 
             public function report(Throwable $e)
             {

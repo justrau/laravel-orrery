@@ -107,8 +107,7 @@ final class Samples
         private readonly PackageTransaction $transaction,
         private readonly SampleCounts $counts,
         private readonly WaitTime $waits,
-    ) {
-    }
+    ) {}
 
     /**
      * Lowers ROW_CAP (tests only). null restores it.

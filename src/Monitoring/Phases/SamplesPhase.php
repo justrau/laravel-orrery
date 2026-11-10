@@ -21,8 +21,7 @@ final class SamplesPhase implements TickPhase
     public function __construct(
         private readonly TickMeasurement $measurement,
         private readonly Samples $samples,
-    ) {
-    }
+    ) {}
 
     public function name(): string
     {

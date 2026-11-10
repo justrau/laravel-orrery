@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Exceptions;
 use Justrau\Orrery\Contracts\WorkloadRepository;
 use Justrau\Orrery\Database\Repositories\DatabaseWorkloadRepository;
 use Justrau\Orrery\Events\LongWaitDetected;
+use Justrau\Orrery\Exceptions\WatchedOperationFailed;
 use Justrau\Orrery\Monitoring\MeasurementCache;
 use Justrau\Orrery\Monitoring\NativePause;
 use Justrau\Orrery\Monitoring\WaitTime;
@@ -178,7 +179,7 @@ final class MeasurementCacheTest extends ControllerTest
         $this->store->failGet = true;
 
         self::assertSame(1, $this->workload()['reports']['length']);
-        Exceptions::assertReported(static fn (\Justrau\Orrery\Exceptions\WatchedOperationFailed $reported): bool => $reported->operation === 'measure_cache' && $reported->causeClass === RuntimeException::class && str_contains($reported->getMessage(), 'The cache store cannot be read.'));
+        Exceptions::assertReported(static fn (WatchedOperationFailed $reported): bool => $reported->operation === 'measure_cache' && $reported->causeClass === RuntimeException::class && str_contains($reported->getMessage(), 'The cache store cannot be read.'));
 
         $this->store->failGet = false;
         $this->store->failPut = true;
@@ -187,7 +188,7 @@ final class MeasurementCacheTest extends ControllerTest
         $reads = $this->countJobsReads();
         self::assertSame(1, $this->workload()['reports']['length']);
         self::assertGreaterThan(0, $reads(), 'a failed get measures');
-        Exceptions::assertReported(static fn (\Justrau\Orrery\Exceptions\WatchedOperationFailed $reported): bool => $reported->operation === 'measure_cache' && $reported->causeClass === RuntimeException::class && str_contains($reported->getMessage(), 'The cache store cannot be written.'));
+        Exceptions::assertReported(static fn (WatchedOperationFailed $reported): bool => $reported->operation === 'measure_cache' && $reported->causeClass === RuntimeException::class && str_contains($reported->getMessage(), 'The cache store cannot be written.'));
 
         $this->store->failPut = false;
         $before = $reads();

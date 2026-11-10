@@ -41,8 +41,7 @@ final class RowState
         public readonly ?float $retryRequestedAt = null,
         public readonly ?float $failedAt = null,
         public readonly ?string $operationId = null,
-    ) {
-    }
+    ) {}
 
     public static function fromRow(object $row): self
     {

@@ -7,6 +7,4 @@ use RuntimeException;
 /**
  * The error of a WatchResult whose work the open breaker skipped.
  */
-final class BreakerOpen extends RuntimeException
-{
-}
+final class BreakerOpen extends RuntimeException {}

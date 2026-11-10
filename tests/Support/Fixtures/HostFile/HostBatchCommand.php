@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Support\Fixtures\HostFile;
 
 use Illuminate\Bus\BatchRepository;
+use Illuminate\Bus\DatabaseBatchRepository;
 use Illuminate\Console\Command;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Facades\Bus;
@@ -34,7 +35,7 @@ class HostBatchCommand extends Command
         $config = $this->laravel['config'];
         $config->set('queue.batching', ['database' => HostFileFixture::CONNECTION, 'table' => 'job_batches']);
         $this->laravel->forgetInstance(BatchRepository::class);
-        $this->laravel->forgetInstance(\Illuminate\Bus\DatabaseBatchRepository::class);
+        $this->laravel->forgetInstance(DatabaseBatchRepository::class);
         $reached = false;
 
         $this->laravel['events']->listen(QueryExecuted::class, static function (QueryExecuted $event) use (&$reached): void {

@@ -13,9 +13,7 @@ use Justrau\Orrery\Monitoring\MonitoringRepair;
  */
 final class MonitoringRepairPhase implements TickPhase
 {
-    public function __construct(private readonly MonitoringRepair $repair)
-    {
-    }
+    public function __construct(private readonly MonitoringRepair $repair) {}
 
     public function name(): string
     {

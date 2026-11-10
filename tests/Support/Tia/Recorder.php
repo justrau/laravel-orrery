@@ -59,9 +59,7 @@ final class Recorder
     /** @var array<string, string|null> */
     private array $paths = [];
 
-    private function __construct(private readonly string $directory, private readonly string $root)
-    {
-    }
+    private function __construct(private readonly string $directory, private readonly string $root) {}
 
     /**
      * Starts the recording. Removes the recording variables and XDEBUG_MODE

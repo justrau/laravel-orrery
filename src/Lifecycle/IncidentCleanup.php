@@ -118,7 +118,5 @@ class IncidentCleanup
      * Runs in $tx before mergedCycle() deletes the merged cycle's incidents
      * (a test seam). Does nothing.
      */
-    protected function beforeMergedCycleDelete(Connection $tx, string $uuid, int $cycle, float $at): void
-    {
-    }
+    protected function beforeMergedCycleDelete(Connection $tx, string $uuid, int $cycle, float $at): void {}
 }

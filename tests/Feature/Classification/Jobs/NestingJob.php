@@ -28,7 +28,5 @@ class NestingJob implements ShouldQueue
         return ['outer-job'];
     }
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

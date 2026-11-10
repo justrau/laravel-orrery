@@ -107,7 +107,6 @@ final class SchemaTest extends TestCase
         'orrery_schema' => ['id', 'version'],
     ];
 
-
     /**
      * Every key of every package table: suffix => [kind, columns in order]. The suffix `primary`
      * is the primary key, whose name the engine decides. Every other key is named
@@ -623,7 +622,7 @@ final class SchemaTest extends TestCase
             // Make it the older release.
             $oldSchema = $old->getSchemaBuilder();
             $oldSchema->drop('orrery_markers');
-            $oldSchema->table('orrery_signals', static function (\Illuminate\Database\Schema\Blueprint $table): void {
+            $oldSchema->table('orrery_signals', static function (Blueprint $table): void {
                 $table->dropColumn('issued_by');
             });
             $old->table('orrery_settings')->insert(['key' => 'fixture_last_deploy', 'value' => '1700000000.5']);
@@ -633,7 +632,7 @@ final class SchemaTest extends TestCase
             PackageSchema::useUpgradesForTesting([$next => static function (Builder $schema): void {
                 // Guarded for every start: an older sibling, this version, or a new empty file.
                 if ($schema->hasTable('orrery_signals') && ! $schema->hasColumn('orrery_signals', 'issued_by')) {
-                    $schema->table('orrery_signals', static function (\Illuminate\Database\Schema\Blueprint $table): void {
+                    $schema->table('orrery_signals', static function (Blueprint $table): void {
                         $table->string('issued_by', 191)->nullable();
                     });
                 }
@@ -689,14 +688,14 @@ final class SchemaTest extends TestCase
         $column = static function (string $table, string $name): \Closure {
             return static function (Builder $schema) use ($table, $name): void {
                 if ($schema->hasTable($table) && ! $schema->hasColumn($table, $name)) {
-                    $schema->table($table, static function (\Illuminate\Database\Schema\Blueprint $blueprint) use ($name): void {
+                    $schema->table($table, static function (Blueprint $blueprint) use ($name): void {
                         $blueprint->string($name, 191)->nullable();
                     });
                 }
             };
         };
         $drop = static function (Connection $session, string $table, string $name): void {
-            $session->getSchemaBuilder()->table($table, static function (\Illuminate\Database\Schema\Blueprint $blueprint) use ($name): void {
+            $session->getSchemaBuilder()->table($table, static function (Blueprint $blueprint) use ($name): void {
                 $blueprint->dropColumn($name);
             });
         };

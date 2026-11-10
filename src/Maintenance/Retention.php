@@ -180,8 +180,7 @@ final class Retention
         private readonly MonitoringVersion $versions,
         private readonly MonitoringRepair $repair,
         private readonly SampleCounts $counts,
-    ) {
-    }
+    ) {}
 
     /**
      * One retention run. Returns the number of deleted job rows. An invalid

@@ -63,8 +63,7 @@ final class StuckSignals
     public function __construct(
         private readonly Repository $config,
         private readonly WorkerLiveness $liveness,
-    ) {
-    }
+    ) {}
 
     /**
      * The threshold of `repeated_releases`; null when the configuration

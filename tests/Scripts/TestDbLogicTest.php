@@ -4,14 +4,16 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Scripts;
 
+use Justrau\Orrery\Tests\Scripts\Concerns\RunsScripts;
+use OrreryTestDb\DockerOps;
 use OrreryTestDb\Failure;
 use OrreryTestDb\Names;
 use OrreryTestDb\Processes;
-use Justrau\Orrery\Tests\Scripts\Concerns\RunsScripts;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\Attributes\RequiresPhpExtension;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Process\Process;
 
 /**
  * The lifecycle logic of bin/lib/testdb.php, bin/test-db and bin/test,
@@ -2265,7 +2267,7 @@ final class TestDbLogicTest extends TestCase
         self::assertCount(1, $runDirs);
         $runDir = $runDirs[0];
         $helpers = static function () use ($runDir): array {
-            $list = new \Symfony\Component\Process\Process(['ps', '-axo', 'pid=,command=']);
+            $list = new Process(['ps', '-axo', 'pid=,command=']);
             $list->mustRun();
 
             return array_values(array_filter(
@@ -2938,7 +2940,7 @@ final class TestDbLogicTest extends TestCase
         };
         $file = '/nonexistent/compose.yaml';
         $ports = ['mysql' => 33106, 'postgres' => 54336, 'mysql-alt' => 33107, 'pgsql-alt' => 54337];
-        $ops = new \OrreryTestDb\DockerOps($file, $ports, $runner);
+        $ops = new DockerOps($file, $ports, $runner);
 
         $ops->up(false);
         $ops->up(true);
@@ -3231,7 +3233,7 @@ final class TestDbLogicTest extends TestCase
      * Starts the four services without a lease (up --alt), then admits a
      * live lease on mysql. Returns the lease's supervisor.
      *
-     * @return array{pid: int, start: string, process: \Symfony\Component\Process\Process}
+     * @return array{pid: int, start: string, process: Process}
      */
     private function liveLeaseWithFourServices(): array
     {
@@ -3306,7 +3308,7 @@ final class TestDbLogicTest extends TestCase
      * A private owner record in $dir.
      *
      * @param  array{pid: int, start: string}  $supervisor
-     * @return string  its owner entry
+     * @return string its owner entry
      */
     private function ownerInit(string $dir, string $runId, array $supervisor): string
     {
@@ -3446,7 +3448,7 @@ final class TestDbLogicTest extends TestCase
     /**
      * @param  bool  $onlyTheWrapperStops  the child ignores the exit of its parent,
      *                                     so only a stop by bin/test ends it early
-     * @return array{0: \Symfony\Component\Process\Process, 1: int, 2: string, 3: string, 4: string}
+     * @return array{0: Process, 1: int, 2: string, 3: string, 4: string}
      */
     private function startWrapperPausedBeforeRegistration(bool $onlyTheWrapperStops = false): array
     {

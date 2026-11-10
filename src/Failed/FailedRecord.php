@@ -15,6 +15,5 @@ final class FailedRecord
         public readonly int $id,
         public readonly string $uuid,
         public readonly array $columns,
-    ) {
-    }
+    ) {}
 }

@@ -85,8 +85,7 @@ final class RetryService
         private readonly RetryPayload $payloads,
         private readonly RetryHandler $handler,
         private readonly OperationResolver $resolver,
-    ) {
-    }
+    ) {}
 
     /**
      * $bulkRef names the bulk run that asks for this retry: the

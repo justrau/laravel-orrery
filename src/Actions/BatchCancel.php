@@ -42,9 +42,7 @@ final class BatchCancel
 
     public const STATE_UNKNOWN = 'batch_state_unknown';
 
-    public function __construct(private readonly DatabaseBatchRepository $batches)
-    {
-    }
+    public function __construct(private readonly DatabaseBatchRepository $batches) {}
 
     /**
      * @return array{result: string, cancelled_at: int|null}

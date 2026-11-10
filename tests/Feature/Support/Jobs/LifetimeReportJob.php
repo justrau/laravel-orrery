@@ -30,9 +30,7 @@ class LifetimeReportJob implements ShouldQueue
     /** @var list<object> every instance that a job of this process saw */
     private static array $kept = [];
 
-    public function __construct(public string $path)
-    {
-    }
+    public function __construct(public string $path) {}
 
     public function handle(): void
     {

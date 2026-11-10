@@ -54,8 +54,7 @@ final class DelayedJobs
         private readonly PackageTransaction $transactions,
         private readonly History $history,
         private readonly WaitingJobs $waiting,
-    ) {
-    }
+    ) {}
 
     /**
      * @return array{result: string, connection: string|null, queue: string|null}

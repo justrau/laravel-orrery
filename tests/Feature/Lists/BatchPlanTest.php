@@ -35,8 +35,8 @@ use Justrau\Orrery\Tests\TestCase;
 #[FreshSchema]
 final class BatchPlanTest extends TestCase
 {
-    use ListFixtures;
     use ExplainsListPlans;
+    use ListFixtures;
 
     private const ROWS = 20_000;
 

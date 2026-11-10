@@ -15,9 +15,7 @@ use Justrau\Orrery\Queue\BulkResolver;
  */
 final class BulkResolutionPhase implements TickPhase
 {
-    public function __construct(private readonly BulkResolver $resolver)
-    {
-    }
+    public function __construct(private readonly BulkResolver $resolver) {}
 
     public function name(): string
     {

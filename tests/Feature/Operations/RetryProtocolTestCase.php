@@ -5,12 +5,12 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Operations;
 
 use Illuminate\Contracts\Queue\Queue as QueueContract;
+use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Support\Facades\Artisan;
 use Justrau\Orrery\Database\Schema\PackageSchema;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Orrery;
 use Justrau\Orrery\Retry\Fence;
-use Justrau\Orrery\Retry\OperationResolver;
 use Justrau\Orrery\Retry\OperationRunner;
 use Justrau\Orrery\Retry\Operations;
 use Justrau\Orrery\Retry\RetryResult;
@@ -30,7 +30,6 @@ use Justrau\Orrery\Tests\Support\TestClock;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
 use Justrau\Orrery\Tests\Support\WorkerProcess;
 use LogicException;
-use RuntimeException;
 use stdClass;
 
 /**
@@ -191,7 +190,7 @@ abstract class RetryProtocolTestCase extends HooksTestCase
      */
     protected function logFailures(): void
     {
-        $this->app['events']->listen(\Illuminate\Queue\Events\JobFailed::class, function (\Illuminate\Queue\Events\JobFailed $event): void {
+        $this->app['events']->listen(JobFailed::class, function (JobFailed $event): void {
             $this->app['queue.failer']->log($event->connectionName, $event->job->getQueue(), $event->job->getRawBody(), $event->exception);
         });
     }
@@ -484,4 +483,3 @@ abstract class RetryProtocolTestCase extends HooksTestCase
         self::assertSame([$result, $code], [$outcome->result, $outcome->code], $message === '' ? 'the retry outcome' : $message);
     }
 }
-

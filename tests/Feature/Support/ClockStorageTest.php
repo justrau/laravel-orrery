@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Support;
 
+use Illuminate\Database\Query\Builder;
 use Illuminate\Database\Schema\Blueprint;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\Support\FreshSchema;
@@ -64,7 +65,7 @@ final class ClockStorageTest extends TestCase
     /**
      * @return list<int>
      */
-    private function ids(\Illuminate\Database\Query\Builder $query): array
+    private function ids(Builder $query): array
     {
         return array_map('intval', $query->orderBy('id')->pluck('id')->all());
     }

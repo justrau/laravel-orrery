@@ -58,8 +58,7 @@ final class ListRequest
         public readonly int $perPage,
         public readonly ?Cursor $cursor,
         public readonly ?Cursor $newerThan,
-    ) {
-    }
+    ) {}
 
     /**
      * @param  array<array-key, mixed>  $query  the request's query values

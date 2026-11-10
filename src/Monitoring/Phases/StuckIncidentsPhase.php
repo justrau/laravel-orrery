@@ -18,9 +18,7 @@ use Justrau\Orrery\Monitoring\StuckIncidents;
  */
 final class StuckIncidentsPhase implements TickPhase
 {
-    public function __construct(private readonly StuckIncidents $incidents)
-    {
-    }
+    public function __construct(private readonly StuckIncidents $incidents) {}
 
     public function name(): string
     {

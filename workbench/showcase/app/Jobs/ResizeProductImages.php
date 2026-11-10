@@ -12,9 +12,7 @@ class ResizeProductImages implements ShouldQueue
 {
     use Queueable;
 
-    public function __construct(public int $product)
-    {
-    }
+    public function __construct(public int $product) {}
 
     /**
      * @return array<int, string>

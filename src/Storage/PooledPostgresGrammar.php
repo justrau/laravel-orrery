@@ -2,6 +2,7 @@
 
 namespace Justrau\Orrery\Storage;
 
+use Illuminate\Contracts\Database\Query\Expression;
 use Illuminate\Database\Query\Grammars\PostgresGrammar;
 use LogicException;
 
@@ -21,7 +22,7 @@ use LogicException;
 final class PooledPostgresGrammar extends PostgresGrammar
 {
     /**
-     * @param  \Illuminate\Contracts\Database\Query\Expression|string  $table
+     * @param  Expression|string  $table
      * @param  string|null  $prefix
      * @return string
      */

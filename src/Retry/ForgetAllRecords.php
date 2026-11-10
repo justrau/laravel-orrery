@@ -75,8 +75,7 @@ final class ForgetAllRecords
         private readonly PackageSession $sessions,
         private readonly PackageTransaction $transactions,
         private readonly IncidentCleanup $incidents,
-    ) {
-    }
+    ) {}
 
     /**
      * $bound is the bound of preview() (the run stops there, so the count

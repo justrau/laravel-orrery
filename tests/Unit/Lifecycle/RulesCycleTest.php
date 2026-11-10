@@ -122,7 +122,7 @@ final class RulesCycleTest extends TestCase
             'swap off outcome: a row that is not failed' => [['status' => 'completed', 'job_id' => 10, 'cycle_first_job_id' => 10, 'attempts' => 1, 'retry_requested_at' => $requested],
                 ['complete', 20, 1, ['instrumented' => false]], null, 'rejected', [], ['unmatched'], false],
             'swap on outcome: R5 decides at the reservation, not here' => [$failed + ['retry_requested_at' => $requested], ['complete', 20, 1, [], ['orreryGen' => self::G2]], null, 'rejected', [], ['unmatched'], false],
-            'swap off: n 2, a newer j is S (the ambiguity on a failed row)' =>[$failed, ['reserve', 20, 2, ['instrumented' => false]], null, 'rejected', [], ['unmatched'], true],
+            'swap off: n 2, a newer j is S (the ambiguity on a failed row)' => [$failed, ['reserve', 20, 2, ['instrumented' => false]], null, 'rejected', [], ['unmatched'], true],
             'swap off: n 2, a newer j on a pending row is a release row' => [['status' => 'pending', 'job_id' => 10, 'cycle_first_job_id' => 10, 'attempts' => 1], ['reserve', 20, 2, ['instrumented' => false]], null, 'reserveReplacement',
                 ['job_id' => 20, 'attempts' => 2, 'prev_job_id' => 10], [], true],
         ];

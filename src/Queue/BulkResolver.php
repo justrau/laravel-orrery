@@ -5,6 +5,7 @@ namespace Justrau\Orrery\Queue;
 use Closure;
 use Illuminate\Container\Container;
 use Illuminate\Database\Connection;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Queue\DatabaseQueue as BaseDatabaseQueue;
 use Justrau\Orrery\Lifecycle\JobStore;
 use Justrau\Orrery\Lifecycle\Observation;
@@ -119,8 +120,7 @@ class BulkResolver
     public function __construct(
         private readonly PackageSession $sessions,
         private readonly JobStore $store,
-    ) {
-    }
+    ) {}
 
     /**
      * max(jobs.id) of the queue object's table on its observer session; 0
@@ -596,7 +596,7 @@ class BulkResolver
      * unresolved rows costs one index probe, not a read of every pending row
      * (the tick benchmark found it).
      */
-    private function unresolved(Connection $mirror): \Illuminate\Database\Query\Builder
+    private function unresolved(Connection $mirror): Builder
     {
         return $mirror->table(JobStore::TABLE)
             ->where('job_id_unresolved', true)

@@ -6,6 +6,8 @@ namespace Justrau\Orrery\Tests\Feature\Observation;
 
 use ArrayObject;
 use Closure;
+use Illuminate\Bus\Queueable;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Queue\DatabaseQueue as LaravelDatabaseQueue;
 use Illuminate\Support\Str;
 use Justrau\Orrery\Lifecycle\JobStore;
@@ -196,9 +198,7 @@ final class DeferralByteBudgetHookTest extends EndToEndTestCase
         $this->app->instance(JobStore::class, new class($store, $seen)
         {
             /** @param ArrayObject<int, bool> $seen whether each write found the decoded copy */
-            public function __construct(private readonly JobStore $store, private readonly ArrayObject $seen)
-            {
-            }
+            public function __construct(private readonly JobStore $store, private readonly ArrayObject $seen) {}
 
             public function observe(Observation $observation): StoreOutcome
             {
@@ -289,15 +289,11 @@ final class DeferralByteBudgetHookTest extends EndToEndTestCase
 /**
  * A job with a padded payload (the large-batch test).
  */
-final class PaddedJob implements \Illuminate\Contracts\Queue\ShouldQueue
+final class PaddedJob implements ShouldQueue
 {
-    use \Illuminate\Bus\Queueable;
+    use Queueable;
 
-    public function __construct(public string $padding = '')
-    {
-    }
+    public function __construct(public string $padding = '') {}
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

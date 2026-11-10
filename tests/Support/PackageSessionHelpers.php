@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Support;
 
-use Closure;
 use Illuminate\Database\Connection;
 use Illuminate\Database\DatabaseManager;
 use Illuminate\Database\Schema\Blueprint;
@@ -117,7 +116,7 @@ trait PackageSessionHelpers
         });
 
         $app = $this->app;
-        $this->beforeApplicationDestroyed(static function () use ($app, $connection, $table): void {
+        $this->beforeApplicationDestroyed(static function () use ($connection, $table): void {
             // A package session that a failed test left inside a transaction
             // holds a lock on the table, and MySQL's DROP TABLE would wait for
             // it without a limit. Release the package sessions first.

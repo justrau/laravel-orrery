@@ -37,8 +37,7 @@ final class ProjectionBudget
         public readonly int $depth = self::DEPTH,
         public readonly int $maxNodes = self::NODES,
         public readonly int $workBytes = self::WORK_BYTES,
-    ) {
-    }
+    ) {}
 
     /**
      * @throws ProjectionLimit

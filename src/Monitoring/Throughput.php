@@ -22,9 +22,7 @@ final class Throughput
     /** Every status of an orrery_jobs row: the failed series counts each of them. */
     public const STATUSES = ['pending', 'reserved', 'completed', 'failed', 'retrying', 'unknown'];
 
-    public function __construct(private readonly SampleCoverage $coverage)
-    {
-    }
+    public function __construct(private readonly SampleCoverage $coverage) {}
 
     /**
      * The counts of every minute in [from, to) (minute boundaries), keyed by

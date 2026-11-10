@@ -23,9 +23,7 @@ final class FixtureManifest
     /**
      * @param  list<array{label: string, query: string, expected: int}>  $checks
      */
-    private function __construct(public readonly array $checks)
-    {
-    }
+    private function __construct(public readonly array $checks) {}
 
     public static function path(): string
     {

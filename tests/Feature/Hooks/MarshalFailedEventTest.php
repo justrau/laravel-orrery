@@ -7,6 +7,7 @@ namespace Justrau\Orrery\Tests\Feature\Hooks;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Justrau\Orrery\Events\JobFailed;
+use Justrau\Orrery\Listeners\MarshalFailedEvent;
 use Justrau\Orrery\Runtime\Degradation;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\SiblingFileUnavailable;
@@ -47,6 +48,6 @@ final class MarshalFailedEventTest extends HooksTestCase
         $this->workAndLogFailures();
 
         self::assertSame(1, $marshalled, "The application's listener got no event while the breaker was open.");
-        self::assertArrayNotHasKey('listener:'.\Justrau\Orrery\Listeners\MarshalFailedEvent::class, Degradation::record()['errors'] ?? [], "The application listener's error was recorded as a package error.");
+        self::assertArrayNotHasKey('listener:'.MarshalFailedEvent::class, Degradation::record()['errors'] ?? [], "The application listener's error was recorded as a package error.");
     }
 }

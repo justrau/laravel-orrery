@@ -128,8 +128,7 @@ final class JobList
         private readonly Reconciliation $reconciliation,
         private readonly Repository $config,
         private readonly WorkerLiveness $liveness,
-    ) {
-    }
+    ) {}
 
     /**
      * The response of `GET /api/jobs`.

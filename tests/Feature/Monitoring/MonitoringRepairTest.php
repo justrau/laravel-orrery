@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Monitoring;
 
 use Illuminate\Database\Connection;
+use Illuminate\Support\Str;
 use Justrau\Orrery\Monitoring\MonitoringRepair;
 use Justrau\Orrery\Monitoring\MonitoringVersion;
 use Justrau\Orrery\Storage\Clock;
@@ -145,7 +146,7 @@ final class MonitoringRepairTest extends RetentionTestCase
      */
     private function lateRow(Connection $late, float $finishedAt, int $version): string
     {
-        $uuid = strtolower((string) \Illuminate\Support\Str::uuid());
+        $uuid = strtolower((string) Str::uuid());
         $now = Clock::toDecimal(Clock::now());
         $late->table('orrery_jobs')->insert([
             'uuid' => $uuid,

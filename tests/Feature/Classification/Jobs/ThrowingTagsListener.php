@@ -18,7 +18,5 @@ class ThrowingTagsListener implements ShouldQueue
         throw new RuntimeException('tags() of ThrowingTagsListener failed');
     }
 
-    public function handle(NestingEvent $event): void
-    {
-    }
+    public function handle(NestingEvent $event): void {}
 }

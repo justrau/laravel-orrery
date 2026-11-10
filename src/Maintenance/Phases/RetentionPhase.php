@@ -12,9 +12,7 @@ use Justrau\Orrery\Maintenance\TickPhase;
  */
 final class RetentionPhase implements TickPhase
 {
-    public function __construct(private readonly Retention $retention)
-    {
-    }
+    public function __construct(private readonly Retention $retention) {}
 
     public function name(): string
     {

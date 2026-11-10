@@ -147,7 +147,7 @@ final class HarnessBootstrapTest extends TestCase
      * child (as the join of bin/test's anchor does). The entry records the
      * real start of the group's leader, or $leaderStart instead.
      *
-     * @return array{0: string, 1: string}  the run id and the registry token
+     * @return array{0: string, 1: string} the run id and the registry token
      */
     private function admit(bool $withGroup, ?string $leaderStart = null): array
     {

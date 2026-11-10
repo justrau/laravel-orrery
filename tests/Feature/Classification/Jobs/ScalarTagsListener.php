@@ -17,7 +17,5 @@ class ScalarTagsListener implements ShouldQueue
         return ['01', true];
     }
 
-    public function handle(ScalarTagsEvent $event): void
-    {
-    }
+    public function handle(ScalarTagsEvent $event): void {}
 }

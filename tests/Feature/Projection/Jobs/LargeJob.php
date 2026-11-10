@@ -18,11 +18,7 @@ class LargeJob implements ShouldQueue
     /**
      * @param  list<int>  $ids
      */
-    public function __construct(public array $ids = [], public string $snapshot = '')
-    {
-    }
+    public function __construct(public array $ids = [], public string $snapshot = '') {}
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Hooks;
 
+use Illuminate\Queue\DatabaseQueue;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Queue\Jobs\DatabaseJob;
 use Illuminate\Queue\QueueManager;
@@ -244,7 +245,7 @@ final class EnumQueueNameTest extends HooksTestCase
      * The `database` connection through EnumKeepingConnector, in the swap
      * mode of the test. The resolved connections are cleared first.
      */
-    private function enumKeepingQueue(): \Illuminate\Queue\DatabaseQueue
+    private function enumKeepingQueue(): DatabaseQueue
     {
         /** @var QueueManager $manager */
         $manager = $this->app['queue'];

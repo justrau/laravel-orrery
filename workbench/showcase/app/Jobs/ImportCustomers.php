@@ -18,9 +18,7 @@ class ImportCustomers implements ShouldQueue
 
     public int $timeout = 120;
 
-    public function __construct(public int $chunk, public int $seconds = 0)
-    {
-    }
+    public function __construct(public int $chunk, public int $seconds = 0) {}
 
     public function handle(): void
     {

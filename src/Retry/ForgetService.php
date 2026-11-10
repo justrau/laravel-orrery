@@ -112,8 +112,7 @@ final class ForgetService implements OperationHandler
         private readonly IncidentCleanup $incidents,
         private readonly OperationResolver $resolver,
         private readonly Publication $publication,
-    ) {
-    }
+    ) {}
 
     public function action(): string
     {

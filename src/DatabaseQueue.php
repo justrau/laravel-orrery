@@ -5,6 +5,7 @@ namespace Justrau\Orrery;
 use Illuminate\Container\Container;
 use Illuminate\Queue\DatabaseQueue as BaseQueue;
 use Illuminate\Queue\Jobs\DatabaseJob;
+use Illuminate\Queue\Jobs\DatabaseJobRecord;
 use Justrau\Orrery\Control\StopLatch;
 use Justrau\Orrery\Control\WorkerControl;
 use Justrau\Orrery\Lifecycle\JobStore;
@@ -249,9 +250,9 @@ class DatabaseQueue extends BaseQueue
      * @param  mixed  $jobs
      * @param  mixed  $data
      * @param  mixed  $queue  a UnitEnum, a string or null: Laravel 12 declares
-     *                         string|null for bulk() and getQueue(), but its
-     *                         callers also pass a UnitEnum. The value reaches
-     *                         the parent unchanged.
+     *                        string|null for bulk() and getQueue(), but its
+     *                        callers also pass a UnitEnum. The value reaches
+     *                        the parent unchanged.
      * @return mixed
      */
     #[\Override]
@@ -420,9 +421,9 @@ class DatabaseQueue extends BaseQueue
      * reservation of the returned job (reserve()).
      *
      * @param  mixed  $queue  a UnitEnum, a string or null: Laravel 12 declares
-     *                         string|null for bulk() and getQueue(), but its
-     *                         callers also pass a UnitEnum. The value reaches
-     *                         the parent unchanged.
+     *                        string|null for bulk() and getQueue(), but its
+     *                        callers also pass a UnitEnum. The value reaches
+     *                        the parent unchanged.
      */
     #[\Override]
     public function pop($queue = null)
@@ -545,9 +546,8 @@ class DatabaseQueue extends BaseQueue
      * own transaction (its locking read is the first statement).
      *
      * @param  string  $queue
-     * @param  \Illuminate\Queue\Jobs\DatabaseJob  $job
+     * @param  DatabaseJob  $job
      * @param  int  $delay
-     *
      * @return void
      */
     #[\Override]
@@ -618,7 +618,7 @@ class DatabaseQueue extends BaseQueue
      * by pushToDatabase().
      *
      * @param  string  $queue
-     * @param  \Illuminate\Queue\Jobs\DatabaseJobRecord  $job
+     * @param  DatabaseJobRecord  $job
      * @param  int  $delay
      * @return mixed
      */

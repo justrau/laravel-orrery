@@ -25,9 +25,7 @@ class TaggedJob implements ShouldQueue
     /**
      * @param  list<string>  $jobTags
      */
-    public function __construct(public array $jobTags = [], public bool $fails = false)
-    {
-    }
+    public function __construct(public array $jobTags = [], public bool $fails = false) {}
 
     /**
      * @return list<string>

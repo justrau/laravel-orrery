@@ -133,8 +133,7 @@ final class TerminateTest extends TestCase
      */
     public function test_a_terminate_sets_the_latch_and_no_queue_reserves_after_it(): void
     {
-        StopLatch::useKillerForTesting(static function (): void {
-        });
+        StopLatch::useKillerForTesting(static function (): void {});
         $worker = $this->app->make('queue.worker');
         $this->actAsWorker(startedAt: Clock::now() - 60);
         Queue::push(new BasicJob, '', 'alpha');
@@ -163,8 +162,7 @@ final class TerminateTest extends TestCase
      */
     public function test_a_terminate_reaches_a_worker_whose_only_queue_is_natively_paused(): void
     {
-        StopLatch::useKillerForTesting(static function (): void {
-        });
+        StopLatch::useKillerForTesting(static function (): void {});
         self::assertInstanceOf(DatabaseQueue::class, Queue::connection('database'), 'the connector swap is off');
         $worker = $this->app->make('queue.worker');
         $this->actAsWorker(startedAt: Clock::now() - 60);
@@ -191,8 +189,7 @@ final class TerminateTest extends TestCase
      */
     public function test_the_precise_worker_start_decides_within_one_second(): void
     {
-        StopLatch::useKillerForTesting(static function (): void {
-        });
+        StopLatch::useKillerForTesting(static function (): void {});
         $this->app->make('queue.worker');
         $second = floor(Clock::now()) - 30;
 
@@ -218,8 +215,7 @@ final class TerminateTest extends TestCase
      */
     public function test_a_listen_child_compares_with_its_own_start(): void
     {
-        StopLatch::useKillerForTesting(static function (): void {
-        });
+        StopLatch::useKillerForTesting(static function (): void {});
         $this->app->make('queue.worker');
         $second = floor(Clock::now()) - 30;
         $this->signal('global', '', $second + 10, Carbon::now()->addMinutes(20));

@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Retry;
 
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Queue\Failed\FileFailedJobProvider;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Justrau\Orrery\Failures\GroupKey;
 use Justrau\Orrery\Http\Bulk\BulkRun;
+use Justrau\Orrery\Http\Bulk\BulkRuns;
 use Justrau\Orrery\Http\Bulk\BulkSource;
 use Justrau\Orrery\Http\Bulk\FrozenToken;
 use Justrau\Orrery\Orrery;
@@ -17,10 +19,10 @@ use Justrau\Orrery\Retry\Phases\OperationRetentionPhase;
 use Justrau\Orrery\Runtime\Hooks;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Storage\PackageSession;
+use Justrau\Orrery\Tests\Controller\Fakes\User;
 use Justrau\Orrery\Tests\Support\OffGridTime;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
 use PHPUnit\Framework\Attributes\DataProvider;
-use Justrau\Orrery\Tests\Controller\Fakes\User;
 
 /**
  * The bulk runs (section 11 "Bulk runs"): the signed freeze,
@@ -56,7 +58,7 @@ final class BulkRunsTest extends RetryTestCase
     {
         $rows = [];
 
-        for ($n = 0; $n < \Justrau\Orrery\Http\Bulk\BulkRuns::RETENTION_ROWS; $n++) {
+        for ($n = 0; $n < BulkRuns::RETENTION_ROWS; $n++) {
             $rows[] = [
                 'ref' => sprintf('%032x', $n + 1), 'action' => 'retry', 'source' => '{}', 'source_hash' => str_repeat('0', 64),
                 'max_occurrence' => 1, 'total' => 0, 'created_at' => '100.000000', 'last_run_at' => '100.000000',
@@ -64,18 +66,18 @@ final class BulkRunsTest extends RetryTestCase
         }
 
         foreach (array_chunk($rows, 50) as $chunk) {
-            $this->mirror()->table(\Justrau\Orrery\Http\Bulk\BulkRuns::TABLE)->insert($chunk);
+            $this->mirror()->table(BulkRuns::TABLE)->insert($chunk);
         }
 
         $deletes = [];
-        $this->mirror()->listen(static function (\Illuminate\Database\Events\QueryExecuted $query) use (&$deletes): void {
+        $this->mirror()->listen(static function (QueryExecuted $query) use (&$deletes): void {
             if (str_starts_with(strtolower($query->sql), 'delete from')) {
                 $deletes[] = count($query->bindings);
             }
         });
 
-        self::assertSame(\Justrau\Orrery\Http\Bulk\BulkRuns::RETENTION_ROWS, \Justrau\Orrery\Http\Bulk\BulkRuns::deleteOlderThan($this->mirror(), 200.0));
-        self::assertSame(0, $this->mirror()->table(\Justrau\Orrery\Http\Bulk\BulkRuns::TABLE)->count());
+        self::assertSame(BulkRuns::RETENTION_ROWS, BulkRuns::deleteOlderThan($this->mirror(), 200.0));
+        self::assertSame(0, $this->mirror()->table(BulkRuns::TABLE)->count());
         self::assertLessThanOrEqual(999, max($deletes), 'SQLite before 3.32 takes at most 999 variables');
     }
 

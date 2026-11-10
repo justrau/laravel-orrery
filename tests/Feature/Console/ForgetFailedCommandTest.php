@@ -250,9 +250,7 @@ final class ForgetFailedCommandTest extends RetryTestCase
     {
         $this->app->instance(Terminal::class, new class($terminal) extends Terminal
         {
-            public function __construct(private readonly bool $terminal)
-            {
-            }
+            public function __construct(private readonly bool $terminal) {}
 
             public function stdinIsTerminal(): bool
             {

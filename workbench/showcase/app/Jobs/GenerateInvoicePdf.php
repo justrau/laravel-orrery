@@ -12,9 +12,7 @@ class GenerateInvoicePdf implements ShouldQueue
 {
     use Queueable;
 
-    public function __construct(public int $order, public int $customer)
-    {
-    }
+    public function __construct(public int $order, public int $customer) {}
 
     /**
      * @return array<int, string>

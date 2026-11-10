@@ -776,7 +776,7 @@ final class SampleCountsTest extends RetentionTestCase
         }
 
         $environment = $this->testEnvironment();
-        self::assertSame($environment->isServer() || $environment->inMemory() ? 'rows' : 'file', Retention::lockModeOf($this->app->make(\Justrau\Orrery\Storage\PackageSession::class)->mirror()));
+        self::assertSame($environment->isServer() || $environment->inMemory() ? 'rows' : 'file', Retention::lockModeOf($this->app->make(PackageSession::class)->mirror()));
     }
 
     /**
@@ -1440,7 +1440,6 @@ final class SampleCountsTest extends RetentionTestCase
 
         return $session;
     }
-
 
     private function at(float $time): void
     {

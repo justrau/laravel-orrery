@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Performance;
 
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
@@ -214,7 +215,7 @@ final class OptionalJobsIndexTest extends TestCase
     {
         $this->serverEngine('pgsql');
         $statements = [];
-        DB::listen(static function (\Illuminate\Database\Events\QueryExecuted $query) use (&$statements): void {
+        DB::listen(static function (QueryExecuted $query) use (&$statements): void {
             $statements[] = $query->sql;
         });
         $migration = $this->migration();

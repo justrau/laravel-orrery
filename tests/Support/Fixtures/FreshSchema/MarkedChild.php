@@ -10,7 +10,5 @@ namespace Justrau\Orrery\Tests\Support\Fixtures\FreshSchema;
  */
 final class MarkedChild extends MarkedParent
 {
-    public function probe(): void
-    {
-    }
+    public function probe(): void {}
 }

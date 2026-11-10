@@ -154,8 +154,7 @@ final class WaitingJobs
         private readonly PackageTransaction $transactions,
         private readonly IncidentCleanup $incidents,
         private readonly WaitTime $waits,
-    ) {
-    }
+    ) {}
 
     /**
      * @param  int|null  $size  the batch size; null restores BATCH
@@ -211,10 +210,10 @@ final class WaitingJobs
      *
      * @template T
      *
-     * @param  \Closure(): T  $work
+     * @param  Closure(): T  $work
      * @return T
      */
-    public static function retryBusy(Connection $database, \Closure $work): mixed
+    public static function retryBusy(Connection $database, Closure $work): mixed
     {
         for ($attempt = 1; ; $attempt++) {
             try {

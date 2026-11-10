@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Controller;
 
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Str;
 use Justrau\Orrery\Database\Models\MonitoredTag;
+use Justrau\Orrery\Exceptions\WatchedOperationFailed;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\Controller\Fakes\User;
@@ -81,7 +83,7 @@ final class CountsControllerTest extends ControllerTest
                 'monitored_tags' => null,
             ]);
 
-        Exceptions::assertReported(static fn (\Justrau\Orrery\Exceptions\WatchedOperationFailed $reported): bool => $reported->operation === 'http:counts_pending');
+        Exceptions::assertReported(static fn (WatchedOperationFailed $reported): bool => $reported->operation === 'http:counts_pending');
     }
 
     /**
@@ -105,7 +107,7 @@ final class CountsControllerTest extends ControllerTest
                 $timeout = new \PDOException('SQLSTATE[57014]: Query canceled: canceling statement due to statement timeout');
                 $timeout->errorInfo = ['57014', 7, 'canceling statement due to statement timeout'];
 
-                throw new \Illuminate\Database\QueryException('testbench', $event->sql, [], $timeout);
+                throw new QueryException('testbench', $event->sql, [], $timeout);
             }
         });
 

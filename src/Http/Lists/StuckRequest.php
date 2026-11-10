@@ -29,8 +29,7 @@ final class StuckRequest
         public readonly ?string $class,
         public readonly int $perPage,
         public readonly ?Cursor $cursor,
-    ) {
-    }
+    ) {}
 
     /**
      * @param  array<array-key, mixed>  $query  the request's query values

@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Operations\Fixtures;
 
+use Justrau\Orrery\Tests\Support\AutocommitBounds;
+use Justrau\Orrery\Tests\Support\PdoFromConfig;
 use PDO;
 use PDOException;
 use PDOStatement;
-use Justrau\Orrery\Tests\Support\AutocommitBounds;
-use Justrau\Orrery\Tests\Support\PdoFromConfig;
 
 /**
  * A mirror PDO whose updates of orrery_operations fail.

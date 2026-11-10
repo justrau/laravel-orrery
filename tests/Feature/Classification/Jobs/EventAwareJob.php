@@ -25,7 +25,5 @@ class EventAwareJob implements ShouldQueue
         return ['inner-of-listener', 'event:'.($event === null ? 'none' : $event::class)];
     }
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

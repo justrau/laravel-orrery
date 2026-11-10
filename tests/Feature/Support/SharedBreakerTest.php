@@ -9,14 +9,15 @@ use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use Justrau\Orrery\Exceptions\WatchedOperationFailed;
+use Justrau\Orrery\Registration\Modules\RuntimeModule;
 use Justrau\Orrery\Runtime\Degradation;
 use Justrau\Orrery\Runtime\Hooks;
 use Justrau\Orrery\Runtime\ProcessState;
 use Justrau\Orrery\Runtime\SharedBreaker;
 use Justrau\Orrery\Runtime\Watcher;
+use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Support\FreshSchema;
 use Justrau\Orrery\Tests\Support\MirrorOutage;
-use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\TestCase;
 use PDOException;
 use Throwable;
@@ -147,11 +148,11 @@ final class SharedBreakerTest extends TestCase
     public function test_the_default_of_the_shared_file_follows_the_sapi(): void
     {
         foreach (['fpm-fcgi' => true, 'apache2handler' => true, 'cli-server' => true, 'cgi-fcgi' => true, 'frankenphp' => true, 'cli' => false, 'phpdbg' => false] as $sapi => $on) {
-            self::assertSame($on, \Justrau\Orrery\Registration\Modules\RuntimeModule::sharedBreakerEnabled(null, $sapi), $sapi);
+            self::assertSame($on, RuntimeModule::sharedBreakerEnabled(null, $sapi), $sapi);
         }
 
-        self::assertTrue(\Justrau\Orrery\Registration\Modules\RuntimeModule::sharedBreakerEnabled(true, 'cli'));
-        self::assertFalse(\Justrau\Orrery\Registration\Modules\RuntimeModule::sharedBreakerEnabled(false, 'fpm-fcgi'));
+        self::assertTrue(RuntimeModule::sharedBreakerEnabled(true, 'cli'));
+        self::assertFalse(RuntimeModule::sharedBreakerEnabled(false, 'fpm-fcgi'));
     }
 
     /**
@@ -652,9 +653,7 @@ final class SharedBreakerTest extends TestCase
 
         $this->app->instance(ExceptionHandler::class, new class($reported) implements ExceptionHandler
         {
-            public function __construct(private object $reported)
-            {
-            }
+            public function __construct(private object $reported) {}
 
             public function report(Throwable $e): void
             {
@@ -671,9 +670,7 @@ final class SharedBreakerTest extends TestCase
                 throw $e;
             }
 
-            public function renderForConsole($output, Throwable $e): void
-            {
-            }
+            public function renderForConsole($output, Throwable $e): void {}
         });
 
         return $reported;

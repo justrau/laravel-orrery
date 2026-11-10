@@ -20,9 +20,7 @@ final class ExceptionTextTest extends TestCase
      */
     public function test_an_anonymous_exception_class_is_stored_without_its_file(): void
     {
-        $error = new class('boom') extends RuntimeException
-        {
-        };
+        $error = new class('boom') extends RuntimeException {};
         self::assertStringContainsString("\0", $error::class, 'PHP names an anonymous class with a NUL byte and its file');
 
         $class = ExceptionText::columns($error)['exception_class'];

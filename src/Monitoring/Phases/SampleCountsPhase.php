@@ -13,9 +13,7 @@ use Justrau\Orrery\Monitoring\SampleCounts;
  */
 final class SampleCountsPhase implements TickPhase
 {
-    public function __construct(private readonly SampleCounts $counts)
-    {
-    }
+    public function __construct(private readonly SampleCounts $counts) {}
 
     public function name(): string
     {

@@ -19,9 +19,7 @@ class FailingJob implements ShouldQueue
 
     public const SUCCEED_FLAG = 'workbench:failing-job:succeed';
 
-    public function __construct(public int $number, public bool $featured = false)
-    {
-    }
+    public function __construct(public int $number, public bool $featured = false) {}
 
     /**
      * @return array<int, string>

@@ -47,8 +47,7 @@ final class FrozenToken
         public readonly float $frozenAt,
         public readonly array $total,
         public readonly bool $exact,
-    ) {
-    }
+    ) {}
 
     /**
      * @param  array{count: int, at_least: bool}  $total

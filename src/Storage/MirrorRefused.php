@@ -12,6 +12,4 @@ use RuntimeException;
  * watcher stays degraded instead of retrying every observation, and
  * /api/health and orrery:install show the message.
  */
-final class MirrorRefused extends RuntimeException
-{
-}
+final class MirrorRefused extends RuntimeException {}

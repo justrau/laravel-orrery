@@ -222,7 +222,7 @@ final class HealthControllerTest extends ControllerTest
         $config->set('database.connections.pg_direct', $pg + ['direct' => ['host' => '127.0.0.1']]);
         $config->set('database.connections.pg_plain', $pg);
         // The harness's own pooled connections (ORRERY_TEST_PG_POOLED) stay pooled.
-        $harness = \Justrau\Orrery\Storage\PackageSession::pooledSetting($config->get('orrery.sessions.pooled', false));
+        $harness = PackageSession::pooledSetting($config->get('orrery.sessions.pooled', false));
         $config->set('orrery.sessions.pooled', $harness === true ? true : [...$harness, 'pg_listed', 'pg_lsited', 'pg_listed']);
 
         $json = $this->actingAs(new User)->getJson('/orrery/api/health')->assertOk()->json('pooled_sessions');

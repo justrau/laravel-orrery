@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Operations;
 
-use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Retry\Fence;
 use Justrau\Orrery\Retry\Operations;
 use Justrau\Orrery\Retry\Phases\OperationRetentionPhase;
@@ -14,11 +14,12 @@ use Justrau\Orrery\Retry\RetryHandler;
 use Justrau\Orrery\Retry\RetryResult;
 use Justrau\Orrery\Retry\RetryService;
 use Justrau\Orrery\Runtime\Hooks;
-use Justrau\Orrery\Storage\PackageSession;
+use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\Feature\Operations\Fixtures\OperationCommandsProvider;
 use Justrau\Orrery\Tests\Support\Barrier;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
 use Justrau\Orrery\Tests\Support\WorkerProcess;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 
 /**
@@ -250,7 +251,7 @@ final class RetryCrashPointTest extends RetryProtocolTestCase
 
         $this->moveDatabaseClocks(31 * 86400 + 4000);
         $retention = $this->app->make(OperationRetentionPhase::class);
-        $retention->run(new \Justrau\Orrery\Maintenance\TickBudget(\Justrau\Orrery\Storage\Clock::monotonic() + 30));
+        $retention->run(new TickBudget(Clock::monotonic() + 30));
 
         if (! $this->queueIsHostFile()) {
             self::assertNull($this->fenceRow($first, Fence::DELETE, self::FAILED_CONNECTION), 'The fence retention deleted the finished operation\'s rows.');
@@ -271,7 +272,7 @@ final class RetryCrashPointTest extends RetryProtocolTestCase
      * and completes the job; the publisher resumes; the operation stays done with one `retried` row, and the ledger
      * retention can delete it later.
      */
-    #[\PHPUnit\Framework\Attributes\DataProvider('adoptions')]
+    #[DataProvider('adoptions')]
     public function test_publisher_resumed_after_worker_adoption(bool $fails): void
     {
         [$uuid, $occurrence] = $this->failedJob($this->job(failRuns: $fails ? 2 : 1));
@@ -473,7 +474,7 @@ final class RetryCrashPointTest extends RetryProtocolTestCase
         self::assertSame(Operations::ABORTED, $this->operation($id)->state);
 
         $this->app['config']->set('orrery.retry.fence_retention_days', 0);
-        $this->app->make(OperationRetentionPhase::class)->run(new \Justrau\Orrery\Maintenance\TickBudget(\Justrau\Orrery\Storage\Clock::monotonic() + 30));
+        $this->app->make(OperationRetentionPhase::class)->run(new TickBudget(Clock::monotonic() + 30));
         $host = $this->queueIsHostFile();
         self::assertSame($host, $this->fenceRow($id, Fence::PUBLISH) !== null, 'The cancelled row went (it stays on a host file).');
 

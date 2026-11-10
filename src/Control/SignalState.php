@@ -4,6 +4,7 @@ namespace Justrau\Orrery\Control;
 
 use Illuminate\Container\Container;
 use Illuminate\Database\Connection;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Queue\QueueManager;
 use Illuminate\Support\Carbon;
 use Justrau\Orrery\Database\Models\Signal;
@@ -440,7 +441,7 @@ class SignalState
     {
         $now = Clock::now();
 
-        /** @var \Illuminate\Database\Eloquent\Collection<int, Signal> $rows */
+        /** @var Collection<int, Signal> $rows */
         $rows = Signal::query()
             ->orderBy('scope')
             ->orderBy('scope_value')

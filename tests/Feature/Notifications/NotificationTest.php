@@ -5,34 +5,36 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Notifications;
 
 use ArrayObject;
+use Illuminate\Cache\Repository;
 use Illuminate\Contracts\Notifications\Dispatcher;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Log\Events\MessageLogged;
 use Illuminate\Notifications\AnonymousNotifiable;
-use Illuminate\Notifications\Messages\SlackMessage as LegacySlackMessage;
 use Illuminate\Notifications\ChannelManager;
 use Illuminate\Notifications\Events\NotificationSent;
+use Illuminate\Notifications\Messages\SlackMessage as LegacySlackMessage;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
+use Justrau\Orrery\Console\TickCommand;
 use Justrau\Orrery\Contracts\LongWaitDetectedNotification;
 use Justrau\Orrery\Events\LongWaitDetected;
 use Justrau\Orrery\Listeners\NotificationState;
 use Justrau\Orrery\Listeners\SendNotification;
-use Justrau\Orrery\Console\TickCommand;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Maintenance\TickPhase;
 use Justrau\Orrery\Maintenance\TickRunner;
-use Justrau\Orrery\Monitoring\TickMeasurement;
 use Justrau\Orrery\Monitoring\Phases\LongWaitPhase;
 use Justrau\Orrery\Monitoring\StuckNotifications;
+use Justrau\Orrery\Monitoring\TickMeasurement;
 use Justrau\Orrery\Notifications\LongWaitDetected as LongWaitNotification;
-use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Orrery;
 use Justrau\Orrery\Runtime\Degradation;
 use Justrau\Orrery\Runtime\Watcher;
+use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\Feature\Jobs\BasicJob;
 use Justrau\Orrery\Tests\Support\Fixtures\Notifications\ChannelNotification;
 use Justrau\Orrery\Tests\Support\Fixtures\Notifications\ScriptedChannel;
@@ -290,7 +292,7 @@ final class NotificationTest extends TestCase
         $this->app->forgetInstance('cache.store');
         Cache::clearResolvedInstances();
         // A plain closure: the package's tests never pass a static closure to an extend() creator.
-        Cache::extend('orrery-throwing', fn ($app): \Illuminate\Cache\Repository => new \Illuminate\Cache\Repository(new ThrowingStore));
+        Cache::extend('orrery-throwing', fn ($app): Repository => new Repository(new ThrowingStore));
         $sent = new ArrayObject;
         $this->channel('orrery-recording', static function () use ($sent): void {
             $sent[] = 'orrery-recording';
@@ -354,7 +356,7 @@ final class NotificationTest extends TestCase
         $this->app->forgetInstance('cache.store');
         Cache::clearResolvedInstances();
         // A plain closure: the package's tests never pass a static closure to an extend() creator.
-        Cache::extend('orrery-throwing', fn ($app): \Illuminate\Cache\Repository => new \Illuminate\Cache\Repository(new ThrowingStore));
+        Cache::extend('orrery-throwing', fn ($app): Repository => new Repository(new ThrowingStore));
         $sent = new ArrayObject;
         $this->channel('orrery-recording', static function () use ($sent): void {
             $sent[] = 'orrery-recording';
@@ -366,7 +368,7 @@ final class NotificationTest extends TestCase
         $this->app->forgetInstance('cache');
         $this->app->forgetInstance('cache.store');
         Cache::clearResolvedInstances();
-        Cache::extend('orrery-throwing', fn ($app): \Illuminate\Cache\Repository => new \Illuminate\Cache\Repository(new ThrowingStore));
+        Cache::extend('orrery-throwing', fn ($app): Repository => new Repository(new ThrowingStore));
         event(new LongWaitDetected('database', 'default', 90));
 
         self::assertCount(1, $sent, 'the cooldown outlives the process');
@@ -382,10 +384,10 @@ final class NotificationTest extends TestCase
      */
     public function test_the_package_table_lock_inserts_its_key_before_it_locks_it(): void
     {
-        $state = \Justrau\Orrery\Listeners\NotificationState::current();
+        $state = NotificationState::current();
         self::assertTrue($state->usesMirror(), 'the harness cache store is array');
         $statements = [];
-        Event::listen(\Illuminate\Database\Events\QueryExecuted::class, static function (\Illuminate\Database\Events\QueryExecuted $query) use (&$statements): void {
+        Event::listen(QueryExecuted::class, static function (QueryExecuted $query) use (&$statements): void {
             if (str_contains($query->sql, 'orrery_settings')) {
                 $statements[] = $query->sql;
             }

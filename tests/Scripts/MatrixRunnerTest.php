@@ -4,11 +4,11 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Scripts;
 
+use Justrau\Orrery\Tests\Scripts\Concerns\RunsScripts;
 use OrreryMatrix\Leg;
 use OrreryMatrix\LegResult;
 use OrreryMatrix\LockRules;
 use OrreryMatrix\Variant;
-use Justrau\Orrery\Tests\Scripts\Concerns\RunsScripts;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -1250,7 +1250,7 @@ final class MatrixRunnerTest extends TestCase
     /**
      * The units and their run labels of each leg in a --dry-run output.
      *
-     * @return array<string, array<string, list<string>>>  leg => unit => labels; the docker run is the unit "docker"
+     * @return array<string, array<string, list<string>>> leg => unit => labels; the docker run is the unit "docker"
      */
     private static function parseDryRun(string $output): array
     {

@@ -51,8 +51,7 @@ final class RetentionSettings
     public function __construct(
         private readonly RetentionPolicy $policy,
         private readonly LiveWorkers $workers,
-    ) {
-    }
+    ) {}
 
     /**
      * The body of GET /api/settings/retention.

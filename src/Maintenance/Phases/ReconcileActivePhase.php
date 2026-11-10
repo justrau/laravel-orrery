@@ -18,9 +18,7 @@ use Justrau\Orrery\Maintenance\TickPhase;
  */
 final class ReconcileActivePhase implements TickPhase
 {
-    public function __construct(private readonly Reconciliation $reconciliation)
-    {
-    }
+    public function __construct(private readonly Reconciliation $reconciliation) {}
 
     public function name(): string
     {

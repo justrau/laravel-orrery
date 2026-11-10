@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature;
 
+use Illuminate\Database\Connection;
 use Justrau\Orrery\Storage\HostFileAccessNotAllowed;
 use Justrau\Orrery\Storage\OperatorContext;
 use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
 use Justrau\Orrery\Tests\TestCase;
-use Illuminate\Database\Connection;
 use PDO;
 use PHPUnit\Framework\Attributes\Depends;
 use PHPUnit\Framework\Attributes\Group;

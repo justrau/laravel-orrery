@@ -58,8 +58,7 @@ final class DatabaseBatchRepository
         private readonly PackageSession $sessions,
         private readonly HostFiles $files,
         private readonly Repository $config,
-    ) {
-    }
+    ) {}
 
     /**
      * Why the batches cannot be read (UNSUPPORTED_REASON or

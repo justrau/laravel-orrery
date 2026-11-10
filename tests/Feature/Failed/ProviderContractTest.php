@@ -14,8 +14,8 @@ use Justrau\Orrery\Failed\CapturingUuidFailedJobProvider;
 use Justrau\Orrery\Tests\Support\FreshSchema;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
 use Justrau\Orrery\Tests\TestCase;
-use PHPUnit\Framework\Attributes\DataProvider;
 use PDO;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 use Throwable;
 

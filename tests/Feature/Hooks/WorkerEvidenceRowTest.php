@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Hooks;
 
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Queue;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Tests\Feature\Hooks\Jobs\EffectJob;
@@ -190,7 +191,7 @@ final class WorkerEvidenceRowTest extends HooksTestCase
     {
         $schema = $this->app['db']->connection('testbench')->getSchemaBuilder();
         $schema->dropIfExists(EffectJob::TABLE);
-        $schema->create(EffectJob::TABLE, static function (\Illuminate\Database\Schema\Blueprint $table): void {
+        $schema->create(EffectJob::TABLE, static function (Blueprint $table): void {
             $table->increments('id');
             $table->string('effect');
         });

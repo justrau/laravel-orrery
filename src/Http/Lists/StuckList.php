@@ -84,8 +84,7 @@ final class StuckList
         private readonly StuckSignals $signals,
         private readonly WorkerLiveness $liveness,
         private readonly DeferredIndexes $indexes,
-    ) {
-    }
+    ) {}
 
     /**
      * The response of `GET /api/jobs/stuck`.

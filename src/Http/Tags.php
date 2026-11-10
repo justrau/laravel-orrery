@@ -46,8 +46,7 @@ final class Tags
     public function __construct(
         private readonly PackageSession $sessions,
         private readonly MonitoringVersion $monitoring,
-    ) {
-    }
+    ) {}
 
     /**
      * The stored form of a requested tag, or null when it is not a usable

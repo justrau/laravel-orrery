@@ -22,7 +22,5 @@ class NestingListener implements ShouldQueue
         return ['listener-tag'];
     }
 
-    public function handle(NestingEvent $event): void
-    {
-    }
+    public function handle(NestingEvent $event): void {}
 }

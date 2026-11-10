@@ -392,7 +392,7 @@ trait RunsScripts
     {
         self::assertNull($this->scriptSlot, 'this test holds the slot already');
         $out = $this->makeTempDir('orrery-slot-').'/slot.out';
-        $input = new InputStream();
+        $input = new InputStream;
         $process = new Process([
             PHP_BINARY, '-n', self::testdbPath(), 'slot-hold',
             sprintf('--run-id=run_%d_%s', getmypid(), bin2hex(random_bytes(4))),
@@ -754,7 +754,7 @@ trait RunsScripts
      *    group of a run whose supervisor died), and only after that it
      *    removes the directories that the runs recorded.
      *
-     * @return bool  whether every process is confirmed stopped
+     * @return bool whether every process is confirmed stopped
      */
     protected function stopScriptProcesses(): bool
     {

@@ -2,6 +2,4 @@
 
 namespace Justrau\Orrery\Contracts;
 
-interface Silenced
-{
-}
+interface Silenced {}

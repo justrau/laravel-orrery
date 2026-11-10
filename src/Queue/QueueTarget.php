@@ -15,6 +15,5 @@ final class QueueTarget
         public readonly Connection $connection,
         public readonly string $name,
         public readonly string $table,
-    ) {
-    }
+    ) {}
 }

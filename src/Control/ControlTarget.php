@@ -35,8 +35,7 @@ final class ControlTarget
     private function __construct(
         public readonly string $scope,
         public readonly string $value,
-    ) {
-    }
+    ) {}
 
     /**
      * @throws InvalidArgumentException

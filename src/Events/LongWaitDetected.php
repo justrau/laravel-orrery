@@ -11,8 +11,7 @@ class LongWaitDetected
         public string $connection,
         public string $queue,
         public int $seconds,
-    ) {
-    }
+    ) {}
 
     public function toNotification(): LongWaitDetectedNotification
     {

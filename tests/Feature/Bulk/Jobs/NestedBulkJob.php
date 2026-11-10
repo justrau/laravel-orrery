@@ -20,9 +20,7 @@ class NestedBulkJob implements ShouldQueue
     use InteractsWithQueue;
     use Queueable;
 
-    public function __construct(public string $bulkOn = 'hooks', public int $count = 1, public bool $innerAfterCommit = true)
-    {
-    }
+    public function __construct(public string $bulkOn = 'hooks', public int $count = 1, public bool $innerAfterCommit = true) {}
 
     /**
      * @return list<string>
@@ -46,7 +44,5 @@ class NestedBulkJob implements ShouldQueue
         return ['nested-bulk'];
     }
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

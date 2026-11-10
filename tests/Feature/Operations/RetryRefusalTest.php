@@ -431,9 +431,7 @@ final class RetryRefusalTest extends RetryProtocolTestCase
             'wrapper' => new class(new CapturingUuidFailedJobProvider($db, TestEnvironment::PRIMARY, 'failed_jobs'), $calls) implements FailedJobProviderInterface
             {
                 /** @param \ArrayObject<int, string> $calls */
-                public function __construct(private readonly FailedJobProviderInterface $inner, public \ArrayObject $calls)
-                {
-                }
+                public function __construct(private readonly FailedJobProviderInterface $inner, public \ArrayObject $calls) {}
 
                 public function log($connection, $queue, $payload, $exception)
                 {

@@ -19,6 +19,7 @@ use Justrau\Orrery\Storage\PackageTransaction;
 use Justrau\Orrery\Storage\PackageTransactionBusy;
 use Justrau\Orrery\Storage\PooledSessionRefused;
 use Justrau\Orrery\Storage\PostgresSession;
+use Justrau\Orrery\Storage\SessionPdoException;
 use Justrau\Orrery\Tests\Support\ServerStandInPdo;
 use Justrau\Orrery\Tests\TestCase;
 use PDO;
@@ -677,7 +678,7 @@ final class ConnectAttemptsTest extends TestCase
 
                 throw $busy;
             }
-            : static fn (): never => throw new QueryException($name, 'select 1', [], $timeout());
+        : static fn (): never => throw new QueryException($name, 'select 1', [], $timeout());
 
         return [$fail, static fn (): mixed => $sessions->mirror()->scalar('select 1')];
     }
@@ -819,7 +820,7 @@ final class ConnectAttemptsTest extends TestCase
         try {
             $this->sessions()->for(self::CONNECTION);
             self::fail('the failed setup did not surface');
-        } catch (\Justrau\Orrery\Storage\SessionPdoException $error) {
+        } catch (SessionPdoException $error) {
             self::assertStringContainsString(self::CONNECTION, (string) $error->session);
         }
 
@@ -1007,9 +1008,7 @@ final class ConnectAttemptsTest extends TestCase
 
         $this->app->bind('db.connector.mysql', static fn (): LaravelMySqlConnector => new class($count) extends LaravelMySqlConnector
         {
-            public function __construct(private readonly Closure $count)
-            {
-            }
+            public function __construct(private readonly Closure $count) {}
 
             protected function createPdoConnection($dsn, $username, #[\SensitiveParameter] $password, $options)
             {

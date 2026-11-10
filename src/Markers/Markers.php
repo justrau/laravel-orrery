@@ -62,9 +62,7 @@ final class Markers
     /** Keeps each statement at 999 bindings or fewer (old SQLite builds). */
     private const PRUNE_CHUNK = 500;
 
-    public function __construct(private readonly PackageTransaction $transaction)
-    {
-    }
+    public function __construct(private readonly PackageTransaction $transaction) {}
 
     /**
      * Applies one read of the restart cache value. Returns true when it inserted a marker.

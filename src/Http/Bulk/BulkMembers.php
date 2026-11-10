@@ -67,8 +67,7 @@ final class BulkMembers
         private readonly Connection|Closure $session,
         private readonly BulkSource $source,
         private readonly int $maxOccurrence,
-    ) {
-    }
+    ) {}
 
     private function session(): Connection
     {

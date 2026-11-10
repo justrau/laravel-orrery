@@ -55,7 +55,7 @@ final class OverrideSignatureAudit
                     array_push($mismatches, ...self::compare($method, $parent));
 
                     if ($method->hasReturnType() && ! $parent->hasReturnType() && ! $parent->hasTentativeReturnType()) {
-                        $added[] = sprintf("%s::%s(): %s", $reflection->getName(), $method->getName(), self::type($method->getReturnType()));
+                        $added[] = sprintf('%s::%s(): %s', $reflection->getName(), $method->getName(), self::type($method->getReturnType()));
                     }
                 }
             }

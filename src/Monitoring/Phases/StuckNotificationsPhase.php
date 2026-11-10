@@ -4,8 +4,8 @@ namespace Justrau\Orrery\Monitoring\Phases;
 
 use Justrau\Orrery\Database\Schema\SchemaOutdated;
 use Justrau\Orrery\Lifecycle\IncidentCleanup;
-use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Maintenance\RunsPastDeadline;
+use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Monitoring\StuckIncidents;
 use Justrau\Orrery\Monitoring\StuckNotifications;
 use Justrau\Orrery\Storage\Clock;
@@ -29,8 +29,7 @@ final class StuckNotificationsPhase implements RunsPastDeadline
         private readonly PackageSession $sessions,
         private readonly IncidentCleanup $cleanup,
         private readonly StuckNotifications $notifications,
-    ) {
-    }
+    ) {}
 
     public function name(): string
     {

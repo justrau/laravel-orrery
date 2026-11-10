@@ -21,9 +21,7 @@ use Throwable;
  */
 final class RetryPayload
 {
-    public function __construct(private readonly Application $app)
-    {
-    }
+    public function __construct(private readonly Application $app) {}
 
     /**
      * @throws RuntimeException

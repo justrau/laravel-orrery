@@ -20,8 +20,7 @@ final class TickReport
         private readonly array $failed,
         private readonly array $overruns,
         private readonly array $skipped,
-    ) {
-    }
+    ) {}
 
     /** @return list<string> */
     public function ran(): array

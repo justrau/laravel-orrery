@@ -19,9 +19,7 @@ final class HealthRetentionPhase implements TickPhase
 {
     public const DEFAULT_RETENTION_DAYS = 7;
 
-    public function __construct(private readonly Repository $config)
-    {
-    }
+    public function __construct(private readonly Repository $config) {}
 
     public function name(): string
     {

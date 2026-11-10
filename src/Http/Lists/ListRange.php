@@ -27,8 +27,7 @@ final class ListRange
         public readonly bool $nullOrder = false,
         public readonly ?string $from = null,
         public readonly ?string $to = null,
-    ) {
-    }
+    ) {}
 
     /**
      * The range bounds of a read on the order column: `from` (else the floor

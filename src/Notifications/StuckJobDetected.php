@@ -27,9 +27,7 @@ class StuckJobDetected extends Notification
     use Queueable;
     use StuckText;
 
-    public function __construct(public StuckJobEvent $event, public int $more = 0)
-    {
-    }
+    public function __construct(public StuckJobEvent $event, public int $more = 0) {}
 
     public function title(): string
     {

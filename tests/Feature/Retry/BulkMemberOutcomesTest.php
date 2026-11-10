@@ -7,14 +7,20 @@ namespace Justrau\Orrery\Tests\Feature\Retry;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Testing\TestResponse;
 use Justrau\Orrery\Http\Bulk\BulkRun;
+use Justrau\Orrery\Http\Bulk\BulkRuns;
 use Justrau\Orrery\Orrery;
 use Justrau\Orrery\Retry\ForgetService;
+use Justrau\Orrery\Retry\Publication;
 use Justrau\Orrery\Retry\RetryService;
 use Justrau\Orrery\Storage\Clock;
+use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Controller\Fakes\User;
 use Justrau\Orrery\Tests\Support\FreshSchema;
 use Justrau\Orrery\Tests\Support\PackageStatements;
+use Justrau\Orrery\Tests\Support\SessionPdo;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
+use Justrau\Orrery\Tests\Support\ThrowingCommitPdo;
+use Justrau\Orrery\Tests\Support\ThrowingRollbackPdo;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 
@@ -284,8 +290,8 @@ final class BulkMemberOutcomesTest extends RetryTestCase
         [$a] = $this->failedJob();
         [$b] = $this->failedJob();
         $frozen = $this->freeze('retry')->assertOk();
-        $held = $this->app->make(\Justrau\Orrery\Storage\PackageSession::class)->mirror();
-        $this->atFirst(\Justrau\Orrery\Retry\Publication::BEFORE_COMMIT, static function (): never {
+        $held = $this->app->make(PackageSession::class)->mirror();
+        $this->atFirst(Publication::BEFORE_COMMIT, static function (): never {
             throw new RuntimeException('The publication failed (test).');
         });
         $published = DB::table('jobs')->count();
@@ -294,7 +300,7 @@ final class BulkMemberOutcomesTest extends RetryTestCase
         $outcomes = $this->outcomes($page->json('results'));
 
         self::assertSame(['accepted', null], $outcomes[$a], 'the next member was retried');
-        self::assertSame(1, (int) $held->table(\Justrau\Orrery\Http\Bulk\BulkRuns::TABLE)->where('ref', $page->json('ref'))->value('accepted'), 'the mirror session held before the page still works, and the page stored its counters');
+        self::assertSame(1, (int) $held->table(BulkRuns::TABLE)->where('ref', $page->json('ref'))->value('accepted'), 'the mirror session held before the page still works, and the page stored its counters');
         self::assertNotSame('accepted', $outcomes[$b][0], 'the failed publication is not accepted');
         self::assertSame($published + 1, DB::table('jobs')->count(), 'only a was published');
     }
@@ -321,11 +327,11 @@ final class BulkMemberOutcomesTest extends RetryTestCase
         [$a] = $this->failedJob();
         [$b] = $this->failedJob();
         $frozen = $this->freeze('retry')->assertOk();
-        $sessions = $this->app->make(\Justrau\Orrery\Storage\PackageSession::class);
+        $sessions = $this->app->make(PackageSession::class);
         $config = (array) $this->app['config']->get('database.connections.'.TestEnvironment::PRIMARY);
-        $this->atFirst(\Justrau\Orrery\Retry\Publication::BEFORE_FENCE_INSERT, static function () use ($sessions, $config): void {
+        $this->atFirst(Publication::BEFORE_FENCE_INSERT, static function () use ($sessions, $config): void {
             $session = $sessions->forAction(TestEnvironment::PRIMARY);
-            $session->setPdo(\Justrau\Orrery\Tests\Support\SessionPdo::for($session, \Justrau\Orrery\Tests\Support\ThrowingCommitPdo::forConfig($config)));
+            $session->setPdo(SessionPdo::for($session, ThrowingCommitPdo::forConfig($config)));
         });
         $published = DB::table('jobs')->count();
 
@@ -334,7 +340,7 @@ final class BulkMemberOutcomesTest extends RetryTestCase
 
         self::assertSame(['accepted', null], $outcomes[$a], 'the next member was retried');
         self::assertNotSame('accepted', $outcomes[$b][0], 'the failed COMMIT is not accepted');
-        self::assertSame(1, (int) $this->mirror()->table(\Justrau\Orrery\Http\Bulk\BulkRuns::TABLE)->where('ref', $page->json('ref'))->value('accepted'), 'the page stored its counters on the mirror');
+        self::assertSame(1, (int) $this->mirror()->table(BulkRuns::TABLE)->where('ref', $page->json('ref'))->value('accepted'), 'the page stored its counters on the mirror');
         self::assertSame($published + 1, DB::table('jobs')->count(), 'only a was published');
     }
 
@@ -362,18 +368,18 @@ final class BulkMemberOutcomesTest extends RetryTestCase
         [$a] = $this->failedJob();
         [$b] = $this->failedJob();
         $frozen = $this->freeze('retry')->assertOk();
-        $sessions = $this->app->make(\Justrau\Orrery\Storage\PackageSession::class);
+        $sessions = $this->app->make(PackageSession::class);
         $config = (array) $this->app['config']->get('database.connections.'.TestEnvironment::PRIMARY);
         $installed = false;
         $thrown = false;
         $this->onHook(static function (string $reached) use ($sessions, $config, &$installed, &$thrown): void {
-            if ($reached === \Justrau\Orrery\Retry\Publication::BEFORE_FENCE_INSERT && ! $installed) {
+            if ($reached === Publication::BEFORE_FENCE_INSERT && ! $installed) {
                 $installed = true;
                 $session = $sessions->forAction(TestEnvironment::PRIMARY);
-                $session->setPdo(\Justrau\Orrery\Tests\Support\SessionPdo::for($session, \Justrau\Orrery\Tests\Support\ThrowingRollbackPdo::forConfig($config)));
+                $session->setPdo(SessionPdo::for($session, ThrowingRollbackPdo::forConfig($config)));
             }
 
-            if ($reached === \Justrau\Orrery\Retry\Publication::BEFORE_COMMIT && ! $thrown) {
+            if ($reached === Publication::BEFORE_COMMIT && ! $thrown) {
                 $thrown = true;
 
                 throw new RuntimeException('The publication failed (test).');
@@ -433,7 +439,6 @@ final class BulkMemberOutcomesTest extends RetryTestCase
     }
 
     /**
-     * @param  mixed  $results
      * @return array<string, array{0: string, 1: string|null}>
      */
     private function outcomes(mixed $results): array

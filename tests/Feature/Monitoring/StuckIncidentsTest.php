@@ -14,6 +14,7 @@ use Justrau\Orrery\Database\Schema\IndexName;
 use Justrau\Orrery\Database\Schema\SchemaOutdated;
 use Justrau\Orrery\Events\StuckJobDetected;
 use Justrau\Orrery\Maintenance\Reconciliation;
+use Justrau\Orrery\Maintenance\RunsPastDeadline;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Maintenance\TickRunner;
 use Justrau\Orrery\Monitoring\Phases\StuckEventsPhase;
@@ -672,10 +673,10 @@ final class StuckIncidentsTest extends TestCase
         self::assertSame(1, $this->mirror()->table(StuckIncidents::TABLE)->count(), 'the creation made the incident');
         self::assertCount(0, $events, 'the creation phase dispatched an event');
 
-        self::assertInstanceOf(\Justrau\Orrery\Maintenance\RunsPastDeadline::class, $this->app->make(StuckEventsPhase::class));
+        self::assertInstanceOf(RunsPastDeadline::class, $this->app->make(StuckEventsPhase::class));
         // A tick whose deadline passed before the phase: it still has its own share.
         $this->app['config']->set('orrery.tick.deadline_seconds', 0);
-        $report = $this->app->make(\Justrau\Orrery\Maintenance\TickRunner::class)->run([$this->app->make(StuckEventsPhase::class)]);
+        $report = $this->app->make(TickRunner::class)->run([$this->app->make(StuckEventsPhase::class)]);
         self::assertSame(['stuck_events'], $report->ran());
         self::assertCount(1, $events, 'the late phase did not deliver');
     }

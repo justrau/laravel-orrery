@@ -6,8 +6,9 @@ namespace Justrau\Orrery\Tests\Feature\Failed;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
-use Justrau\Orrery\Tests\Feature\Operations\Jobs\TimeoutJob;
 use Justrau\Orrery\Tests\Feature\Jobs\FailingJob;
+use Justrau\Orrery\Tests\Feature\Operations\Jobs\TimeoutJob;
+use Justrau\Orrery\Tests\Support\TestEnvironment;
 use Justrau\Orrery\Tests\Support\WorkerProcess;
 use Justrau\Orrery\Tests\TestCase;
 use PHPUnit\Framework\Attributes\Group;
@@ -31,7 +32,7 @@ final class CapturingProviderProcessTest extends TestCase
         Queue::push(new TimeoutJob);
 
         $worker = WorkerProcess::start(['queue:work', 'database', '--max-jobs=1', '--sleep=0', '--tries=1', '--timeout=1'], $env);
-        self::assertNotSame(0, $worker->waitForExit(60), "The timeout killed the worker. ".$worker->describe());
+        self::assertNotSame(0, $worker->waitForExit(60), 'The timeout killed the worker. '.$worker->describe());
 
         $record = DB::table('failed_jobs')->sole();
         $row = $this->mirror()->table('orrery_jobs')->where('uuid', $record->uuid)->first();
@@ -62,7 +63,7 @@ final class CapturingProviderProcessTest extends TestCase
         self::assertNotNull($row->provider_target);
     }
 
-    private function sharedEnvironment(): \Justrau\Orrery\Tests\Support\TestEnvironment
+    private function sharedEnvironment(): TestEnvironment
     {
         $env = $this->testEnvironment();
 

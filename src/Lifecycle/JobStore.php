@@ -121,8 +121,7 @@ final class JobStore
         private readonly History $history,
         private readonly CycleSummaries $summaries,
         private readonly RetryFinalizer $operationFinalizer,
-    ) {
-    }
+    ) {}
 
     /**
      * Applies one observation. The result's $applied is true when the row

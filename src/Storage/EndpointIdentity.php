@@ -2,7 +2,6 @@
 
 namespace Justrau\Orrery\Storage;
 
-
 /**
  * The endpoint that a package session reaches. PackageSession keys its
  * cache by the connection name and this identity together, so a name that is
@@ -28,9 +27,7 @@ final class EndpointIdentity
     /**
      * @param  array<string, mixed>  $fields
      */
-    private function __construct(public readonly array $fields)
-    {
-    }
+    private function __construct(public readonly array $fields) {}
 
     /**
      * @param  array<string, mixed>  $writer  a writer configuration (PackageSession::writerConfig())

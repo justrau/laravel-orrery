@@ -29,9 +29,7 @@ final class LostAckStatement extends PDOStatement
 
     public static int $lost = 0;
 
-    protected function __construct()
-    {
-    }
+    protected function __construct() {}
 
     /**
      * A PDO whose statements use this class.

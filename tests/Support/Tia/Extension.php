@@ -5,14 +5,6 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Support\Tia;
 
 use PHPUnit\Event\Code\TestMethod;
-use PHPUnit\Event\Test\ConsideredRisky;
-use PHPUnit\Event\Test\ConsideredRiskySubscriber;
-use PHPUnit\Event\Test\DataProviderMethodCalled;
-use PHPUnit\Event\Test\DataProviderMethodCalledSubscriber;
-use PHPUnit\Event\Test\DataProviderMethodFinished;
-use PHPUnit\Event\Test\DataProviderMethodFinishedSubscriber;
-use PHPUnit\Event\Test\Errored;
-use PHPUnit\Event\Test\ErroredSubscriber;
 use PHPUnit\Event\Test\AfterLastTestMethodErrored;
 use PHPUnit\Event\Test\AfterLastTestMethodErroredSubscriber;
 use PHPUnit\Event\Test\AfterLastTestMethodFailed;
@@ -21,6 +13,14 @@ use PHPUnit\Event\Test\BeforeFirstTestMethodErrored;
 use PHPUnit\Event\Test\BeforeFirstTestMethodErroredSubscriber;
 use PHPUnit\Event\Test\BeforeFirstTestMethodFailed;
 use PHPUnit\Event\Test\BeforeFirstTestMethodFailedSubscriber;
+use PHPUnit\Event\Test\ConsideredRisky;
+use PHPUnit\Event\Test\ConsideredRiskySubscriber;
+use PHPUnit\Event\Test\DataProviderMethodCalled;
+use PHPUnit\Event\Test\DataProviderMethodCalledSubscriber;
+use PHPUnit\Event\Test\DataProviderMethodFinished;
+use PHPUnit\Event\Test\DataProviderMethodFinishedSubscriber;
+use PHPUnit\Event\Test\Errored;
+use PHPUnit\Event\Test\ErroredSubscriber;
 use PHPUnit\Event\Test\ErrorTriggered;
 use PHPUnit\Event\Test\ErrorTriggeredSubscriber;
 use PHPUnit\Event\Test\Failed;
@@ -116,9 +116,7 @@ final class Extension implements PhpUnitExtension
             },
             new class($classOf) implements PreparationStartedSubscriber
             {
-                public function __construct(private readonly \Closure $classOf)
-                {
-                }
+                public function __construct(private readonly \Closure $classOf) {}
 
                 public function notify(PreparationStarted $event): void
                 {
@@ -175,9 +173,7 @@ final class Extension implements PhpUnitExtension
         return match ($interface) {
             FailedSubscriber::class => new class($mark) implements FailedSubscriber
             {
-                public function __construct(private readonly \Closure $mark)
-                {
-                }
+                public function __construct(private readonly \Closure $mark) {}
 
                 public function notify(Failed $event): void
                 {
@@ -186,9 +182,7 @@ final class Extension implements PhpUnitExtension
             },
             ErroredSubscriber::class => new class($mark) implements ErroredSubscriber
             {
-                public function __construct(private readonly \Closure $mark)
-                {
-                }
+                public function __construct(private readonly \Closure $mark) {}
 
                 public function notify(Errored $event): void
                 {
@@ -197,9 +191,7 @@ final class Extension implements PhpUnitExtension
             },
             ConsideredRiskySubscriber::class => new class($mark) implements ConsideredRiskySubscriber
             {
-                public function __construct(private readonly \Closure $mark)
-                {
-                }
+                public function __construct(private readonly \Closure $mark) {}
 
                 public function notify(ConsideredRisky $event): void
                 {
@@ -208,9 +200,7 @@ final class Extension implements PhpUnitExtension
             },
             WarningTriggeredSubscriber::class => new class($mark) implements WarningTriggeredSubscriber
             {
-                public function __construct(private readonly \Closure $mark)
-                {
-                }
+                public function __construct(private readonly \Closure $mark) {}
 
                 public function notify(WarningTriggered $event): void
                 {
@@ -219,9 +209,7 @@ final class Extension implements PhpUnitExtension
             },
             PhpunitWarningTriggeredSubscriber::class => new class($mark) implements PhpunitWarningTriggeredSubscriber
             {
-                public function __construct(private readonly \Closure $mark)
-                {
-                }
+                public function __construct(private readonly \Closure $mark) {}
 
                 public function notify(PhpunitWarningTriggered $event): void
                 {
@@ -230,9 +218,7 @@ final class Extension implements PhpUnitExtension
             },
             ErrorTriggeredSubscriber::class => new class($mark) implements ErrorTriggeredSubscriber
             {
-                public function __construct(private readonly \Closure $mark)
-                {
-                }
+                public function __construct(private readonly \Closure $mark) {}
 
                 public function notify(ErrorTriggered $event): void
                 {
@@ -241,9 +227,7 @@ final class Extension implements PhpUnitExtension
             },
             default => new class($mark) implements PhpWarningTriggeredSubscriber
             {
-                public function __construct(private readonly \Closure $mark)
-                {
-                }
+                public function __construct(private readonly \Closure $mark) {}
 
                 public function notify(PhpWarningTriggered $event): void
                 {

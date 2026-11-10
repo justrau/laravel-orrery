@@ -49,7 +49,6 @@ final class HostFileOpenScanTest extends TestCase
 
     private const BANNED_CLASSES = ['SplFileObject', 'SQLite3'];
 
-
     /** file => [the trimmed source line => what it opens] */
     private const ALLOWED = [
         'src/Orrery.php' => [

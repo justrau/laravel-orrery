@@ -22,9 +22,7 @@ class ClockProbeJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public function __construct(public string $file)
-    {
-    }
+    public function __construct(public string $file) {}
 
     public function handle(): void
     {

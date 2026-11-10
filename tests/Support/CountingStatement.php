@@ -15,9 +15,7 @@ final class CountingStatement extends PDOStatement
     /**
      * @param  Closure(): void  $count
      */
-    protected function __construct(private readonly Closure $count)
-    {
-    }
+    protected function __construct(private readonly Closure $count) {}
 
     public function execute(?array $params = null): bool
     {

@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Operations;
 
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Queue\QueueManager;
 use Illuminate\Support\Facades\DB;
 use Justrau\Orrery\Retry\Fence;
 use Justrau\Orrery\Retry\Operations;
@@ -16,6 +17,7 @@ use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Support\AutocommitBounds;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
 use LogicException;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
  * The retry protocol in one process: the
@@ -74,7 +76,7 @@ final class RetryProtocolTest extends RetryProtocolTestCase
      */
     public function test_publication_applies_a_forward_scoped_to_the_connection(): void
     {
-        if (! method_exists(\Illuminate\Queue\QueueManager::class, 'forward')) {
+        if (! method_exists(QueueManager::class, 'forward')) {
             self::markTestSkipped('This Laravel release has no queue forwards.');
         }
 
@@ -260,7 +262,7 @@ final class RetryProtocolTest extends RetryProtocolTestCase
      * between BEGIN and COMMIT on Q's session exactly the conditional fence insert, the exact delete (mode
      * in_tx only), the jobs insert and the fence update.
      */
-    #[\PHPUnit\Framework\Attributes\DataProvider('modes')]
+    #[DataProvider('modes')]
     public function test_publication_transaction_is_short(string $mode): void
     {
         if ($mode === Operations::BEFORE) {

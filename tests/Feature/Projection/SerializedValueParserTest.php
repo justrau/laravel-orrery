@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Projection;
 
+use Justrau\Orrery\Http\Projection\ParsedEntry;
 use Justrau\Orrery\Http\Projection\ParsedNode;
 use Justrau\Orrery\Http\Projection\ProjectionBudget;
 use Justrau\Orrery\Http\Projection\ProjectionLimit;
@@ -33,7 +34,7 @@ final class SerializedValueParserTest extends TestCase
         parent::setUp();
 
         // The package's own classes load first; every later autoload call is a failure.
-        foreach ([SerializedValueParser::class, ParsedNode::class, \Justrau\Orrery\Http\Projection\ParsedEntry::class, ProjectionBudget::class, ProjectionLimit::class, UnsupportedValue::class] as $class) {
+        foreach ([SerializedValueParser::class, ParsedNode::class, ParsedEntry::class, ProjectionBudget::class, ProjectionLimit::class, UnsupportedValue::class] as $class) {
             class_exists($class);
         }
 
@@ -175,7 +176,7 @@ final class SerializedValueParserTest extends TestCase
     public function test_object_properties_have_their_logical_names_and_visibility(): void
     {
         $input = 'O:13:"App\\Jobs\\Sync":4:{'
-            ."s:4:\"name\";s:1:\"n\";"
+            .'s:4:"name";s:1:"n";'
             ."s:6:\"\0*\0key\";i:1;"
             ."s:21:\"\0App\\Jobs\\Sync\0secret\";s:1:\"x\";"
             ."s:21:\"\0App\\Jobs\\Base\0secret\";s:1:\"y\";"

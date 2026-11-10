@@ -2,9 +2,9 @@
 
 namespace App\Jobs;
 
+use App\Exceptions\WebhookEndpointGone;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use App\Exceptions\WebhookEndpointGone;
 
 /**
  * A showcase job (ShowcaseSeeder): posts an order event to a partner's webhook. A job created
@@ -18,9 +18,7 @@ class DeliverWebhook implements ShouldQueue
 
     public int $tries = 3;
 
-    public function __construct(public int $order, public string $event = 'order.paid', public bool $fails = false)
-    {
-    }
+    public function __construct(public int $order, public string $event = 'order.paid', public bool $fails = false) {}
 
     /**
      * @return array<int, string>

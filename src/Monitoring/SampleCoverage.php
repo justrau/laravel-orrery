@@ -85,8 +85,7 @@ final class SampleCoverage
         private readonly WaitTime $waits,
         private readonly SampleCounts $counts,
         private readonly RetentionPolicy $policy,
-    ) {
-    }
+    ) {}
 
     /**
      * The primary alias of a queue connection (the name under which the

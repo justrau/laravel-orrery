@@ -21,8 +21,7 @@ final class RecoveredChannelNotification extends Notification implements LongWai
         public readonly string $queue,
         public readonly int $seconds,
         private readonly array $channels,
-    ) {
-    }
+    ) {}
 
     /**
      * @return list<string>

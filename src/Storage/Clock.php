@@ -118,7 +118,7 @@ final class Clock
      * six decimal places, a point as the separator in every locale, and no
      * dependency on PHP's precision setting.
      *
-     * @throws InvalidArgumentException  for NAN and INF
+     * @throws InvalidArgumentException for NAN and INF
      */
     public static function toDecimal(float $seconds): string
     {

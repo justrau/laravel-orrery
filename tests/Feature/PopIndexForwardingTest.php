@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature;
 
 use Illuminate\Contracts\Queue\Queue;
+use Illuminate\Database\Connection;
+use Illuminate\Database\ConnectionResolverInterface;
 use Illuminate\Queue\Connectors\ConnectorInterface;
 use Illuminate\Queue\QueueManager;
 use Illuminate\Queue\Worker;
@@ -42,12 +44,12 @@ final class PopIndexForwardingTest extends TestCase
         $manager = $this->app['queue'];
         $manager->addConnector('database', fn (): ConnectorInterface => new class($this->app['db']) implements ConnectorInterface
         {
-            public function __construct(private readonly \Illuminate\Database\ConnectionResolverInterface $connections) {}
+            public function __construct(private readonly ConnectionResolverInterface $connections) {}
 
             /** @param  array<string, mixed>  $config */
             public function connect(array $config): Queue
             {
-                /** @var \Illuminate\Database\Connection $connection */
+                /** @var Connection $connection */
                 $connection = $this->connections->connection($config['connection'] ?? null);
 
                 return new IndexRecordingQueue($connection, $config['table'], $config['queue'], $config['retry_after'] ?? 60, $config['after_commit'] ?? null);

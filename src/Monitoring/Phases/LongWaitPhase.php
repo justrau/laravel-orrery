@@ -3,14 +3,12 @@
 namespace Justrau\Orrery\Monitoring\Phases;
 
 use Illuminate\Container\Container;
-use Justrau\Orrery\Storage\HostFiles;
-use Justrau\Orrery\Storage\PackageSession;
 use Illuminate\Contracts\Events\Dispatcher;
 use Justrau\Orrery\Events\LongWaitDetected;
 use Justrau\Orrery\Events\LongWaitRecovered;
 use Justrau\Orrery\Listeners\SendRecoveredNotification;
-use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Maintenance\RunsPastDeadline;
+use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Monitoring\FailureSpikes;
 use Justrau\Orrery\Monitoring\LongWaitIncidents;
 use Justrau\Orrery\Monitoring\MeasurementIncomplete;
@@ -18,6 +16,8 @@ use Justrau\Orrery\Monitoring\TickMeasurement;
 use Justrau\Orrery\Monitoring\WaitTime;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\Clock;
+use Justrau\Orrery\Storage\HostFiles;
+use Justrau\Orrery\Storage\PackageSession;
 
 /**
  * The long-wait check of tick. It dispatches LongWaitDetected
@@ -81,8 +81,7 @@ final class LongWaitPhase implements RunsPastDeadline
         private readonly Dispatcher $events,
         private readonly LongWaitIncidents $incidents,
         private readonly FailureSpikes $spikes,
-    ) {
-    }
+    ) {}
 
     public function name(): string
     {

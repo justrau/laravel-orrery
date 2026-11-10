@@ -15,9 +15,7 @@ use Justrau\Orrery\Retry\OperationRunner;
  */
 final class OperationsPhase implements TickPhase
 {
-    public function __construct(private readonly OperationRunner $runner)
-    {
-    }
+    public function __construct(private readonly OperationRunner $runner) {}
 
     public function name(): string
     {

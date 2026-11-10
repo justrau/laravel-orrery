@@ -15,7 +15,7 @@ use PDO;
 final class PhysicalTables
 {
     /**
-     * @return list<string>  sorted
+     * @return list<string> sorted
      */
     public static function of(Connection $connection): array
     {
@@ -26,7 +26,7 @@ final class PhysicalTables
      * The same, through a PDO that a test kept, for example after its
      * application was torn down.
      *
-     * @return list<string>  sorted
+     * @return list<string> sorted
      */
     public static function onPdo(PDO $pdo, string $driver): array
     {

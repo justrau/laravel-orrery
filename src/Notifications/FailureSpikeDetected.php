@@ -15,9 +15,7 @@ class FailureSpikeDetected extends RoutedNotification
     /**
      * @param  list<array{name: string, exception_class: ?string, count: int}>  $groups
      */
-    public function __construct(public int $count, public int $minute, public array $groups)
-    {
-    }
+    public function __construct(public int $count, public int $minute, public array $groups) {}
 
     public function smsText(): string
     {

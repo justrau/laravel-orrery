@@ -15,9 +15,7 @@ class BatchMemberJob implements ShouldQueue
     use Batchable;
     use Queueable;
 
-    public function __construct(public int $number, public bool $fails = false)
-    {
-    }
+    public function __construct(public int $number, public bool $fails = false) {}
 
     public function handle(): void
     {

@@ -28,7 +28,5 @@ class UniqueAfterCommitJob implements ShouldBeUnique, ShouldQueue
         return $this->key;
     }
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

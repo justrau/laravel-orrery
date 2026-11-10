@@ -74,7 +74,7 @@ final class TagsPlanTest extends TestCase
         $primary = match ($mirror->getDriverName()) {
             'mysql', 'mariadb' => 'PRIMARY',
             // Postgres names a primary key <table>_pkey whatever name the schema gives it.
-            'pgsql' => (string) $mirror->selectOne("select i.relname as name from pg_index x join pg_class i on i.oid = x.indexrelid where x.indrelid = ?::regclass and x.indisprimary", [$monitored])->name,
+            'pgsql' => (string) $mirror->selectOne('select i.relname as name from pg_index x join pg_class i on i.oid = x.indexrelid where x.indrelid = ?::regclass and x.indisprimary', [$monitored])->name,
             default => null,
         };
         $problems = [];

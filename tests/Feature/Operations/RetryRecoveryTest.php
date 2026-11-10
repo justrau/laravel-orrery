@@ -14,6 +14,7 @@ use Justrau\Orrery\Retry\RetryHandler;
 use Justrau\Orrery\Retry\RetryResult;
 use Justrau\Orrery\Retry\RetryService;
 use Justrau\Orrery\Runtime\Hooks;
+use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Support\LostAckCommitPdo;
 use Justrau\Orrery\Tests\Support\SessionPdo;
@@ -219,12 +220,12 @@ final class RetryRecoveryTest extends RetryProtocolTestCase
         $this->expectKilled(fn () => $this->retry($uuid, $occurrence), RetryService::AFTER_COMMIT);
         $operation = $this->onlyOperation();
 
-        \Justrau\Orrery\Runtime\Watcher::failOperationsForTesting(['hook:pop']);
+        Watcher::failOperationsForTesting(['hook:pop']);
 
         try {
             $this->work();
         } finally {
-            \Justrau\Orrery\Runtime\Watcher::failOperationsForTesting([]);
+            Watcher::failOperationsForTesting([]);
         }
 
         self::assertSame(Operations::DONE, $this->operation($operation->id)->state);

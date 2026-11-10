@@ -131,9 +131,7 @@ final class SafeReportTest extends TestCase
                 throw $e;
             }
 
-            public function renderForConsole($output, Throwable $e): void
-            {
-            }
+            public function renderForConsole($output, Throwable $e): void {}
         });
 
         /** @var list<string> $logged */
@@ -242,9 +240,7 @@ final class SafeReportTest extends TestCase
                 throw $e;
             }
 
-            public function renderForConsole($output, Throwable $e): void
-            {
-            }
+            public function renderForConsole($output, Throwable $e): void {}
         });
         Watcher::instance()->attempt('notification:slack:fallback', $post);
         $log = (string) file_get_contents($this->errorLog);
@@ -327,13 +323,13 @@ final class SafeReportTest extends TestCase
      * Laravel 12, and assertReported() matches only one exact class, so the
      * fake's own list is read.
      *
-     * @return list<\Throwable>
+     * @return list<Throwable>
      */
     private static function reportedExceptions(): array
     {
         $fake = Exceptions::getFacadeRoot();
 
-        /** @var list<\Throwable> $all */
+        /** @var list<Throwable> $all */
         $all = (fn (): array => array_values($this->reported))->call($fake);
 
         return $all;

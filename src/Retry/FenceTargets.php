@@ -27,8 +27,7 @@ final class FenceTargets
     public function __construct(
         private readonly PackageSession $sessions,
         private readonly DatabaseManager $db,
-    ) {
-    }
+    ) {}
 
     /**
      * @return list<string>

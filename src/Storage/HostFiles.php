@@ -49,10 +49,10 @@ final class HostFiles
 
     public const READS_WARNING = 'SQLite: enable WAL (journal_mode wal) and a busy_timeout so Orrery can observe the queue without affecting it.';
 
-    /** @var (Closure(string $connection): ?bool)|null */
+    /** @var (Closure(string): ?bool)|null */
     private ?Closure $isHostForTesting = null;
 
-    /** @var (Closure(string $connection): ?bool)|null */
+    /** @var (Closure(string): ?bool)|null */
     private ?Closure $allowsReadsForTesting = null;
 
     /** @var array<string, true> the files whose WAL mode this unit of work confirmed */
@@ -64,9 +64,7 @@ final class HostFiles
     /** @var array<string, string> the hints of this process by file */
     private array $hints = [];
 
-    public function __construct(private readonly Application $app)
-    {
-    }
+    public function __construct(private readonly Application $app) {}
 
     /**
      * Whether a database connection name is on a host SQLite file.

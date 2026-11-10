@@ -28,8 +28,7 @@ final class BulkCursor
         public readonly int $segment,
         public readonly string $order,
         public readonly int $id,
-    ) {
-    }
+    ) {}
 
     public static function at(string $ref, int $segment, mixed $order, int $id): self
     {

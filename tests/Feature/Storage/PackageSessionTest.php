@@ -214,7 +214,7 @@ final class PackageSessionTest extends TestCase
         // Another client left a search path on the pooled backend.
         $session->getPdo()->exec('SET search_path = c4a_other');
         self::assertSame('c4a_other', $session->scalar('select current_schema()'), 'The control: the backend carries the leftover path.');
-        self::assertFalse((bool) $session->scalar("select exists (select 1 from pg_class c, pg_namespace n where n.nspname = current_schema() and c.relname = ? and n.oid = c.relnamespace)", [$probe]), "The control: Laravel's current_schema() check misses the table.");
+        self::assertFalse((bool) $session->scalar('select exists (select 1 from pg_class c, pg_namespace n where n.nspname = current_schema() and c.relname = ? and n.oid = c.relnamespace)', [$probe]), "The control: Laravel's current_schema() check misses the table.");
 
         $schema = $session->getSchemaBuilder();
         self::assertTrue($schema->hasTable('orrery_c4a_probe'), 'hasTable() answers for the qualified relation.');
@@ -1232,7 +1232,7 @@ final class PackageSessionTest extends TestCase
             static fn (object $row): array => ['name' => (string) $row->name, 'source' => (string) $row->source],
             // Through the PDO between statements: a pooled autocommit statement carries its own
             // SET LOCAL bounds, which end with that statement.
-            $session->getPdo()->query("select name, source from pg_settings where source = 'session' order by name")->fetchAll(\PDO::FETCH_OBJ),
+            $session->getPdo()->query("select name, source from pg_settings where source = 'session' order by name")->fetchAll(PDO::FETCH_OBJ),
         );
     }
 
@@ -1406,9 +1406,7 @@ final class PackageSessionTest extends TestCase
             private bool $stopped = false;
 
             /** @param resource $process */
-            public function __construct(private $process)
-            {
-            }
+            public function __construct(private $process) {}
 
             public function stop(): void
             {

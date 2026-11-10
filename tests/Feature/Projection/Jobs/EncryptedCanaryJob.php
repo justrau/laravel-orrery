@@ -11,7 +11,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 /**
  * An encrypted job: its command is the encrypter's envelope.
  */
-class EncryptedCanaryJob implements ShouldQueue, ShouldBeEncrypted
+class EncryptedCanaryJob implements ShouldBeEncrypted, ShouldQueue
 {
     use Queueable;
 
@@ -22,7 +22,5 @@ class EncryptedCanaryJob implements ShouldQueue, ShouldBeEncrypted
         $this->note = 'canary-encrypted-note';
     }
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

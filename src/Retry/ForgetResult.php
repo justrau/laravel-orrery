@@ -25,7 +25,6 @@ namespace Justrau\Orrery\Retry;
  *   occurrence_unprovable, target_changed, fence_missing,
  *   mirror_unreachable, record_unreachable; `message` holds the operator
  *   text of the read-only and unprovable refusals.
-
  */
 final class ForgetResult
 {
@@ -49,6 +48,5 @@ final class ForgetResult
         public readonly ?string $operationId = null,
         public readonly ?int $occurrenceId = null,
         public readonly ?string $message = null,
-    ) {
-    }
+    ) {}
 }

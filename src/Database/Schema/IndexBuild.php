@@ -84,9 +84,7 @@ final class IndexBuild
     /** @var (Closure(Connection, string): void)|null tests only: runs before each index statement */
     private ?Closure $beforeStatement = null;
 
-    public function __construct(private readonly Application $app)
-    {
-    }
+    public function __construct(private readonly Application $app) {}
 
     /**
      * Builds the missing indexes. $line gets ('info'|'warn'|'error', text).
@@ -357,6 +355,7 @@ final class IndexBuild
      * reach the same database (a SQLite file was compared by path already):
      * on Postgres current_database() and pg_postmaster_start_time(), on
      * MySQL DATABASE() and @@server_uuid, on MariaDB DATABASE(),
+     *
      * @@server_id, @@hostname and @@port. The mirror side is read on a
      * probe of its own configuration (probeConfig()), never on the package
      * session, whose statement timeout and pooled-session rules do not apply

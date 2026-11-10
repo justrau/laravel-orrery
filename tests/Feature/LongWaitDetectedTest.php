@@ -2,11 +2,14 @@
 
 namespace Justrau\Orrery\Tests\Feature;
 
+use Illuminate\Mail\Markdown;
+use Illuminate\Notifications\AnonymousNotifiable;
+use Illuminate\Notifications\Messages\SlackMessage;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
-use Justrau\Orrery\Orrery;
 use Justrau\Orrery\Events\LongWaitDetected;
 use Justrau\Orrery\Notifications\LongWaitDetected as LongWaitDetectedNotification;
+use Justrau\Orrery\Orrery;
 use Justrau\Orrery\Tests\TestCase;
 
 class LongWaitDetectedTest extends TestCase
@@ -69,17 +72,17 @@ class LongWaitDetectedTest extends TestCase
         $queue = "[Reset](https://evil.test) <!channel>\u{202E}é";
         $notification = new LongWaitDetectedNotification('database', $queue, 90);
 
-        $message = $notification->toMail(new \Illuminate\Notifications\AnonymousNotifiable);
+        $message = $notification->toMail(new AnonymousNotifiable);
         // The plain-text part shows the raw queue name, without Markdown escapes.
-        $mail = (string) $this->app->make(\Illuminate\Mail\Markdown::class)->renderText((string) $message->markdown, $message->data());
+        $mail = (string) $this->app->make(Markdown::class)->renderText((string) $message->markdown, $message->data());
         self::assertStringContainsString('[Reset](https://evil.test)', $mail);
         self::assertStringNotContainsString('\\[', $mail);
         self::assertStringContainsString('"database" connection has a wait time of 90 seconds', $mail);
         self::assertStringNotContainsString("\u{202E}", $mail);
         self::assertStringNotContainsString('href="https://evil.test', (string) $message->render());
 
-        $webhook = $notification->toSlack((new \Illuminate\Notifications\AnonymousNotifiable)->route('slack', 'https://hooks.slack.test/orrery'));
-        self::assertInstanceOf(\Illuminate\Notifications\Messages\SlackMessage::class, $webhook);
+        $webhook = $notification->toSlack((new AnonymousNotifiable)->route('slack', 'https://hooks.slack.test/orrery'));
+        self::assertInstanceOf(SlackMessage::class, $webhook);
         $text = (string) $webhook->attachments[0]->content;
         self::assertStringContainsString('&lt;!channel&gt;', $text);
         self::assertStringNotContainsString('<!channel>', $text);

@@ -7,6 +7,4 @@ use RuntimeException;
 /**
  * The failure of the showcase webhook job: the receiving endpoint answered 410 Gone.
  */
-class WebhookEndpointGone extends RuntimeException
-{
-}
+class WebhookEndpointGone extends RuntimeException {}

@@ -60,8 +60,7 @@ final class MirrorOutage
         public readonly string $method,
         private readonly array $renamed,
         private readonly ?array $original,
-    ) {
-    }
+    ) {}
 
     public static function methodFor(TestEnvironment $env): string
     {
@@ -71,7 +70,7 @@ final class MirrorOutage
     /**
      * @param  string|null  $method  self::RENAME to rename in every mode; null chooses methodFor($env)
      *
-     * @throws HarnessRefusal  inside an open transaction, or without package tables
+     * @throws HarnessRefusal inside an open transaction, or without package tables
      */
     public static function begin(Application $app, TestEnvironment $env, ?string $method = null): self
     {
@@ -143,7 +142,7 @@ final class MirrorOutage
     /**
      * Restores the package's storage. Calling it again does nothing.
      *
-     * @throws HarnessRefusal  inside an open transaction
+     * @throws HarnessRefusal inside an open transaction
      */
     public function end(): void
     {
@@ -203,7 +202,7 @@ final class MirrorOutage
      * The package sessions are resolved connections too. Only PDOs that
      * already exist are asked: the check never opens a connection.
      *
-     * @return list<string>  connection names
+     * @return list<string> connection names
      */
     public static function openTransactions(Application $app): array
     {

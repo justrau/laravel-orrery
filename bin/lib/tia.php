@@ -2178,6 +2178,4 @@ TXT;
     }
 }
 
-final class UsageError extends RuntimeException
-{
-}
+final class UsageError extends RuntimeException {}

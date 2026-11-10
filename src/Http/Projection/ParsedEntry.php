@@ -24,8 +24,7 @@ final class ParsedEntry
         public readonly mixed $value,
         public readonly ?string $visibility = null,
         public readonly ?string $declaredIn = null,
-    ) {
-    }
+    ) {}
 
     /**
      * @param  int|string|array<string, int|string>  $key

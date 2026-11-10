@@ -6,6 +6,7 @@ namespace Justrau\Orrery\Tests\Controller;
 
 use Illuminate\Database\QueryException;
 use Illuminate\Log\Events\MessageLogged;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
@@ -13,6 +14,7 @@ use Illuminate\Testing\TestResponse;
 use Justrau\Orrery\Actions\OperatorAudit;
 use Justrau\Orrery\Actions\WaitingJobs;
 use Justrau\Orrery\Events\OperatorActionPerformed;
+use Justrau\Orrery\Http\Controllers\JobController;
 use Justrau\Orrery\Orrery;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\Clock;
@@ -490,14 +492,14 @@ final class WaitingJobsTest extends HooksTestCase
         self::assertNull($detail->json('actions.pending_reason'));
         self::assertFalse($detail->json('chained'));
 
-        \Illuminate\Support\Facades\Bus::chain([new BasicJob, new BasicJob])->onConnection('database')->dispatch();
+        Bus::chain([new BasicJob, new BasicJob])->onConnection('database')->dispatch();
         $head = self::uuidOf((string) DB::table('jobs')->orderByDesc('id')->value('payload'));
         self::assertTrue($this->getJson("/orrery/api/jobs/{$head}")->assertOk()->json('chained'));
 
         // A chain that is not the first `chained` property of the text (a property holds another job first).
         $nested = 'O:1:"A":2:{s:5:"inner";O:1:"B":1:{s:7:"chained";a:0:{}}s:7:"chained";a:1:{i:0;s:1:"x";}}';
-        self::assertTrue(\Justrau\Orrery\Http\Controllers\JobController::chained((string) json_encode(['data' => ['command' => $nested]])));
-        self::assertNull(\Justrau\Orrery\Http\Controllers\JobController::chained((string) json_encode(['data' => ['command' => 'eyJpdiI6']])), 'an encrypted command');
+        self::assertTrue(JobController::chained((string) json_encode(['data' => ['command' => $nested]])));
+        self::assertNull(JobController::chained((string) json_encode(['data' => ['command' => 'eyJpdiI6']])), 'an encrypted command');
 
         $this->mirror()->table('orrery_jobs')->where('uuid', $plain)->update(['job_id' => null, 'job_id_unresolved' => true]);
         self::assertSame('job_id_unknown', $this->getJson("/orrery/api/jobs/{$plain}")->assertOk()->json('actions.pending_reason'));

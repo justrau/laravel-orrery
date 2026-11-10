@@ -9,6 +9,7 @@ use Illuminate\Queue\Failed\FileFailedJobProvider;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Justrau\Orrery\Console\RetryCommand;
+use Justrau\Orrery\Console\Terminal;
 use Justrau\Orrery\Http\Bulk\BulkRun;
 use PHPUnit\Framework\Attributes\DataProvider;
 
@@ -101,11 +102,9 @@ final class RetryCommandTest extends RetryTestCase
      */
     private function stdinIsTerminal(bool $terminal): void
     {
-        $this->app->instance(\Justrau\Orrery\Console\Terminal::class, new class($terminal) extends \Justrau\Orrery\Console\Terminal
+        $this->app->instance(Terminal::class, new class($terminal) extends Terminal
         {
-            public function __construct(private readonly bool $terminal)
-            {
-            }
+            public function __construct(private readonly bool $terminal) {}
 
             public function stdinIsTerminal(): bool
             {

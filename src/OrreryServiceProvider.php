@@ -35,23 +35,23 @@ class OrreryServiceProvider extends ServiceProvider
      */
     public const MODULES = [
         // The package sessions, the host SQLite file policy, PackageTransaction and the package schema: every later module reads and writes through them.
-        Registration\Modules\StorageModule::class,
+        Modules\StorageModule::class,
         // The watcher, the breaker, the degradation record and the process context: every later listener and tick phase runs inside the watcher.
-        Registration\Modules\RuntimeModule::class,
+        Modules\RuntimeModule::class,
         // The commit deferral, its units of work and the payload classification: the hooks defer through it, and the lifecycle store reads the stamped type, tags and generation.
-        Registration\Modules\ObservationModule::class,
+        Modules\ObservationModule::class,
         // JobStore, history, summaries, the monitoring cache, the outcome listeners and the bulk capture: the services and the tick phases write through the store.
-        Registration\Modules\LifecycleModule::class,
+        Modules\LifecycleModule::class,
         // The operation ledger, retry, forget, the verifying failed-job extender and the operation phases: the dashboard routes, the commands and reconciliation call them.
-        Registration\Modules\OperationsModule::class,
+        Modules\OperationsModule::class,
         // The tick runner, retention, reconciliation, orrery:clear and the schedule: the tick runs the phases that the later modules tag.
-        Registration\Modules\MaintenanceModule::class,
+        Modules\MaintenanceModule::class,
         // Wait times, the samples, the markers, the tag monitoring and the jobs index: the dashboard reads them.
-        Registration\Modules\MonitoringModule::class,
+        Modules\MonitoringModule::class,
         // Heartbeats, live workers, signals and the stop latch: the wait times and the dashboard read the live workers.
-        Registration\Modules\ControlModule::class,
+        Modules\ControlModule::class,
         // The public static API (gate, operate and actor callbacks, notification routes, Tags): the HTTP layer of this provider reads it.
-        Registration\Modules\HttpModule::class,
+        Modules\HttpModule::class,
     ];
 
     /**

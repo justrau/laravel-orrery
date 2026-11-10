@@ -18,9 +18,7 @@ class SendOrderConfirmation implements ShouldQueue
 
     public int $tries = 3;
 
-    public function __construct(public int $order, public int $customer, public bool $fails = false)
-    {
-    }
+    public function __construct(public int $order, public int $customer, public bool $fails = false) {}
 
     /**
      * @return array<int, string>

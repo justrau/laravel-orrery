@@ -3,11 +3,15 @@
 namespace Justrau\Orrery\Tests\Feature\Console;
 
 use Illuminate\Container\Container;
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Justrau\Orrery\Console\ClearCommand;
 use Justrau\Orrery\Database\Models\Job;
+use Justrau\Orrery\Events\OperatorActionPerformed;
 use Justrau\Orrery\Queue\BulkResolver;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\Clock;
@@ -82,7 +86,7 @@ class ClearCommandTest extends HooksTestCase
         Queue::bulk(array_map(static fn (): BasicJob => new BasicJob, range(1, 1000)));
         self::assertSame(1000, DB::table('jobs')->count());
         $largest = 0;
-        DB::listen(static function (\Illuminate\Database\Events\QueryExecuted $query) use (&$largest): void {
+        DB::listen(static function (QueryExecuted $query) use (&$largest): void {
             $largest = max($largest, count($query->bindings));
         });
 
@@ -206,7 +210,7 @@ class ClearCommandTest extends HooksTestCase
     {
         Queue::push(new BasicJob);
         $events = new \ArrayObject;
-        \Illuminate\Support\Facades\Event::listen(\Justrau\Orrery\Events\OperatorActionPerformed::class, static function (\Justrau\Orrery\Events\OperatorActionPerformed $event) use ($events): void {
+        Event::listen(OperatorActionPerformed::class, static function (OperatorActionPerformed $event) use ($events): void {
             $events[] = $event;
         });
 
@@ -240,7 +244,7 @@ class ClearCommandTest extends HooksTestCase
         $failing = true;
         DB::connection()->beforeExecuting(static function (string $sql) use (&$deletes, &$failing): void {
             if ($failing && preg_match('/^delete from [`"]?(?!\w*orrery_)\w*jobs[`"]?\s/i', $sql) === 1 && ++$deletes === 2) {
-                throw new \Illuminate\Database\QueryException('testbench', $sql, [], new \PDOException('SQLSTATE[HY000]: General error: 1 disk I/O error'));
+                throw new QueryException('testbench', $sql, [], new \PDOException('SQLSTATE[HY000]: General error: 1 disk I/O error'));
             }
         });
 
@@ -510,7 +514,7 @@ class ClearCommandTest extends HooksTestCase
                 $pdo = new \PDOException('SQLSTATE[HY000]: General error: 5 database is locked');
                 $pdo->errorInfo = ['HY000', 5, 'database is locked'];
 
-                throw new \Illuminate\Database\QueryException('testbench', $sql, [], $pdo);
+                throw new QueryException('testbench', $sql, [], $pdo);
             }
         });
 
@@ -524,7 +528,7 @@ class ClearCommandTest extends HooksTestCase
 
         try {
             $code = Artisan::call('orrery:clear', ['connection' => 'database', '--force' => true]);
-        } catch (\Illuminate\Database\QueryException) {
+        } catch (QueryException) {
             // The command lets an error of the queue connection through (exit 1 on the console).
         }
 

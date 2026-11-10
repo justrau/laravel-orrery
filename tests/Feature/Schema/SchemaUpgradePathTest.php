@@ -80,6 +80,7 @@ final class SchemaUpgradePathTest extends TestCase
         $sibling = $this->testEnvironment()->siblingDatabase() !== null;
         self::assertSame($sibling ? 1 : 0, $this->mirror()->table('orrery_settings')->where('key', 'p5b_old_schema')->count(), 'A server mirror is rebuilt empty; the sibling keeps its file (D12).');
     }
+
     /**
      * Rejects: a drop() that loses an open operation of the ledger (a claimed retry whose
      * publication only the ledger can resolve), a guard that also refuses for finished

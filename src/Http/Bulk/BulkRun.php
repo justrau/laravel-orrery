@@ -113,8 +113,7 @@ final class BulkRun
         private readonly RetryService $retries,
         private readonly ForgetService $forgets,
         private readonly JobProjection $projection,
-    ) {
-    }
+    ) {}
 
     /**
      * orrery.bulk.forget_max: a whole number from 1 to FORGET_MAX_LIMIT

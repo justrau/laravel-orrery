@@ -2,9 +2,9 @@
 
 namespace App\Jobs;
 
+use App\Exceptions\PaymentGatewayTimeout;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Queue\Queueable;
-use App\Exceptions\PaymentGatewayTimeout;
 
 /**
  * A showcase job (ShowcaseSeeder): charges a customer's subscription. A job created with
@@ -18,9 +18,7 @@ class ChargeSubscription implements ShouldQueue
 
     public int $tries = 3;
 
-    public function __construct(public int $subscription, public int $customer, public bool $fails = false)
-    {
-    }
+    public function __construct(public int $subscription, public int $customer, public bool $fails = false) {}
 
     /**
      * @return array<int, string>

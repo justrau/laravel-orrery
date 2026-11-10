@@ -32,7 +32,7 @@ final class RawQuery
     /**
      * @return array<array-key, mixed>
      *
-     * @throws QueryTooLong  when the query has at least max_input_vars pairs: the parse would drop the pairs past the limit
+     * @throws QueryTooLong when the query has at least max_input_vars pairs: the parse would drop the pairs past the limit
      */
     public static function of(Request $request): array
     {

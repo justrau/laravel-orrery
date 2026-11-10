@@ -37,8 +37,7 @@ final class Capture
         public readonly int $beginsBefore,
         public readonly int $ownBegins,
         public readonly array $chainBefore,
-    ) {
-    }
+    ) {}
 
     /**
      * @param  list<DatabaseTransactionRecord>  $chainBefore

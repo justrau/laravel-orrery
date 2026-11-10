@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Operations;
 
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Queue;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Retry\Fence;
 use Justrau\Orrery\Retry\Operations;
@@ -279,7 +280,7 @@ final class RetryRunnerTest extends RetryProtocolTestCase
         $config->set('queue.connections.database.connection', self::QUEUE_DATABASE);
         $this->app->forgetInstance('queue');
         $this->app->forgetInstance('queue.connection');
-        \Illuminate\Support\Facades\Queue::clearResolvedInstance('queue');
+        Queue::clearResolvedInstance('queue');
         $this->useCapturingFailer('failed_jobs', self::QUEUE_DATABASE);
     }
 

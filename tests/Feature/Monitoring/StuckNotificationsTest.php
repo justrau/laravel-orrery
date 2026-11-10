@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Monitoring;
 
 use ArrayObject;
+use Illuminate\Cache\Repository;
 use Illuminate\Contracts\Cache\Store;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Mail\Markdown;
 use Illuminate\Notifications\AnonymousNotifiable;
 use Illuminate\Notifications\ChannelManager;
 use Illuminate\Notifications\Messages\SlackMessage as LegacySlackMessage;
@@ -256,7 +258,7 @@ final class StuckNotificationsTest extends TestCase
         $this->app->forgetInstance('cache.store');
         Cache::clearResolvedInstances();
         // A plain closure: the package's tests never pass a static closure to an extend() creator.
-        Cache::extend('orrery-throwing', fn ($app): \Illuminate\Cache\Repository => new \Illuminate\Cache\Repository(new ThrowingStore));
+        Cache::extend('orrery-throwing', fn ($app): Repository => new Repository(new ThrowingStore));
         self::assertInstanceOf(Store::class, $this->app->make('cache.store')->getStore());
         $sent = $this->scriptedChannels(slackFailures: 0);
         $this->route('slack', '#orrery-ops');
@@ -1156,7 +1158,7 @@ final class StuckNotificationsTest extends TestCase
 
         self::assertStringContainsString('Reset', $html);
         self::assertStringNotContainsString('href="https://evil.test', $html);
-        self::assertStringNotContainsString('\\_', (string) $this->app->make(\Illuminate\Mail\Markdown::class)->renderText('notifications::email', (new StuckJobNotification(new StuckJobDetected(self::uuidOf(1), 2, StuckSignals::OUTCOME_NOT_OBSERVED, 'database', 'emails', 'App\\Jobs\\Send_Mail', ['gap' => 2])))->toMail(new AnonymousNotifiable)->data()));
+        self::assertStringNotContainsString('\\_', (string) $this->app->make(Markdown::class)->renderText('notifications::email', (new StuckJobNotification(new StuckJobDetected(self::uuidOf(1), 2, StuckSignals::OUTCOME_NOT_OBSERVED, 'database', 'emails', 'App\\Jobs\\Send_Mail', ['gap' => 2])))->toMail(new AnonymousNotifiable)->data()));
     }
 
     /**
@@ -1249,7 +1251,7 @@ final class StuckNotificationsTest extends TestCase
 
         // The plain-text part shows the raw name, without Markdown escapes; the HTML part has no link.
         $message = $notification->toMail(new AnonymousNotifiable);
-        $text = (string) $this->app->make(\Illuminate\Mail\Markdown::class)->renderText((string) $message->markdown, $message->data());
+        $text = (string) $this->app->make(Markdown::class)->renderText((string) $message->markdown, $message->data());
         self::assertStringContainsString('[Reset](https://evil.test) <!channel>', $text);
         self::assertStringNotContainsString('\\[', $text);
         $html = (string) $message->render();

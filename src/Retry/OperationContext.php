@@ -20,8 +20,7 @@ final class OperationContext
         public readonly float $mirrorNow,
         public readonly TickBudget $budget,
         private readonly PackageSession $sessions,
-    ) {
-    }
+    ) {}
 
     /**
      * The clock of a database connection (null: database.default), read

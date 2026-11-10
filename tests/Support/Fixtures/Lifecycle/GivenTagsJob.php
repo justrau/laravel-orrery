@@ -13,9 +13,7 @@ class GivenTagsJob extends BasicJob
     /**
      * @param  list<string>  $givenTags
      */
-    public function __construct(public array $givenTags)
-    {
-    }
+    public function __construct(public array $givenTags) {}
 
     /**
      * @return list<string>

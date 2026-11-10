@@ -10,7 +10,6 @@ use Illuminate\Support\Facades\Queue;
 use Justrau\Orrery\Monitoring\MonitoredTagCache;
 use Justrau\Orrery\Monitoring\MonitoringVersion;
 use Justrau\Orrery\Runtime\Hooks;
-use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Feature\Retention\Jobs\TaggedJob;
 use Justrau\Orrery\Tests\Feature\Retention\RetentionTestCase;
@@ -18,6 +17,7 @@ use Justrau\Orrery\Tests\Support\FreshSchema;
 use Justrau\Orrery\Tests\Support\PackageSessionHelpers;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
 use PDO;
+use Pdo\Mysql;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 /**
@@ -75,7 +75,7 @@ final class MonitoringIsolationTest extends RetentionTestCase
             if ($source === 'configured' && $env->isServer()) {
                 $this->app['config']->set("database.connections.{$mirrorSource}.isolation_level", 'READ UNCOMMITTED');
             } elseif ($source === 'server default' && $env->driver === 'mysql') {
-                $attribute = class_exists(\Pdo\Mysql::class) ? \Pdo\Mysql::ATTR_INIT_COMMAND : PDO::MYSQL_ATTR_INIT_COMMAND;
+                $attribute = class_exists(Mysql::class) ? Mysql::ATTR_INIT_COMMAND : PDO::MYSQL_ATTR_INIT_COMMAND;
                 $this->app['config']->set("database.connections.{$mirrorSource}.options", [$attribute => self::MYSQL_READ_UNCOMMITTED] + (array) $this->app['config']->get("database.connections.{$mirrorSource}.options"));
             } elseif ($source === 'server default') {
                 $admin->statement(sprintf('alter database "%s" set default_transaction_isolation = \'read uncommitted\'', $database));

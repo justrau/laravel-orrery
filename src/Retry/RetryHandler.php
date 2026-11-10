@@ -84,8 +84,7 @@ final class RetryHandler implements OperationHandler
         private readonly Publication $publication,
         private readonly RetryFinalizer $finalizer,
         private readonly HostFiles $files,
-    ) {
-    }
+    ) {}
 
     public function action(): string
     {

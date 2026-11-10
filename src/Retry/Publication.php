@@ -77,8 +77,7 @@ final class Publication
         private readonly PackageSession $sessions,
         private readonly PackageTransaction $transactions,
         private readonly Fence $fence,
-    ) {
-    }
+    ) {}
 
     /**
      * The fingerprint of a queue connection's target: sha256 of the endpoint

@@ -22,7 +22,5 @@ class EncryptedJob implements ShouldBeEncrypted, ShouldQueue
         $this->note = Canaries::ENCRYPTED;
     }
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

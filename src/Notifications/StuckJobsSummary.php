@@ -23,8 +23,7 @@ class StuckJobsSummary extends Notification
         public string $queueName,
         public string $signal,
         public int $count,
-    ) {
-    }
+    ) {}
 
     public function title(): string
     {

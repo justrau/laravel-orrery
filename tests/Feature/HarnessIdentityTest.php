@@ -155,7 +155,7 @@ final class HarnessIdentityTest extends TestCase
         $expectPhp = getenv('ORRERY_EXPECT_PHP');
 
         if (is_string($expectPhp) && $expectPhp !== '') {
-            self::assertTrue(PHP_VERSION === $expectPhp || str_starts_with(PHP_VERSION, $expectPhp.'.'), 'PHP '.PHP_VERSION." is not {$expectPhp}");
+            self::assertTrue($expectPhp === PHP_VERSION || str_starts_with(PHP_VERSION, $expectPhp.'.'), 'PHP '.PHP_VERSION." is not {$expectPhp}");
         }
 
         $separate = getenv('ORRERY_TEST_MIRROR') === 'separate';
@@ -887,11 +887,10 @@ final class HarnessIdentityTest extends TestCase
         Closure::bind(static function (): void {
             Tags::$event = new \stdClass;
         }, null, Tags::class)();
-        Hooks::$callback = static function (string $point): void {
-        };
+        Hooks::$callback = static function (string $point): void {};
         self::assertNotSame(self::cleanState(), self::packageState());
 
-        static::resetPackageState();
+        self::resetPackageState();
 
         self::assertSame(self::cleanState(), self::packageState());
     }
@@ -986,7 +985,7 @@ final class HarnessIdentityTest extends TestCase
      * A business row for a transaction control: a job on testbench, or a
      * setting on the mirror connection.
      *
-     * @return array{0: string, 1: array<string, mixed>, 2: string}  table, row, marker column
+     * @return array{0: string, 1: array<string, mixed>, 2: string} table, row, marker column
      */
     private static function businessRow(string $connection): array
     {

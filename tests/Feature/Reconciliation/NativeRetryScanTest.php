@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Reconciliation;
 
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Justrau\Orrery\Console\ReconcileCommand;
 use Justrau\Orrery\Maintenance\Reconciliation;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Storage\Clock;
+use Justrau\Orrery\Storage\HostFiles;
 
 /**
  * The scans of the queue table for a native retry: each one
@@ -133,7 +136,7 @@ final class NativeRetryScanTest extends ReconciliationTestCase
                 $refuse = true;
             }
         });
-        \Justrau\Orrery\Storage\HostFiles::useForTesting(null, static function (string $connection) use (&$refuse): ?bool {
+        HostFiles::useForTesting(null, static function (string $connection) use (&$refuse): ?bool {
             return $refuse ? false : null;
         });
 
@@ -164,9 +167,9 @@ final class NativeRetryScanTest extends ReconciliationTestCase
 
         $status = null;
         $scans = $this->scansOf(function () use (&$status): void {
-            $status = \Illuminate\Support\Facades\Artisan::call('orrery:reconcile');
+            $status = Artisan::call('orrery:reconcile');
         });
-        $output = \Illuminate\Support\Facades\Artisan::output();
+        $output = Artisan::output();
 
         self::assertSame(0, $status, $output);
         self::assertSame($uuids, $scans, 'Every row was scanned once.');
@@ -185,12 +188,12 @@ final class NativeRetryScanTest extends ReconciliationTestCase
         $this->onHook(static function (string $point): void {
             if ($point === Reconciliation::AFTER_ABSENCE_CHECK) {
                 // The presence read used up the time share of the command.
-                Clock::advanceMonotonicForTesting(\Justrau\Orrery\Console\ReconcileCommand::FAILED_SECONDS + 1);
+                Clock::advanceMonotonicForTesting(ReconcileCommand::FAILED_SECONDS + 1);
             }
         });
 
-        $status = \Illuminate\Support\Facades\Artisan::call('orrery:reconcile');
-        $output = (string) preg_replace('/\s+/', ' ', \Illuminate\Support\Facades\Artisan::output());
+        $status = Artisan::call('orrery:reconcile');
+        $output = (string) preg_replace('/\s+/', ' ', Artisan::output());
 
         self::assertSame(0, $status, $output);
         self::assertStringNotContainsString('Reconciled the failed jobs.', $output);

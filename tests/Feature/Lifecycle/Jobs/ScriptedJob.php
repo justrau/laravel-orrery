@@ -38,9 +38,7 @@ class ScriptedJob implements ShouldQueue
     /** @var list<array<string, mixed>> the mirror rows that handle() saw, in this process */
     public static array $rows = [];
 
-    public function __construct(public ?int $tries = null)
-    {
-    }
+    public function __construct(public ?int $tries = null) {}
 
     public static function createScriptTable(string $mode): void
     {

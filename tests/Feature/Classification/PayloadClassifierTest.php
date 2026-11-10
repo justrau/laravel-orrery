@@ -339,9 +339,7 @@ class PayloadClassifierTest extends TestCase
         $second->id = 7;
         $job = new class($first, $second)
         {
-            public function __construct(public Signal $first, public Signal $second)
-            {
-            }
+            public function __construct(public Signal $first, public Signal $second) {}
         };
 
         $this->assertSame([Signal::class.':7', Signal::class.':7'], Tags::for($job));

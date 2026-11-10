@@ -20,8 +20,7 @@ final class ObserveJobTimeout
         private readonly JobStore $store,
         private readonly PackageSession $sessions,
         private readonly PackageTransaction $transactions,
-    ) {
-    }
+    ) {}
 
     public function handle(JobTimedOut $event): void
     {

@@ -31,9 +31,7 @@ final class CycleSummaries
     /** The counters that the merged row sums. */
     private const SUMMED = ['attempts', 'releases', 'exceptions', 'timeouts', 'reclaims', 'observed_attempts', 'late_outcomes', 'observed_gap'];
 
-    public function __construct(private readonly History $history)
-    {
-    }
+    public function __construct(private readonly History $history) {}
 
     /**
      * Freezes the summary of the row's ending cycle. $row is the full

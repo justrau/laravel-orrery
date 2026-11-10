@@ -28,8 +28,7 @@ class LongWaitRecovered
         public int $seconds,
         public float $startedAt,
         public array $channels,
-    ) {
-    }
+    ) {}
 
     public function toNotification(): LongWaitRecoveredNotification
     {

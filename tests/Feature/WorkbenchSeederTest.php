@@ -4,19 +4,22 @@ namespace Justrau\Orrery\Tests\Feature;
 
 use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Contracts\Console\Kernel as ConsoleKernel;
+use Illuminate\Database\Query\Builder;
+use Illuminate\Foundation\Console\Kernel;
+use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
 use Justrau\Orrery\Control\SignalState;
 use Justrau\Orrery\Http\Controllers\JobClassesController;
 use Justrau\Orrery\Http\Controllers\QueueHistoryController;
 use Justrau\Orrery\Http\Lists\JobList;
-use Justrau\Orrery\OrreryServiceProvider;
 use Justrau\Orrery\Listeners\RecordWorkerHeartbeat;
 use Justrau\Orrery\Monitoring\NativePause;
+use Justrau\Orrery\OrreryServiceProvider;
 use Justrau\Orrery\Storage\HostFiles;
+use Justrau\Orrery\Storage\PackageSession;
 use Orchestra\Testbench\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
@@ -27,6 +30,7 @@ use Workbench\App\Jobs\QuickJob;
 use Workbench\App\Providers\WorkbenchServiceProvider;
 use Workbench\App\Support\FixtureManifest;
 use Workbench\App\Support\WorkbenchConfiguration;
+use Workbench\App\Support\WorkbenchDatabase;
 use Workbench\Database\Seeders\DatabaseSeeder;
 
 use function Orchestra\Testbench\default_migration_path;
@@ -154,7 +158,7 @@ final class WorkbenchSeederTest extends TestCase
         // Artisan::call() raises CommandStarting only through the kernel's rerouted Symfony
         // events, as `artisan` does; a new Artisan application takes the rerouting.
         $kernel = $this->app->make(ConsoleKernel::class);
-        $this->assertInstanceOf(\Illuminate\Foundation\Console\Kernel::class, $kernel);
+        $this->assertInstanceOf(Kernel::class, $kernel);
         $kernel->rerouteSymfonyCommandEvents();
         $kernel->setArtisan(null);
 
@@ -198,7 +202,7 @@ final class WorkbenchSeederTest extends TestCase
         // The package tables are in the sibling mirror file, attached as
         // `orrery`, as workbench/check.php reads them.
         $pdo = new \PDO('sqlite:'.realpath($this->database), null, null, [\PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION]);
-        $pdo->exec('ATTACH DATABASE '.$pdo->quote(\Workbench\App\Support\WorkbenchDatabase::sibling((string) realpath($this->database))).' AS orrery');
+        $pdo->exec('ATTACH DATABASE '.$pdo->quote(WorkbenchDatabase::sibling((string) realpath($this->database))).' AS orrery');
         $this->assertSame([], $manifest->verify($pdo), "Run {$run}: the fixture manifest does not hold.");
 
         $this->assertFailedJobsAreMirrored();
@@ -210,9 +214,9 @@ final class WorkbenchSeederTest extends TestCase
     /**
      * A package table of the sibling mirror file.
      */
-    private function mirrorTable(string $table): \Illuminate\Database\Query\Builder
+    private function mirrorTable(string $table): Builder
     {
-        return app(\Justrau\Orrery\Storage\PackageSession::class)->mirror()->table($table);
+        return app(PackageSession::class)->mirror()->table($table);
     }
 
     private function assertFailedJobsAreMirrored(): void

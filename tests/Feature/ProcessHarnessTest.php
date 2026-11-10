@@ -709,7 +709,7 @@ final class ProcessHarnessTest extends TestCase
      * used. queue:table (make:queue-table) exists from Laravel 12.0.1 through
      * Laravel 13; the others are the fallbacks.
      *
-     * @return array{0: string, 1: string}  the alias and its canonical name
+     * @return array{0: string, 1: string} the alias and its canonical name
      */
     private function harmlessAlias(): array
     {

@@ -14,9 +14,7 @@ use Justrau\Orrery\Observation\DatabaseDriverFilter;
  */
 final class ObserveJobProcessed
 {
-    public function __construct(private readonly JobStore $store)
-    {
-    }
+    public function __construct(private readonly JobStore $store) {}
 
     public function handle(JobProcessed $event): void
     {

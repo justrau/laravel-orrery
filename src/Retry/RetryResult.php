@@ -45,6 +45,5 @@ final class RetryResult
         public readonly ?int $cycle = null,
         public readonly ?string $message = null,
         public readonly ?string $awaitingReason = null,
-    ) {
-    }
+    ) {}
 }

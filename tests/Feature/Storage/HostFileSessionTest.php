@@ -6,19 +6,31 @@ namespace Justrau\Orrery\Tests\Feature\Storage;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Connection;
+use Illuminate\Database\QueryException;
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\WorkerOptions;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
 use Justrau\Orrery\Database\Schema\PackageSchema;
 use Justrau\Orrery\Events\LongWaitDetected;
 use Justrau\Orrery\Listeners\SendNotification;
+use Justrau\Orrery\Maintenance\Reconciliation;
 use Justrau\Orrery\Maintenance\SiblingFileMutex;
+use Justrau\Orrery\Maintenance\SiblingLocks;
 use Justrau\Orrery\Maintenance\TickBudget;
+use Justrau\Orrery\Maintenance\TickPhase;
+use Justrau\Orrery\Maintenance\TickRunner;
 use Justrau\Orrery\Monitoring\Phases\StuckNotificationsPhase;
 use Justrau\Orrery\Monitoring\StuckIncidents;
 use Justrau\Orrery\Orrery;
+use Justrau\Orrery\Registration\Modules\MaintenanceModule;
+use Justrau\Orrery\Retry\Fence;
+use Justrau\Orrery\Retry\FenceTargets;
+use Justrau\Orrery\Runtime\Degradation;
 use Justrau\Orrery\Runtime\Hooks;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\Clock;
@@ -30,6 +42,7 @@ use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Storage\PackageSessionReleased;
 use Justrau\Orrery\Storage\SiblingFileUnavailable;
 use Justrau\Orrery\Tests\Feature\Jobs\BasicJob;
+use Justrau\Orrery\Tests\Feature\Jobs\FailingJob;
 use Justrau\Orrery\Tests\Support\PackageStatements;
 use Justrau\Orrery\Tests\Support\SqliteFiles;
 use Justrau\Orrery\Tests\TestCase;
@@ -186,7 +199,7 @@ final class HostFileSessionTest extends TestCase
             $config->set('orrery.database', 'app_alias');
             PackageSession::releaseAll();
 
-            self::assertSame("orrery.database shares the SQLite file of connection [app]; leave orrery.database empty (a sibling file) or name a file of its own.", $this->app->make(PackageSession::class)->mirrorRefusal(), "A mirror on the file of the URI {$uri} was accepted.");
+            self::assertSame('orrery.database shares the SQLite file of connection [app]; leave orrery.database empty (a sibling file) or name a file of its own.', $this->app->make(PackageSession::class)->mirrorRefusal(), "A mirror on the file of the URI {$uri} was accepted.");
 
             $config->set('database.connections.app_alias', array_replace($app, ['database' => $own]));
             PackageSession::releaseAll();
@@ -362,13 +375,13 @@ final class HostFileSessionTest extends TestCase
         self::assertFalse($files->cacheIsSafe('split'), 'A lock connection on a host file makes the store unsafe.');
         self::assertFalse($files->cacheIsSafe('failover'), 'A failover store with an unsafe store is unsafe.');
         self::assertTrue($files->cacheIsSafe('array'));
-        self::assertNull(\Justrau\Orrery\Registration\Modules\MaintenanceModule::lockFile(), 'A safe schedule store keeps onOneServer().');
+        self::assertNull(MaintenanceModule::lockFile(), 'A safe schedule store keeps onOneServer().');
 
         // The effective schedule store, as Laravel's Kernel::scheduleCache() computes it.
         $config->set('cache.stores.database', ['driver' => 'database', 'connection' => 'app', 'table' => 'cache']);
         $config->set('cache.schedule_store', 'database');
         self::assertSame('database', $files->scheduleStore());
-        self::assertSame($this->app->make(PackageSession::class)->siblingPath(), \Justrau\Orrery\Registration\Modules\MaintenanceModule::lockFile(), 'The tick locks next to the sibling mirror file.');
+        self::assertSame($this->app->make(PackageSession::class)->siblingPath(), MaintenanceModule::lockFile(), 'The tick locks next to the sibling mirror file.');
 
         $config->set('cache.schedule_store', null);
         self::assertSame('array', $files->scheduleStore(), 'A present null schedule store means the default store.');
@@ -413,7 +426,7 @@ final class HostFileSessionTest extends TestCase
         try {
             $sessions->for('app')->table('cache')->insert(['key' => 'automatic', 'value' => 'x', 'expiration' => 1]);
             self::fail('The automatic session is read-only.');
-        } catch (\Illuminate\Database\QueryException $readOnly) {
+        } catch (QueryException $readOnly) {
             self::assertStringContainsString('readonly', $readOnly->getMessage());
         }
 
@@ -461,7 +474,7 @@ final class HostFileSessionTest extends TestCase
 
         $this->runJob();
         Queue::connection('app_queue')->push(new BasicJob);
-        \Illuminate\Support\Carbon::setTestNow(\Illuminate\Support\Carbon::now()->addMinutes(5));
+        Carbon::setTestNow(Carbon::now()->addMinutes(5));
         self::assertSame(0, Artisan::call('orrery:tick'));
         $this->getJson('/orrery/api/workload')->assertOk();
         Orrery::routeMailNotificationsTo('ops@example.com');
@@ -490,7 +503,7 @@ final class HostFileSessionTest extends TestCase
         // The held locks live in a container singleton (SiblingLocks): when it goes
         // with its application, PHP closes the lock file and the lock ends.
         self::assertTrue($event->mutex->create($event));
-        $this->app->forgetInstance(\Justrau\Orrery\Maintenance\SiblingLocks::class);
+        $this->app->forgetInstance(SiblingLocks::class);
         self::assertFalse($event->mutex->exists($event), 'The end of the holder released the held lock.');
     }
 
@@ -528,8 +541,7 @@ final class HostFileSessionTest extends TestCase
         $next = PackageSchema::VERSION + 1;
         $this->siblingPdo($sibling)->exec('update orrery_schema set version = '.PackageSchema::VERSION);
         PackageSession::releaseAll();
-        PackageSchema::useUpgradesForTesting([$next => static function (): void {
-        }], $next);
+        PackageSchema::useUpgradesForTesting([$next => static function (): void {}], $next);
 
         try {
             $sessions->mirror()->table('orrery_settings')->count();
@@ -625,7 +637,7 @@ final class HostFileSessionTest extends TestCase
         // The job is gone from the application's queue table (Laravel's file wipe under WAL
         // keeps what the open connection's WAL holds, so the test removes the row itself).
         DB::connection('app')->table('jobs')->delete();
-        $this->app->make(\Justrau\Orrery\Maintenance\Reconciliation::class)->reconcileActive('app_queue');
+        $this->app->make(Reconciliation::class)->reconcileActive('app_queue');
 
         self::assertNotNull($sessions->mirror()->table('orrery_jobs')->value('absent_since'), 'The reconciliation found the gone job.');
     }
@@ -766,11 +778,10 @@ final class HostFileSessionTest extends TestCase
         $sessions = $this->app->make(PackageSession::class);
         $open = static fn (): int => count(array_filter(PackageSession::sessionsForTesting(), static fn (array $entry): bool => $entry['name'] === 'app' && $entry['mode'] === PackageSession::AUTOMATIC));
         $seen = [];
-        $phase = static function (string $name, int $priority, \Closure $work): \Justrau\Orrery\Maintenance\TickPhase {
-            return new class($name, $priority, $work) implements \Justrau\Orrery\Maintenance\TickPhase {
-                public function __construct(private string $phaseName, private int $phasePriority, private \Closure $work)
-                {
-                }
+        $phase = static function (string $name, int $priority, \Closure $work): TickPhase {
+            return new class($name, $priority, $work) implements TickPhase
+            {
+                public function __construct(private string $phaseName, private int $phasePriority, private \Closure $work) {}
 
                 public function name(): string
                 {
@@ -782,14 +793,14 @@ final class HostFileSessionTest extends TestCase
                     return $this->phasePriority;
                 }
 
-                public function run(\Justrau\Orrery\Maintenance\TickBudget $budget): void
+                public function run(TickBudget $budget): void
                 {
                     ($this->work)();
                 }
             };
         };
 
-        $report = $this->app->make(\Justrau\Orrery\Maintenance\TickRunner::class)->run([
+        $report = $this->app->make(TickRunner::class)->run([
             $phase('reads', 1, static function () use ($sessions, $open, &$seen): void {
                 $sessions->for('app')->table('jobs')->count();
                 $seen['reads'] = $open();
@@ -823,7 +834,7 @@ final class HostFileSessionTest extends TestCase
         $this->failJob();
         $mirror = $this->app->make(PackageSession::class)->mirror();
 
-        self::assertSame([], array_keys(\Justrau\Orrery\Runtime\Degradation::record()['errors'] ?? []), 'No error.');
+        self::assertSame([], array_keys(Degradation::record()['errors'] ?? []), 'No error.');
         self::assertSame((int) DB::connection('app')->table('failed_jobs')->value('id'), (int) $mirror->table('orrery_jobs')->value('provider_id'), 'The record is bound.');
     }
 
@@ -868,17 +879,17 @@ final class HostFileSessionTest extends TestCase
         };
 
         HostFiles::useForTesting(null, $lateRefusal);
-        $report = $this->app->make(\Justrau\Orrery\Retry\FenceTargets::class)->report($this->app->make(\Justrau\Orrery\Retry\Fence::class), $this->app->make(HostFiles::class));
+        $report = $this->app->make(FenceTargets::class)->report($this->app->make(Fence::class), $this->app->make(HostFiles::class));
         self::assertContains('app_queue', $report['unknown']);
         self::assertNotContains('app_queue', $report['missing'], 'A refusal is no missing fence table.');
 
         $calls = 0;
         PackageSession::releaseAll();
-        $this->app->make(\Justrau\Orrery\Maintenance\Reconciliation::class)->reconcileFailed(new \Justrau\Orrery\Maintenance\TickBudget(Clock::monotonic() + 30));
+        $this->app->make(Reconciliation::class)->reconcileFailed(new TickBudget(Clock::monotonic() + 30));
         self::assertNull($this->app->make(PackageSession::class)->mirror()->table('orrery_jobs')->value('absent_since'), 'Unknown: nothing is recorded as absent.');
 
-        self::assertSame([], array_keys(\Justrau\Orrery\Runtime\Degradation::record()['errors'] ?? []), 'No provider_namespace_unknown problem, no error.');
-        self::assertSame(0, (int) (\Justrau\Orrery\Runtime\Degradation::record()['dropped'] ?? 0));
+        self::assertSame([], array_keys(Degradation::record()['errors'] ?? []), 'No provider_namespace_unknown problem, no error.');
+        self::assertSame(0, (int) (Degradation::record()['dropped'] ?? 0));
         self::assertFalse(Watcher::instance()->breakerOpen());
     }
 
@@ -1029,10 +1040,10 @@ final class HostFileSessionTest extends TestCase
     {
         // The listener of WorkCommand::logFailedJob(), which runNextJob() does not register.
         $this->app->forgetInstance('queue.failer');
-        \Illuminate\Support\Facades\Event::listen(\Illuminate\Queue\Events\JobFailed::class, function (\Illuminate\Queue\Events\JobFailed $event): void {
+        Event::listen(JobFailed::class, function (JobFailed $event): void {
             $this->app['queue.failer']->log($event->connectionName, $event->job->getQueue(), $event->job->getRawBody(), $event->exception);
         });
-        Queue::connection('app_queue')->push(new \Justrau\Orrery\Tests\Feature\Jobs\FailingJob);
+        Queue::connection('app_queue')->push(new FailingJob);
         $options = new WorkerOptions;
         $options->sleep = 0;
         $options->maxTries = 1;

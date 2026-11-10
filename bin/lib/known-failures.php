@@ -56,17 +56,13 @@ use DOMElement;
  * An input that the check cannot use: a bad argument, or an unreadable or
  * malformed manifest, unconditional list or inventory.
  */
-final class InputError extends \RuntimeException
-{
-}
+final class InputError extends \RuntimeException {}
 
 /**
  * The JUnit file is missing or cannot be read. The check still runs, and
  * this is one of its failure reasons.
  */
-final class JunitProblem extends \RuntimeException
-{
-}
+final class JunitProblem extends \RuntimeException {}
 
 final class TestIds
 {
@@ -159,8 +155,7 @@ final class ManifestRow
         public readonly string $signature,
         public readonly string $finding,
         public readonly string $fixedBy,
-    ) {
-    }
+    ) {}
 
     public function matches(string $id, string $engine, string $text): bool
     {
@@ -181,9 +176,7 @@ final class Manifest
     /**
      * @param  list<ManifestRow>  $rows
      */
-    private function __construct(public readonly array $rows)
-    {
-    }
+    private function __construct(public readonly array $rows) {}
 
     public static function read(string $path): self
     {
@@ -345,9 +338,7 @@ final class Unconditional
      * @param  list<string>  $classes
      * @param  list<string>  $groups
      */
-    private function __construct(public readonly array $classes, public readonly array $groups)
-    {
-    }
+    private function __construct(public readonly array $classes, public readonly array $groups) {}
 
     public static function read(string $path): self
     {
@@ -427,9 +418,7 @@ final class Inventory
     /**
      * @param  array<string, list<string>>  $groups
      */
-    private function __construct(private readonly array $groups)
-    {
-    }
+    private function __construct(private readonly array $groups) {}
 
     /**
      * @param  array<string, list<string>>  $groups
@@ -557,7 +546,7 @@ final class Inventory
         $previous = libxml_use_internal_errors(true);
 
         try {
-            $document = new DOMDocument();
+            $document = new DOMDocument;
 
             if ($xml === '' || ! $document->loadXML($xml, LIBXML_NONET)) {
                 throw new InputError("{$name} is not valid XML");
@@ -633,8 +622,7 @@ final class JunitCase
         public readonly string $status,
         public readonly array $faults,
         public readonly int $assertions,
-    ) {
-    }
+    ) {}
 }
 
 final class JunitReport
@@ -650,8 +638,7 @@ final class JunitReport
         public readonly int $errorElements,
         public readonly ?int $rootSkipped,
         public readonly ?int $modified = null,
-    ) {
-    }
+    ) {}
 
     public static function read(string $path): self
     {
@@ -676,7 +663,7 @@ final class JunitReport
         $previous = libxml_use_internal_errors(true);
 
         try {
-            $document = new DOMDocument();
+            $document = new DOMDocument;
 
             if (trim($xml) === '' || ! $document->loadXML($xml, LIBXML_NONET)) {
                 $error = libxml_get_last_error();
@@ -798,9 +785,7 @@ final class PhpunitSummary
     /**
      * @param  array<string, int>  $counts
      */
-    private function __construct(public readonly string $line, public readonly array $counts)
-    {
-    }
+    private function __construct(public readonly string $line, public readonly array $counts) {}
 
     /**
      * The last summary in the output, or null.
@@ -867,8 +852,7 @@ final class CheckResult
         public readonly ?array $summary,
         public readonly array $engineSkip = [],
         public readonly bool $incomplete = false,
-    ) {
-    }
+    ) {}
 
     public function passed(): bool
     {
@@ -977,7 +961,6 @@ final class Check
     ];
 
     /**
-     * @param  JunitReport|JunitProblem  $junit
      * @param  list<string>  $require  groups whose members must run
      * @param  list<string>  $engineSkip  groups whose members may skip in this run
      * @param  string|null  $output  PHPUnit's output; null gives an incomplete result

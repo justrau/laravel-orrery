@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Lifecycle;
 
 use Illuminate\Contracts\Queue\Job;
+use Illuminate\Database\Connection;
 use Illuminate\Queue\Events\JobFailed as LaravelJobFailed;
 use Illuminate\Queue\Events\JobTimedOut;
 use Illuminate\Support\Facades\Queue;
@@ -85,7 +86,7 @@ final class InterruptedTransactionTest extends TestCase
         return $job;
     }
 
-    private function packageMirror(): \Illuminate\Database\Connection
+    private function packageMirror(): Connection
     {
         return $this->app->make(PackageSession::class)->mirror();
     }

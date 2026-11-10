@@ -11,15 +11,9 @@ namespace Justrau\Orrery\Tests\Controller\Fakes;
  */
 final class InvokableCanary
 {
-    public function __construct(public string $note)
-    {
-    }
+    public function __construct(public string $note) {}
 
-    public function __invoke(): void
-    {
-    }
+    public function __invoke(): void {}
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

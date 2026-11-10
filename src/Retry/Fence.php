@@ -72,9 +72,7 @@ final class Fence
     /** @var array<string, array{0: bool, 1: float}> the answers of available() by connection and endpoint, with the monotonic time */
     private array $available = [];
 
-    public function __construct(private readonly PackageSession $sessions)
-    {
-    }
+    public function __construct(private readonly PackageSession $sessions) {}
 
     /**
      * The conditional fence insert. INSERTED: the row is in, inside the

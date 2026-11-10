@@ -15,8 +15,7 @@ final class WorkerEvidence
         public readonly ?string $connection,
         public readonly ?string $queue,
         public readonly bool $once,
-    ) {
-    }
+    ) {}
 
     /**
      * @return array{tries: ?int, timeout: ?int, connection: ?string, queue: ?string, once: bool}

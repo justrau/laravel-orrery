@@ -17,6 +17,5 @@ final class ScanItem
         public readonly int|string $k,
         public readonly ?stdClass $job,
         public bool $qtag = false,
-    ) {
-    }
+    ) {}
 }

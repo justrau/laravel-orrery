@@ -6,15 +6,14 @@ namespace Justrau\Orrery\Tests\Feature\Support;
 
 use Illuminate\Database\Connection;
 use Illuminate\Database\Events\TransactionBeginning;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\Event;
 use Justrau\Orrery\Runtime\Hooks;
-use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Storage\PackageTransaction;
 use Justrau\Orrery\Storage\PackageTransactionBusy;
 use Justrau\Orrery\Tests\Support\FreshSchema;
 use Justrau\Orrery\Tests\Support\PackageSessionHelpers;
 use Justrau\Orrery\Tests\Support\SqliteFiles;
-use Justrau\Orrery\Tests\Support\TestEnvironment;
 use Justrau\Orrery\Tests\TestCase;
 use PDO;
 use RuntimeException;
@@ -112,10 +111,10 @@ final class PackageTransactionTest extends TestCase
             $this->transactions()->run($session, static function () use (&$calls, $session, $failure): never {
                 $calls++;
 
-                throw new \Illuminate\Database\QueryException((string) $session->getName(), 'insert into counter (v) values (?)', ['database is locked'], $failure);
+                throw new QueryException((string) $session->getName(), 'insert into counter (v) values (?)', ['database is locked'], $failure);
             });
             self::fail('The work error reaches the caller.');
-        } catch (\Illuminate\Database\QueryException) {
+        } catch (QueryException) {
             // The data error, not retried.
         }
 

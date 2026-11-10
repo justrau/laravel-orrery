@@ -23,9 +23,7 @@ class HeldJob implements ShouldQueue
 
     public int $tries = 5;
 
-    public function __construct(public string $point)
-    {
-    }
+    public function __construct(public string $point) {}
 
     public function handle(): void
     {

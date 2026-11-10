@@ -27,6 +27,5 @@ final class DeferredWork
         public readonly int $bytes = 0,
         public readonly int $jobs = 1,
         public readonly ?Closure $compact = null,
-    ) {
-    }
+    ) {}
 }

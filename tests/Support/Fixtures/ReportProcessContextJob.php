@@ -24,9 +24,7 @@ class ReportProcessContextJob implements ShouldQueue
 
     public int $tries = 1;
 
-    public function __construct(public string $path)
-    {
-    }
+    public function __construct(public string $path) {}
 
     public function handle(): void
     {

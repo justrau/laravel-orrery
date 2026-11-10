@@ -34,9 +34,7 @@ class LostAcknowledgementStatement extends PDOStatement
     /** How many acknowledgements were lost. */
     public static int $lost = 0;
 
-    protected function __construct()
-    {
-    }
+    protected function __construct() {}
 
     public static function arm(string $pattern): void
     {

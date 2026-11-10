@@ -4,9 +4,9 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Scripts;
 
+use OrreryVerify\Docs;
 use OrreryVerify\Health;
 use OrreryVerify\Options;
-use OrreryVerify\Docs;
 use OrreryVerify\VerifyFailure;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;

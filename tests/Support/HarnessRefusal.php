@@ -13,6 +13,4 @@ use RuntimeException;
  *
  * Tests catch this type to tell a deliberate refusal from any other error.
  */
-final class HarnessRefusal extends RuntimeException
-{
-}
+final class HarnessRefusal extends RuntimeException {}

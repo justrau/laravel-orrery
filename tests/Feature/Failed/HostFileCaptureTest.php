@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Failed;
 
 use Illuminate\Database\Schema\Blueprint;
+use Illuminate\Queue\Events\JobFailed;
 use Illuminate\Queue\WorkerOptions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -65,7 +66,7 @@ final class HostFileCaptureTest extends TestCase
         self::assertFalse($files->allowsReads('app'), 'The setup allows no automatic read of the file.');
 
         $this->useCapturingFailer('failed_jobs', 'app');
-        $this->app['events']->listen(\Illuminate\Queue\Events\JobFailed::class, function ($event): void {
+        $this->app['events']->listen(JobFailed::class, function ($event): void {
             $this->app['queue.failer']->log($event->connectionName, $event->job->getQueue(), $event->job->getRawBody(), $event->exception);
         });
 

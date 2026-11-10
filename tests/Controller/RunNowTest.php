@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Controller;
 
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
@@ -175,7 +176,7 @@ final class RunNowTest extends HooksTestCase
                 $pdo = new \PDOException('SQLSTATE[HY000]: General error: 5 database is locked');
                 $pdo->errorInfo = ['HY000', 5, 'database is locked'];
 
-                throw new \Illuminate\Database\QueryException('testbench', $sql, [], $pdo);
+                throw new QueryException('testbench', $sql, [], $pdo);
             }
         });
 

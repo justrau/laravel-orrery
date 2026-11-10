@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
 use Justrau\Orrery\Database\Models\Setting;
+use Justrau\Orrery\DatabaseQueue;
 use Justrau\Orrery\Runtime\ProcessContext;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Tests\Feature\Jobs\BasicJob;
@@ -92,7 +93,7 @@ final class DegradationReportingTest extends TestCase
      */
     public function test_swap_off_heartbeat_flush_waits_for_the_breaker_close(): void
     {
-        self::assertNotInstanceOf(\Justrau\Orrery\DatabaseQueue::class, $this->app['queue']->connection('database'), 'the connector swap is on');
+        self::assertNotInstanceOf(DatabaseQueue::class, $this->app['queue']->connection('database'), 'the connector swap is on');
         $watcher = $this->app->make(Watcher::class);
 
         // A dependency error of the mirror session opens the breaker. The

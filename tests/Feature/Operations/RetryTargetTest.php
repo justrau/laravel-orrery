@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Operations;
 
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Exceptions;
+use Justrau\Orrery\Database\Schema\PackageSchema;
 use Justrau\Orrery\Exceptions\WatchedOperationFailed;
+use Justrau\Orrery\Orrery;
 use Justrau\Orrery\Retry\Fence;
 use Justrau\Orrery\Retry\Operations;
 use Justrau\Orrery\Retry\Publication;
@@ -21,7 +24,6 @@ use Justrau\Orrery\Tests\Support\LostAckCommitPdo;
 use Justrau\Orrery\Tests\Support\SessionPdo;
 use Justrau\Orrery\Tests\Support\SqliteFiles;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
-use PDO;
 
 /**
  * The target fingerprints of an operation, the error codes, the exact
@@ -86,8 +88,8 @@ final class RetryTargetTest extends RetryProtocolTestCase
 
         $other = $this->otherDatabase();
         $config = $this->app['config'];
-        \Justrau\Orrery\Orrery::auth(static fn (): bool => true);
-        \Justrau\Orrery\Orrery::operateUsing(static fn (): bool => true);
+        Orrery::auth(static fn (): bool => true);
+        Orrery::operateUsing(static fn (): bool => true);
 
         // (1) Q moves after the claim.
         [$uuid, $occurrence] = $this->failedJob();
@@ -249,7 +251,7 @@ final class RetryTargetTest extends RetryProtocolTestCase
                 $deletes[] = $sql;
             }
         });
-        $this->app['events']->listen(\Illuminate\Database\Events\QueryExecuted::class, static function (\Illuminate\Database\Events\QueryExecuted $event) use (&$deletes): void {
+        $this->app['events']->listen(QueryExecuted::class, static function (QueryExecuted $event) use (&$deletes): void {
             if (! PackageSession::isPackageSession($event->connectionName) && preg_match(self::FAILED_DELETE, $event->sql) === 1) {
                 $deletes[] = $event->sql;
             }
@@ -512,7 +514,7 @@ final class RetryTargetTest extends RetryProtocolTestCase
             $table->unsignedInteger('created_at');
         });
         $this->plantFailedTable($connection);
-        \Justrau\Orrery\Database\Schema\PackageSchema::create($schema, [Fence::TABLE]);
+        PackageSchema::create($schema, [Fence::TABLE]);
         $this->beforeApplicationDestroyed(static function () use ($connection): void {
             $schema = DB::connection($connection)->getSchemaBuilder();
 

@@ -18,9 +18,7 @@ final class ObserveJobException
     /** The hold point at the end of the listener. */
     public const AFTER = 'observer.after_exception';
 
-    public function __construct(private readonly JobStore $store)
-    {
-    }
+    public function __construct(private readonly JobStore $store) {}
 
     public function handle(JobExceptionOccurred $event): void
     {

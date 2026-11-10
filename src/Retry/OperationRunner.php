@@ -100,8 +100,7 @@ final class OperationRunner
         private readonly PackageSession $sessions,
         private readonly Operations $operations,
         private readonly HostFiles $files,
-    ) {
-    }
+    ) {}
 
     /**
      * Adds or replaces the handler of its action (besides the tagged ones).

@@ -7,8 +7,8 @@ namespace Justrau\Orrery\Tests\Feature;
 use Justrau\Orrery\Tests\Support\Fixtures\FreshSchemaGuard\FailedLeftoverProbe;
 use Justrau\Orrery\Tests\Support\Fixtures\FreshSchemaGuard\IdentityRefusalProbe;
 use Justrau\Orrery\Tests\Support\Fixtures\FreshSchemaGuard\MirrorLeftoverProbe;
-use Justrau\Orrery\Tests\Support\HarnessTiming;
 use Justrau\Orrery\Tests\Support\HarnessRefusal;
+use Justrau\Orrery\Tests\Support\HarnessTiming;
 use Justrau\Orrery\Tests\Support\ReusedSchema;
 use Justrau\Orrery\Tests\Support\SqliteFiles;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
@@ -209,7 +209,7 @@ final class FreshSchemaGuardTest extends TestCase
      *
      * @param  class-string  $probe
      * @param  array<string, string>  $extra
-     * @return array{0: array<string, string>, 1: string, 2: int|null}  the result per test ('passed' or the fault), the output, the exit code
+     * @return array{0: array<string, string>, 1: string, 2: int|null} the result per test ('passed' or the fault), the output, the exit code
      */
     private function runProbe(string $probe, array $extra = []): array
     {

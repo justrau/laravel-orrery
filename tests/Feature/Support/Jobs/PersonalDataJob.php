@@ -18,11 +18,7 @@ class PersonalDataJob implements ShouldQueue
     use Queueable;
     use SerializesModels;
 
-    public function __construct(public string $email = '')
-    {
-    }
+    public function __construct(public string $email = '') {}
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

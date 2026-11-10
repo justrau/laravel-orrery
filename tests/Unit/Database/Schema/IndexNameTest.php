@@ -3,6 +3,9 @@
 namespace Justrau\Orrery\Tests\Unit\Database\Schema;
 
 use Illuminate\Database\Connection;
+use Illuminate\Database\MySqlConnection;
+use Illuminate\Database\PostgresConnection;
+use Illuminate\Database\SQLiteConnection;
 use Justrau\Orrery\Database\Schema\IndexName;
 use PHPUnit\Framework\TestCase;
 
@@ -19,9 +22,9 @@ class IndexNameTest extends TestCase
     {
         $sql = static function (string $driver, string $prefix): string {
             $connection = match ($driver) {
-                'sqlite' => new \Illuminate\Database\SQLiteConnection(static fn () => null, ':memory:', $prefix, ['driver' => 'sqlite']),
-                'mysql' => new \Illuminate\Database\MySqlConnection(static fn () => null, 'app', $prefix, ['driver' => 'mysql']),
-                default => new \Illuminate\Database\PostgresConnection(static fn () => null, 'app', $prefix, ['driver' => 'pgsql']),
+                'sqlite' => new SQLiteConnection(static fn () => null, ':memory:', $prefix, ['driver' => 'sqlite']),
+                'mysql' => new MySqlConnection(static fn () => null, 'app', $prefix, ['driver' => 'mysql']),
+                default => new PostgresConnection(static fn () => null, 'app', $prefix, ['driver' => 'pgsql']),
             };
 
             return IndexName::force($connection->table('orrery_jobs'), $connection, 'orrery_jobs', 'st_finished')->toSql();
@@ -72,6 +75,7 @@ class IndexNameTest extends TestCase
 
         $this->assertSame(str_repeat('p', 16).'orrery_operations_claim_ref', $name);
     }
+
     /**
      * Rejects: a byte cut inside a multibyte character, which gives an invalid UTF-8 identifier that the server refuses.
      */

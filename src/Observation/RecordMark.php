@@ -21,7 +21,5 @@ final class RecordMark
     /** Whether the rollback callback is on the record (the commit callback always is). */
     public bool $watchesRollback = false;
 
-    public function __construct(public readonly DatabaseTransactionRecord $record)
-    {
-    }
+    public function __construct(public readonly DatabaseTransactionRecord $record) {}
 }

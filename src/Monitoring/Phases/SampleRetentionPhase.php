@@ -13,9 +13,7 @@ use Justrau\Orrery\Monitoring\Samples;
  */
 final class SampleRetentionPhase implements TickPhase
 {
-    public function __construct(private readonly Samples $samples)
-    {
-    }
+    public function __construct(private readonly Samples $samples) {}
 
     public function name(): string
     {

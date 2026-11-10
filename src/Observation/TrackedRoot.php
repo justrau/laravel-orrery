@@ -47,8 +47,7 @@ final class TrackedRoot
         public readonly DatabaseTransactionRecord $record,
         public readonly WeakReference $connection,
         public readonly ?WeakReference $pdo,
-    ) {
-    }
+    ) {}
 
     public function belongsTo(Connection $connection): bool
     {

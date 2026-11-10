@@ -165,9 +165,7 @@ final class RetryRunnerServerTest extends RetryProtocolTestCase
         $real = $this->app->make(RetryHandler::class);
         $this->runner()->handle(new class($real) implements OperationHandler
         {
-            public function __construct(private readonly RetryHandler $real)
-            {
-            }
+            public function __construct(private readonly RetryHandler $real) {}
 
             public function action(): string
             {

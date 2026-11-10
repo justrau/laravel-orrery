@@ -174,7 +174,6 @@ final class Heartbeats
         return [is_string($default) && $default !== '' ? $default : 'default'];
     }
 
-
     /**
      * @return list<string>
      */

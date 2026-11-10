@@ -301,9 +301,7 @@ final class WatcherTest extends TestCase
                 throw $e;
             }
 
-            public function renderForConsole($output, Throwable $e): void
-            {
-            }
+            public function renderForConsole($output, Throwable $e): void {}
         });
 
         self::assertSame('default', $this->watcher()->run('test:reported', static function (): never {
@@ -427,9 +425,7 @@ final class WatcherTest extends TestCase
         $this->app->instance(ExceptionHandler::class, new class($reported) implements ExceptionHandler
         {
             /** @param list<Throwable> $reported */
-            public function __construct(private array &$reported)
-            {
-            }
+            public function __construct(private array &$reported) {}
 
             public function report(Throwable $e): void
             {
@@ -446,9 +442,7 @@ final class WatcherTest extends TestCase
                 throw $e;
             }
 
-            public function renderForConsole($output, Throwable $e): void
-            {
-            }
+            public function renderForConsole($output, Throwable $e): void {}
         });
     }
 
@@ -479,6 +473,7 @@ final class WatcherTest extends TestCase
             }
         };
     }
+
     /**
      * Rejects: a frozen clock that still moves with real time, or a freeze that a new application keeps.
      * Still passes: a clock that runs backwards after the reset (not checked).

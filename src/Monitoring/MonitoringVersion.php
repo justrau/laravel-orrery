@@ -39,9 +39,7 @@ final class MonitoringVersion
 
     public const BEFORE_VERSION = 'monitoring_version.before_version';
 
-    public function __construct(private readonly PackageTransaction $transactions)
-    {
-    }
+    public function __construct(private readonly PackageTransaction $transactions) {}
 
     /**
      * Starts monitoring the normalised tag. True when the tag set changed.

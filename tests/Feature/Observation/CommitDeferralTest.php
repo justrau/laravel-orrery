@@ -15,6 +15,7 @@ use Illuminate\Database\SQLiteConnection;
 use Illuminate\Queue\TimeoutExceededException;
 use Illuminate\Support\Facades\DB;
 use Justrau\Orrery\Observation\CommitDeferral;
+use Justrau\Orrery\Observation\DropCounter;
 use Justrau\Orrery\Runtime\Degradation;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\SiblingFileUnavailable;
@@ -973,7 +974,7 @@ final class CommitDeferralTest extends DeferralTestCase
         $new->commit();
 
         self::assertSame(['watch the write instance', 'A', 'watch the new instance', 'new B'], $this->ran());
-        $this->assertCounts(1, 0, "Old A: the purge in its walk took its PDO (the root check).");
+        $this->assertCounts(1, 0, 'Old A: the purge in its walk took its PDO (the root check).');
     }
 
     /**
@@ -2307,7 +2308,7 @@ final class CommitDeferralTest extends DeferralTestCase
      */
     public function test_failing_decision_counts_its_items(): void
     {
-        $drops = new class implements \Justrau\Orrery\Observation\DropCounter
+        $drops = new class implements DropCounter
         {
             public int $throws = 1;
 
@@ -2322,9 +2323,7 @@ final class CommitDeferralTest extends DeferralTestCase
                 $this->unverified += $items;
             }
 
-            public function rollbackUnverified(int $items = 1): void
-            {
-            }
+            public function rollbackUnverified(int $items = 1): void {}
 
             public function overBudget(string $reason, int $items = 1): void
             {

@@ -3,6 +3,7 @@
 namespace Justrau\Orrery\Monitoring;
 
 use Illuminate\Container\Container;
+use Illuminate\Contracts\Cache\Factory;
 use Illuminate\Contracts\Config\Repository;
 use Justrau\Orrery\Runtime\Degradation;
 use Justrau\Orrery\Runtime\Watcher;
@@ -64,8 +65,7 @@ final class MeasurementCache
         private readonly Repository $config,
         private readonly WaitTime $waits,
         private readonly NativePause $pause,
-    ) {
-    }
+    ) {}
 
     /**
      * The rows of WaitTime::measure() with `native`, from the cache
@@ -181,7 +181,7 @@ final class MeasurementCache
 
     private function store(): \Illuminate\Contracts\Cache\Repository
     {
-        /** @var \Illuminate\Contracts\Cache\Factory $cache */
+        /** @var Factory $cache */
         $cache = Container::getInstance()->make('cache');
 
         return $cache->store();

@@ -24,9 +24,7 @@ final class SiblingFileMutex implements EventMutex
 {
     public const OPERATION = 'schedule:mutex';
 
-    public function __construct(public readonly string $path)
-    {
-    }
+    public function __construct(public readonly string $path) {}
 
     /**
      * The lock file of a schedule event next to a SQLite file.

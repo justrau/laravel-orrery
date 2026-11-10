@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Scripts;
 
+use Justrau\Orrery\Tests\Scripts\Concerns\RunsScripts;
 use OrreryMatrix\Check;
 use OrreryMatrix\CheckResult;
 use OrreryMatrix\InputError;
@@ -13,7 +14,6 @@ use OrreryMatrix\JunitReport;
 use OrreryMatrix\Manifest;
 use OrreryMatrix\TestIds;
 use OrreryMatrix\Unconditional;
-use Justrau\Orrery\Tests\Scripts\Concerns\RunsScripts;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;

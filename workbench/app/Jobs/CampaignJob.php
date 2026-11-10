@@ -15,9 +15,7 @@ class CampaignJob implements ShouldQueue
 
     public const TAG = 'campaign:spring';
 
-    public function __construct(public int $number)
-    {
-    }
+    public function __construct(public int $number) {}
 
     /**
      * @return array<int, string>

@@ -6,6 +6,7 @@ namespace Justrau\Orrery\Tests\Feature\Lifecycle;
 
 use Justrau\Orrery\Lifecycle\CycleSummaries;
 use Justrau\Orrery\Lifecycle\IncidentCleanup;
+use Justrau\Orrery\Lifecycle\StoreOutcome;
 use Justrau\Orrery\Monitoring\StuckIncidents;
 use Justrau\Orrery\Runtime\Degradation;
 use Justrau\Orrery\Storage\Clock;
@@ -159,7 +160,7 @@ final class IncidentCleanupTest extends CycleTestCase
         return $uuid;
     }
 
-    private function startCycle(string $uuid): \Justrau\Orrery\Lifecycle\StoreOutcome
+    private function startCycle(string $uuid): StoreOutcome
     {
         $outcome = $this->observe('reserve', $uuid, ['jobId' => 200, 'attempt' => 1], ['orreryGen' => self::G2]);
         self::assertSame('nativeRetry', $outcome->rule);

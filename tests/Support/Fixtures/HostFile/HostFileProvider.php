@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Support\Fixtures\HostFile;
 
 use Illuminate\Console\Events\CommandStarting;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Database\Connection;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Log\Events\MessageLogged;
@@ -88,7 +89,7 @@ class HostFileProvider extends ServiceProvider
                     }
 
                     // The schedule and its mutexes are built with the console kernel: build them again with this cache.
-                    $app->forgetInstance(\Illuminate\Console\Scheduling\Schedule::class);
+                    $app->forgetInstance(Schedule::class);
                 });
             }
         }

@@ -15,9 +15,7 @@ class TaggedJob implements ShouldQueue
 
     public const FEATURED_TAG = 'workbench:featured';
 
-    public function __construct(public int $number, public int $customer)
-    {
-    }
+    public function __construct(public int $number, public int $customer) {}
 
     /**
      * @return array<int, string>

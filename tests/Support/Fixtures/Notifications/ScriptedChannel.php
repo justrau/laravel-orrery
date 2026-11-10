@@ -16,9 +16,7 @@ final class ScriptedChannel
     /**
      * @param  Closure(mixed, Notification): mixed  $send
      */
-    public function __construct(private readonly Closure $send)
-    {
-    }
+    public function __construct(private readonly Closure $send) {}
 
     public function send(mixed $notifiable, Notification $notification): mixed
     {

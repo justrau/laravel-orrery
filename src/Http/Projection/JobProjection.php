@@ -85,8 +85,7 @@ class JobProjection
     public function __construct(
         private readonly SerializedValueParser $parser,
         private readonly Redactor $redactor,
-    ) {
-    }
+    ) {}
 
     /**
      * The select expression that loads a large column only when its byte

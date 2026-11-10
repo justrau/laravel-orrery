@@ -10,6 +10,4 @@ namespace Justrau\Orrery\Runtime;
  * degradation record. The wrapper still catches and reports every error of
  * such a listener, so the listener never changes the host outcome.
  */
-interface WatchesItself
-{
-}
+interface WatchesItself {}

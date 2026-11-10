@@ -12,10 +12,13 @@ use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Retry\Fence;
 use Justrau\Orrery\Retry\ForgetAllRecords;
 use Justrau\Orrery\Retry\ForgetService;
+use Justrau\Orrery\Retry\OperationResolver;
 use Justrau\Orrery\Retry\OperationRunner;
 use Justrau\Orrery\Retry\Operations;
+use Justrau\Orrery\Runtime\Hooks;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Storage\DatabaseClock;
+use Justrau\Orrery\Storage\HostFiles;
 use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Feature\Failed\CapturingFailer;
 use Justrau\Orrery\Tests\Feature\Failed\FailedProviderFixtures;
@@ -339,7 +342,7 @@ trait ForgetFixtures
      */
     protected function resolveOperation(string $id): array
     {
-        $result = $this->app->make(\Justrau\Orrery\Retry\OperationResolver::class)->resolve($id);
+        $result = $this->app->make(OperationResolver::class)->resolve($id);
 
         return ['step' => $result['step'] ?? null, 'code' => $result['code'] ?? null];
     }
@@ -389,7 +392,7 @@ trait ForgetFixtures
      */
     protected function recordsOnHostFile(): bool
     {
-        return $this->app->make(\Justrau\Orrery\Storage\HostFiles::class)->isHost(TestEnvironment::PRIMARY);
+        return $this->app->make(HostFiles::class)->isHost(TestEnvironment::PRIMARY);
     }
 
     protected function primary(): Connection
@@ -403,7 +406,7 @@ trait ForgetFixtures
      */
     protected function crashAt(string $point): void
     {
-        \Justrau\Orrery\Runtime\Hooks::$callback = static function (string $reached) use ($point): void {
+        Hooks::$callback = static function (string $reached) use ($point): void {
             if ($reached === $point) {
                 throw new RuntimeException("crash at {$point}");
             }

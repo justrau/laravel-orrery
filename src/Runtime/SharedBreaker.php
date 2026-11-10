@@ -59,9 +59,7 @@ final class SharedBreaker
     /**
      * @param  Closure(): string  $key  the key of the mirror (no connection opens)
      */
-    public function __construct(private readonly ?string $directory, private readonly Closure $key)
-    {
-    }
+    public function __construct(private readonly ?string $directory, private readonly Closure $key) {}
 
     public function enabled(): bool
     {

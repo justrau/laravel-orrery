@@ -21,7 +21,5 @@ class LargePayloadJob implements ShouldQueue
         $this->document = substr(str_repeat('workbench large payload line '.PHP_EOL, intdiv(self::BYTES, 30) + 1), 0, self::BYTES);
     }
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

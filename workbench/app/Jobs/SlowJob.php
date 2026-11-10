@@ -24,9 +24,7 @@ class SlowJob implements ShouldQueue
 
     public int $timeout = 590;
 
-    public function __construct(public int $seconds = self::DEFAULT_SECONDS)
-    {
-    }
+    public function __construct(public int $seconds = self::DEFAULT_SECONDS) {}
 
     public function handle(): void
     {

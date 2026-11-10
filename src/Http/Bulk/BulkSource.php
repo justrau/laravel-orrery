@@ -70,8 +70,7 @@ final class BulkSource
         public readonly ?float $from = null,
         public readonly ?float $to = null,
         public readonly ?string $batchId = null,
-    ) {
-    }
+    ) {}
 
     /**
      * @throws BulkRefusal `invalid`, with the field

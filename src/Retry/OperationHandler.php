@@ -3,6 +3,7 @@
 namespace Justrau\Orrery\Retry;
 
 use stdClass;
+
 /**
  * Takes the next step of one due operation of its action for the
  * OperationRunner: the retry handler and the forget

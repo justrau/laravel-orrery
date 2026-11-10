@@ -15,8 +15,7 @@ final class WatchResult
         private readonly bool $succeeded,
         private readonly mixed $value,
         private readonly ?Throwable $error,
-    ) {
-    }
+    ) {}
 
     public static function ok(mixed $value): self
     {

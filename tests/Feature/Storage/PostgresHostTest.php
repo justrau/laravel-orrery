@@ -5,11 +5,16 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Storage;
 
 use Illuminate\Database\Connection;
+use Illuminate\Database\Connectors\PostgresConnector;
+use Illuminate\Queue\WorkerOptions;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Justrau\Orrery\Maintenance\Reconciliation;
 use Justrau\Orrery\Runtime\Degradation;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\PackageSession;
+use Justrau\Orrery\Storage\PooledSessionRefused;
+use Justrau\Orrery\Storage\PostgresSession;
 use Justrau\Orrery\Tests\Feature\Jobs\BasicJob;
 use Justrau\Orrery\Tests\Support\Fixtures\Performance\TaggedBudgetJob;
 use Justrau\Orrery\Tests\Support\FreshSchema;
@@ -169,7 +174,7 @@ final class PostgresHostTest extends TestCase
             try {
                 $sessions->for('alice_pg');
                 self::fail("{$case}: a configured search_path that is not the server default is refused.");
-            } catch (\Justrau\Orrery\Storage\PooledSessionRefused $refused) {
+            } catch (PooledSessionRefused $refused) {
                 self::assertStringContainsString('is not the server default', $refused->getMessage(), $case);
             }
 
@@ -179,7 +184,7 @@ final class PostgresHostTest extends TestCase
             PackageSession::releaseAll();
             $host = DB::connection('alice_pg');
             $session = $sessions->for('alice_pg');
-            self::assertInstanceOf(\Justrau\Orrery\Storage\PostgresSession::class, $session);
+            self::assertInstanceOf(PostgresSession::class, $session);
             $session->resolveRelations();
             self::assertSame($role, $session->knownSchemaOf($prefix.'jobs'), "{$case}: the package resolves {$role}.jobs.");
             self::assertSame(
@@ -193,10 +198,10 @@ final class PostgresHostTest extends TestCase
             $uuid = (string) $this->mirror()->table('orrery_jobs')->where('connection', 'alice_queue')->where('job_id', $id)->value('uuid');
             self::assertNotSame('', $uuid, "{$case}: the package observed the push with the host's row id.");
 
-            $this->app->make(\Justrau\Orrery\Maintenance\Reconciliation::class)->reconcileActive('alice_queue');
+            $this->app->make(Reconciliation::class)->reconcileActive('alice_queue');
             self::assertNull($this->mirror()->table('orrery_jobs')->where('uuid', $uuid)->value('absent_since'), "{$case}: the reconciliation finds row {$id} in {$role}.jobs.");
             $host->table('jobs')->where('id', $id)->delete();
-            $this->app->make(\Justrau\Orrery\Maintenance\Reconciliation::class)->reconcileActive('alice_queue');
+            $this->app->make(Reconciliation::class)->reconcileActive('alice_queue');
             self::assertNotNull($this->mirror()->table('orrery_jobs')->where('uuid', $uuid)->value('absent_since'), "{$case}: the row is gone from the same relation.");
         }
     }
@@ -206,7 +211,7 @@ final class PostgresHostTest extends TestCase
      */
     public function test_server_options_enter_the_identity(): void
     {
-        $applied = method_exists(\Illuminate\Database\Connectors\PostgresConnector::class, 'addServerOptions');
+        $applied = method_exists(PostgresConnector::class, 'addServerOptions');
         $config = $this->app['config'];
         $base = $config->get('database.connections.testbench');
         $config->set('database.connections.options_pg', array_replace($base, ['server_options' => ['application_name' => 'orrery_one']]));
@@ -320,7 +325,7 @@ final class PostgresHostTest extends TestCase
             if ($job === null) {
                 $job = $queue->pop('default');
             } else {
-                $options = new \Illuminate\Queue\WorkerOptions;
+                $options = new WorkerOptions;
                 $options->maxTries = 1;
                 $this->app->make('queue.worker')->process('database', $job, $options);
             }

@@ -13,8 +13,10 @@ use Justrau\Orrery\Retry\Operations;
 use Justrau\Orrery\Retry\OperationStep;
 use Justrau\Orrery\Runtime\Hooks;
 use Justrau\Orrery\Storage\HostFiles;
+use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Support\FreshSchema;
 use Justrau\Orrery\Tests\Support\MirrorOutage;
+use Justrau\Orrery\Tests\Support\PackageStatements;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
 use Justrau\Orrery\Tests\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -624,9 +626,9 @@ final class ForgetsRecoveryTest extends TestCase
      */
     private function failMarkAborting(bool &$fail): void
     {
-        $name = $this->app->make(\Justrau\Orrery\Storage\PackageSession::class)->mirrorName();
-        $connection = str_starts_with($name, \Justrau\Orrery\Storage\PackageSession::NAME_PREFIX) ? substr($name, strlen(\Justrau\Orrery\Storage\PackageSession::NAME_PREFIX)) : $name;
-        \Justrau\Orrery\Tests\Support\PackageStatements::beforeEach($this->app, $connection, static function (string $sql, array $bindings) use (&$fail): void {
+        $name = $this->app->make(PackageSession::class)->mirrorName();
+        $connection = str_starts_with($name, PackageSession::NAME_PREFIX) ? substr($name, strlen(PackageSession::NAME_PREFIX)) : $name;
+        PackageStatements::beforeEach($this->app, $connection, static function (string $sql, array $bindings) use (&$fail): void {
             if ($fail && str_starts_with(strtolower($sql), 'update') && str_contains($sql, Operations::TABLE) && ($bindings[0] ?? null) === Operations::ABORTING) {
                 throw new RuntimeException('the abort fails');
             }

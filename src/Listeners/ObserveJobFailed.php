@@ -35,8 +35,7 @@ final class ObserveJobFailed
         private readonly OccurrenceSlot $slot,
         private readonly PackageSession $sessions,
         private readonly PackageTransaction $transactions,
-    ) {
-    }
+    ) {}
 
     public function handle(JobFailed $event): void
     {

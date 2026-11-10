@@ -40,9 +40,7 @@ final class OperationRunnerTest extends TestCase
         $test = $this;
         $handler = new class($test) implements OperationHandler
         {
-            public function __construct(private readonly OperationRunnerTest $test)
-            {
-            }
+            public function __construct(private readonly OperationRunnerTest $test) {}
 
             public function action(): string
             {
@@ -328,9 +326,7 @@ final class OperationRunnerTest extends TestCase
         $this->runner()->handle(new class($retries) implements OperationHandler
         {
             /** @param  list<string>  $retries */
-            public function __construct(private array &$retries)
-            {
-            }
+            public function __construct(private array &$retries) {}
 
             public function action(): string
             {
@@ -367,9 +363,7 @@ final class OperationRunnerTest extends TestCase
         $test = $this;
         $this->runner()->handle(new class($test) implements OperationHandler
         {
-            public function __construct(private readonly OperationRunnerTest $test)
-            {
-            }
+            public function __construct(private readonly OperationRunnerTest $test) {}
 
             public function action(): string
             {

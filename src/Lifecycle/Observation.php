@@ -66,8 +66,7 @@ final class Observation
         public readonly ?string $workerId = null,        // W: a verified swap-on reservation, or a failure in a worker
         public readonly ?int $bulkFloor = null,
         public readonly ?string $retryOperation = null,  // the payload's orreryRetry.operation
-    ) {
-    }
+    ) {}
 
     /**
      * Builds an observation from a raw payload. The uuid is the payload's

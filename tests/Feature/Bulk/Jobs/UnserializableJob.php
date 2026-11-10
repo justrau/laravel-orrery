@@ -24,7 +24,5 @@ class UnserializableJob implements ShouldQueue
         $this->callback = static fn (): null => null;
     }
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

@@ -53,9 +53,7 @@ final class WorkerLiveness
     /** Laravel's DatabaseConnector fallback for a missing or null retry_after. */
     public const DEFAULT_RETRY_AFTER = 60;
 
-    public function __construct(private readonly Repository $config)
-    {
-    }
+    public function __construct(private readonly Repository $config) {}
 
     /**
      * `orrery.stuck.worker_silence_seconds`, a whole number of at least 1,

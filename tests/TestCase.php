@@ -2,6 +2,7 @@
 
 namespace Justrau\Orrery\Tests;
 
+use Illuminate\Container\Container;
 use Illuminate\Contracts\Console\Kernel as ConsoleKernel;
 use Illuminate\Database\Connection;
 use Illuminate\Database\DatabaseManager;
@@ -559,7 +560,7 @@ abstract class TestCase extends BaseTestCase
      */
     protected static function mirrorSession(): string
     {
-        return \Illuminate\Container\Container::getInstance()->make(PackageSession::class)->mirrorName();
+        return Container::getInstance()->make(PackageSession::class)->mirrorName();
     }
 
     protected function mirrorSchema(): Builder

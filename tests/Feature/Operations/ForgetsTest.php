@@ -16,9 +16,11 @@ use Justrau\Orrery\Runtime\Hooks;
 use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Support\FreshSchema;
 use Justrau\Orrery\Tests\Support\PackageStatements;
+use Justrau\Orrery\Tests\Support\TestClock;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
 use Justrau\Orrery\Tests\TestCase;
 use LogicException;
+use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
 
 /**
@@ -141,7 +143,7 @@ final class ForgetsTest extends TestCase
      * without the status guard): a row that changes between the read and the claim (another operation holds it,
      * or it completes) is never claimed.
      */
-    #[\PHPUnit\Framework\Attributes\DataProvider('concurrentChanges')]
+    #[DataProvider('concurrentChanges')]
     public function test_claim_loses_to_a_concurrent_change(string $change, string $code): void
     {
         [$uuid, $occurrence, $recordId] = $this->failedOccurrence();
@@ -271,7 +273,7 @@ final class ForgetsTest extends TestCase
      *
      * @param  'table'|'prefix'|'cached'|'database'|'schema'  $change
      */
-    #[\PHPUnit\Framework\Attributes\DataProvider('targetChanges')]
+    #[DataProvider('targetChanges')]
     public function test_target_drift_before_the_first_action_is_refused(string $change): void
     {
         $this->plantDriftedTarget($change, ...$this->failedOccurrenceFor($change));
@@ -312,9 +314,7 @@ final class ForgetsTest extends TestCase
     public function test_application_failer_binding_is_read_only(): void
     {
         [$uuid, $occurrence, $recordId] = $this->failedOccurrence();
-        $subclass = new class($this->app['db'], TestEnvironment::PRIMARY, 'failed_jobs') extends LaravelUuidProvider
-        {
-        };
+        $subclass = new class($this->app['db'], TestEnvironment::PRIMARY, 'failed_jobs') extends LaravelUuidProvider {};
         $this->app->instance('queue.failer', $subclass);
         $statements = 0;
         DB::listen(static function (QueryExecuted $event) use (&$statements): void {
@@ -393,7 +393,7 @@ final class ForgetsTest extends TestCase
         Hooks::$callback = function (string $point): void {
             if ($point === ForgetService::BEFORE_RECORD_DELETE) {
                 // Only the failed-record database's clock moves past the deadline.
-                \Justrau\Orrery\Tests\Support\TestClock::shift(TestEnvironment::PRIMARY, ForgetService::WINDOW_SECONDS + 5);
+                TestClock::shift(TestEnvironment::PRIMARY, ForgetService::WINDOW_SECONDS + 5);
             }
         };
 

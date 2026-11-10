@@ -21,8 +21,6 @@ use Justrau\Orrery\Storage\DatabaseClock;
 use Justrau\Orrery\Storage\HostFiles;
 use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Storage\PackageTransaction;
-use stdClass;
-use Throwable;
 
 /**
  * The tick phase `operation_retention` (priority 520): the
@@ -75,8 +73,7 @@ final class OperationRetentionPhase implements TickPhase
         private readonly Fence $fence,
         private readonly HostFiles $files,
         private readonly FenceTargets $targets,
-    ) {
-    }
+    ) {}
 
     public function name(): string
     {

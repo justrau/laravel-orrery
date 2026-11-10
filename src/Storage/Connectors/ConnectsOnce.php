@@ -25,9 +25,7 @@ trait ConnectsOnce
     /**
      * @param  (Closure(string $dsn, array<int, mixed> $options): ?PDO)|null  $attempt  the test seam of each connect attempt
      */
-    public function __construct(private readonly ?Closure $attempt = null)
-    {
-    }
+    public function __construct(private readonly ?Closure $attempt = null) {}
 
     /**
      * Throws the failure of the first connect: no second connect.

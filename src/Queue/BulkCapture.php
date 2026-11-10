@@ -376,7 +376,6 @@ final class BulkCapture
         return count($pendings->captures);
     }
 
-
     /**
      * @param  array<string, mixed>  $record
      */

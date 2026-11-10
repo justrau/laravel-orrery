@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Maintenance;
 
 use Illuminate\Container\Container;
+use Illuminate\Contracts\Config\Repository;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
@@ -322,7 +323,7 @@ final class RetentionThroughputTest extends RetentionTestCase
         }
     }
 
-    private function lockModes(\Illuminate\Contracts\Config\Repository $config, string $directory): void
+    private function lockModes(Repository $config, string $directory): void
     {
         $config->set('database.connections.h6_mirror', ['driver' => 'sqlite', 'database' => $directory.'/mirror.sqlite', 'prefix' => '']);
         $config->set('database.connections.h6_jobs', ['driver' => 'sqlite', 'database' => $directory.'/jobs.sqlite', 'prefix' => '']);

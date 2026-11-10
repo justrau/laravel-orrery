@@ -19,6 +19,7 @@ use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Justrau\Orrery\Http\Lists\JobList;
+use Justrau\Orrery\Storage\PackageSession;
 use RuntimeException;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Workbench\App\Support\WorkbenchBootstrapCache;
@@ -153,7 +154,7 @@ class OwnershipProbeCommand extends Command
         );
 
         // The package's own sessions live outside the database manager.
-        foreach (\Justrau\Orrery\Storage\PackageSession::sessionsForTesting() as $entry) {
+        foreach (PackageSession::sessionsForTesting() as $entry) {
             $report['opened_connections'][(string) $entry['connection']->getName().' ('.$entry['mode'].')'] = ['driver' => $entry['connection']->getDriverName(), 'database' => $entry['connection']->getDatabaseName()];
         }
 

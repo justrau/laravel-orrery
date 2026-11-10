@@ -9,9 +9,7 @@ namespace Justrau\Orrery\Failed;
  */
 final class ReadOnlyFailedRecords extends FailedRecords
 {
-    private function __construct(private readonly string $code, private readonly string $text)
-    {
-    }
+    private function __construct(private readonly string $code, private readonly string $text) {}
 
     public static function providerReadOnly(string $class): self
     {

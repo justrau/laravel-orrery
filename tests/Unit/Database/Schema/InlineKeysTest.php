@@ -34,10 +34,10 @@ final class InlineKeysTest extends TestCase
      */
     public function test_backslashes_and_doubled_backticks_in_identifiers(): void
     {
-        $create = self::HEAD."`a\\` int not null, `b``)` int null) default character set utf8mb4";
+        $create = self::HEAD.'`a\\` int not null, `b``)` int null) default character set utf8mb4';
 
         $this->assertSame(
-            self::HEAD."`a\\` int not null, `b``)` int null, index `pfx_t_b`(`b``)`)) default character set utf8mb4",
+            self::HEAD.'`a\\` int not null, `b``)` int null, index `pfx_t_b`(`b``)`)) default character set utf8mb4',
             InlineKeys::splice($create, self::HEAD, ['index `pfx_t_b`(`b``)`)']),
         );
     }

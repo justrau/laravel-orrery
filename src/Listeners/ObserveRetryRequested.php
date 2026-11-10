@@ -20,9 +20,7 @@ use Justrau\Orrery\Storage\Clock;
  */
 final class ObserveRetryRequested
 {
-    public function __construct(private readonly JobStore $store)
-    {
-    }
+    public function __construct(private readonly JobStore $store) {}
 
     public function handle(JobRetryRequested $event): void
     {

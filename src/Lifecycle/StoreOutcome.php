@@ -19,7 +19,5 @@ namespace Justrau\Orrery\Lifecycle;
  */
 final class StoreOutcome
 {
-    public function __construct(public readonly string $rule, public readonly bool $applied, public readonly ?int $occurrenceId = null)
-    {
-    }
+    public function __construct(public readonly string $rule, public readonly bool $applied, public readonly ?int $occurrenceId = null) {}
 }

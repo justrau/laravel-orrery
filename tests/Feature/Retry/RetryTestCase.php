@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Retry;
 
 use Illuminate\Database\Connection;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Queue\Events\JobFailed as LaravelJobFailed;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -189,7 +190,7 @@ abstract class RetryTestCase extends RetryProtocolTestCase
     /**
      * The jobs table of a queue connection.
      */
-    protected function queueTable(string $queueConnection = 'database'): \Illuminate\Database\Query\Builder
+    protected function queueTable(string $queueConnection = 'database'): Builder
     {
         $config = $this->app['config']->get("queue.connections.{$queueConnection}");
 

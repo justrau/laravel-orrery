@@ -6,6 +6,7 @@ namespace Justrau\Orrery\Tests\Feature\Schema;
 
 use Illuminate\Database\Connection;
 use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\MariaDbConnection;
 use Illuminate\Support\Facades\Artisan;
 use Justrau\Orrery\Database\Schema\DeferredIndexes;
 use Justrau\Orrery\Database\Schema\IndexBuild;
@@ -17,7 +18,6 @@ use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Support\FreshSchema;
 use Justrau\Orrery\Tests\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
-use Throwable;
 
 /**
  * The deferred indexes of the stuck signals: a fresh
@@ -387,7 +387,7 @@ final class DeferredIndexesTest extends TestCase
      */
     public function test_the_identity_read_names_the_server_instance(): void
     {
-        $mariadb = new \Illuminate\Database\MariaDbConnection(static fn () => throw new \LogicException('no connect'), 'db', '', ['driver' => 'mariadb']);
+        $mariadb = new MariaDbConnection(static fn () => throw new \LogicException('no connect'), 'db', '', ['driver' => 'mariadb']);
         self::assertStringContainsString('@@server_id', IndexBuild::identitySql($mariadb));
         self::assertStringNotContainsString('server_uuid', IndexBuild::identitySql($mariadb));
 

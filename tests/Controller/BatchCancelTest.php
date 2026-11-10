@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Controller;
 
+use Illuminate\Bus\BatchFactory;
 use Illuminate\Bus\BatchRepository;
 use Illuminate\Bus\DatabaseBatchRepository as LaravelDatabaseBatchRepository;
+use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
@@ -157,8 +159,7 @@ final class BatchCancelTest extends ControllerTest
     public function test_an_unsupported_repository_is_refused(): void
     {
         $id = $this->batch();
-        $this->app->instance(BatchRepository::class, new class($this->app->make(\Illuminate\Bus\BatchFactory::class), $this->app['db']->connection(), 'job_batches') extends LaravelDatabaseBatchRepository {
-        });
+        $this->app->instance(BatchRepository::class, new class($this->app->make(BatchFactory::class), $this->app['db']->connection(), 'job_batches') extends LaravelDatabaseBatchRepository {});
 
         $this->cancel($id)->assertStatus(409)->assertJson(['error' => 'unsupported_repository']);
 
@@ -181,7 +182,7 @@ final class BatchCancelTest extends ControllerTest
         return $this->batchTable()->where('id', $id)->first(['id', 'cancelled_at', 'finished_at']);
     }
 
-    private function batchTable(): \Illuminate\Database\Query\Builder
+    private function batchTable(): Builder
     {
         return DB::connection(TestEnvironment::PRIMARY)->table('job_batches');
     }

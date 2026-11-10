@@ -15,6 +15,7 @@ use InvalidArgumentException;
 use Justrau\Orrery\Database\Schema\PackageSchema;
 use Justrau\Orrery\Events\StuckJobDetected as StuckJobEvent;
 use Justrau\Orrery\Listeners\NotificationState;
+use Justrau\Orrery\Notifications\StuckJobDetected;
 use Justrau\Orrery\Notifications\StuckJobsSummary;
 use Justrau\Orrery\Orrery;
 use Justrau\Orrery\Runtime\Degradation;
@@ -165,7 +166,7 @@ final class StuckNotifications
      */
     private static function applicationNotification(): bool
     {
-        return Container::getInstance()->bound(\Justrau\Orrery\Notifications\StuckJobDetected::class);
+        return Container::getInstance()->bound(StuckJobDetected::class);
     }
 
     /**
@@ -252,8 +253,7 @@ final class StuckNotifications
         private readonly Repository $config,
         private readonly Watcher $watcher,
         private readonly PackageTransaction $transactions,
-    ) {
-    }
+    ) {}
 
     /**
      * `orrery.stuck.notify`: true unless set to false (a published

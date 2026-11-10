@@ -40,8 +40,7 @@ final class Decision
         public readonly array $set = [],
         public readonly array $guard = [],
         public readonly array $effects = [],
-    ) {
-    }
+    ) {}
 
     public static function rejected(): self
     {

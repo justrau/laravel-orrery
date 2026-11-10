@@ -6,8 +6,8 @@ namespace Justrau\Orrery\Tests\Controller;
 
 use Illuminate\Database\Events\QueryExecuted;
 use Justrau\Orrery\Http\Tags;
-use Justrau\Orrery\Observation\TagNormalizer;
 use Justrau\Orrery\Monitoring\MonitoringVersion;
+use Justrau\Orrery\Observation\TagNormalizer;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\Controller\Fakes\User;
 use Justrau\Orrery\Tests\ControllerTest;

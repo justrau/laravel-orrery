@@ -25,7 +25,5 @@ class ThrowingTagsJob implements ShouldQueue
         throw new RuntimeException('tags() of ThrowingTagsJob failed');
     }
 
-    public function handle(): void
-    {
-    }
+    public function handle(): void {}
 }

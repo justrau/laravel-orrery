@@ -2,6 +2,8 @@
 
 namespace Justrau\Orrery\Storage;
 
+use Illuminate\Database\Connection;
+
 /**
  * Reports the transaction round trips of a package session to the test
  * recorder (PackageSession::recordForTesting()). A package session has no
@@ -31,7 +33,7 @@ trait RecordsRoundTrips
      *
      * @param  array<mixed>  $bindings
      */
-    public function recordRoundTrip(string $kind, string $sql, ?string $session = null, ?\Illuminate\Database\Connection $connection = null, array $bindings = []): void
+    public function recordRoundTrip(string $kind, string $sql, ?string $session = null, ?Connection $connection = null, array $bindings = []): void
     {
         if ($this->owner !== null) {
             $this->owner->recordTrip($kind, $sql, $session ?? $this->getName(), $connection, $bindings);

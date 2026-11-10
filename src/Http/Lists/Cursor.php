@@ -35,8 +35,7 @@ final class Cursor
         public readonly int|string $key,
         public readonly string $direction,
         public readonly string $filters,
-    ) {
-    }
+    ) {}
 
     /**
      * The cursor of a row: its order value (a decimal column read as a

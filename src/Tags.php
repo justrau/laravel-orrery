@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Events\CallQueuedListener;
 use Illuminate\Mail\SendQueuedMailable;
 use Illuminate\Notifications\SendQueuedNotifications;
+use Illuminate\Support\Collection;
 use ReflectionClass;
 use ReflectionProperty;
 use stdClass;
@@ -143,9 +144,9 @@ class Tags
 
     /**
      * @param  array<int, mixed>  $targets
-     * @return \Illuminate\Support\Collection<int, Model>
+     * @return Collection<int, Model>
      */
-    public static function modelsFor(array $targets): \Illuminate\Support\Collection
+    public static function modelsFor(array $targets): Collection
     {
         $models = [];
 

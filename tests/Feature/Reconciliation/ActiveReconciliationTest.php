@@ -4,10 +4,15 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Reconciliation;
 
+use Illuminate\Database\Events\QueryExecuted;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Queue\Events\JobProcessing;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Justrau\Orrery\Maintenance\Reconciliation;
+use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\Support\OffGridTime;
 
@@ -38,7 +43,7 @@ final class ActiveReconciliationTest extends ReconciliationTestCase
         }
 
         $reads = [];
-        \Illuminate\Support\Facades\Event::listen(\Illuminate\Database\Events\QueryExecuted::class, static function (\Illuminate\Database\Events\QueryExecuted $query) use (&$reads): void {
+        Event::listen(QueryExecuted::class, static function (QueryExecuted $query) use (&$reads): void {
             // Any quoting (MySQL backticks) and any table prefix.
             if (preg_match('/from [`"]?\w*jobs[`"]? where [`"]?id[`"]? in/i', $query->sql) === 1) {
                 $reads[] = count($query->bindings);
@@ -198,7 +203,7 @@ final class ActiveReconciliationTest extends ReconciliationTestCase
         [$inFile, $fileJobId] = $this->pushed();
         $job = (array) $this->queueTable()->where('id', $fileJobId)->first();
         $this->queueTable()->where('id', $fileJobId)->delete();
-        \Illuminate\Support\Facades\DB::connection('rollback_file')->table('jobs')->insert($job);
+        DB::connection('rollback_file')->table('jobs')->insert($job);
         $this->mirror()->table('orrery_jobs')->where('uuid', $inFile)->update(['connection' => 'removed']);
 
         for ($check = 0; $check < 2; $check++) {
@@ -210,16 +215,16 @@ final class ActiveReconciliationTest extends ReconciliationTestCase
         self::assertSame(['pending', null], [$this->rowOrFail($inFile)->status, $this->rowOrFail($inFile)->absent_since], 'a row that only the unread file can hold keeps its state');
 
         // The command reads the file: the job is there.
-        self::assertSame(0, \Illuminate\Support\Facades\Artisan::call('orrery:reconcile'), \Illuminate\Support\Facades\Artisan::output());
+        self::assertSame(0, Artisan::call('orrery:reconcile'), Artisan::output());
         self::assertNull($this->rowOrFail($inFile)->absent_since);
 
         // The job left the file: two operator checks across the grace make the row unknown.
-        \Illuminate\Support\Facades\DB::connection('rollback_file')->table('jobs')->delete();
-        \Illuminate\Support\Facades\Artisan::call('orrery:reconcile');
+        DB::connection('rollback_file')->table('jobs')->delete();
+        Artisan::call('orrery:reconcile');
         self::assertNotNull($this->rowOrFail($inFile)->absent_since);
         $this->moveClock(Reconciliation::MIN_GRACE_SECONDS + 1);
-        $status = \Illuminate\Support\Facades\Artisan::call('orrery:reconcile');
-        $output = \Illuminate\Support\Facades\Artisan::output();
+        $status = Artisan::call('orrery:reconcile');
+        $output = Artisan::output();
 
         self::assertSame(0, $status, $output);
         self::assertStringContainsString('Reconciled the waiting and reserved jobs of removed queue connections.', $output);
@@ -268,7 +273,7 @@ final class ActiveReconciliationTest extends ReconciliationTestCase
         }
 
         $statements = [];
-        $this->app['events']->listen(\Illuminate\Database\Events\QueryExecuted::class, static function (\Illuminate\Database\Events\QueryExecuted $query) use (&$statements): void {
+        $this->app['events']->listen(QueryExecuted::class, static function (QueryExecuted $query) use (&$statements): void {
             if (str_contains($query->sql, 'orrery_jobs')) {
                 $statements[] = $query->sql;
             }
@@ -316,7 +321,7 @@ final class ActiveReconciliationTest extends ReconciliationTestCase
             }
         });
 
-        $result = $this->reconciliation()->reconcileRemoved(new \Justrau\Orrery\Maintenance\TickBudget(Clock::monotonic() + 10));
+        $result = $this->reconciliation()->reconcileRemoved(new TickBudget(Clock::monotonic() + 10));
 
         self::assertSame(1, $reads, 'one read of the first chunk, then the budget stops the batch');
         self::assertSame([Reconciliation::REMOVED_CHUNK, true, false], [$result['checked'], $result['stopped'], $result['wrapped']]);
@@ -506,7 +511,7 @@ final class ActiveReconciliationTest extends ReconciliationTestCase
         $config = $this->app['config'];
         $config->set('database.connections.rollback_file', ['driver' => 'sqlite', 'url' => null, 'database' => $file, 'prefix' => '', 'foreign_key_constraints' => true, 'busy_timeout' => 5000, 'journal_mode' => 'delete']);
         $config->set('queue.connections.rollback_queue', ['driver' => 'database', 'connection' => 'rollback_file', 'table' => 'jobs', 'queue' => 'default', 'retry_after' => 90]);
-        \Illuminate\Support\Facades\DB::connection('rollback_file')->getSchemaBuilder()->create('jobs', static function (\Illuminate\Database\Schema\Blueprint $table): void {
+        DB::connection('rollback_file')->getSchemaBuilder()->create('jobs', static function (Blueprint $table): void {
             $table->id();
             $table->string('queue')->index();
             $table->longText('payload');

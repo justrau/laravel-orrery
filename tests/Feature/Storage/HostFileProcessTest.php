@@ -4,17 +4,24 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Feature\Storage;
 
+use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Queue\WorkerOptions;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 use Justrau\Orrery\Orrery;
+use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\HostFiles;
 use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Feature\Jobs\BasicJob;
+use Justrau\Orrery\Tests\Feature\Jobs\FailingJob;
 use Justrau\Orrery\Tests\Support\Barrier;
 use Justrau\Orrery\Tests\Support\Fixtures\HostFile\HostBatchCommand;
 use Justrau\Orrery\Tests\Support\Fixtures\HostFile\HostFileFixture;
 use Justrau\Orrery\Tests\Support\Fixtures\HostFile\HostFileProvider;
 use Justrau\Orrery\Tests\Support\Fixtures\HostFile\HostNativeCommand;
 use Justrau\Orrery\Tests\Support\Fixtures\HostFile\HostReaderCommand;
+use Justrau\Orrery\Tests\Support\PackageStatements;
 use Justrau\Orrery\Tests\Support\SqliteFiles;
 use Justrau\Orrery\Tests\Support\WorkerProcess;
 use Justrau\Orrery\Tests\TestCase;
@@ -126,7 +133,7 @@ final class HostFileProcessTest extends TestCase
                 'A exit' => $exit,
                 'write while A holds' => $held,
                 'write after A' => $after,
-                'jobs' => $other->query("select queue, count(*) from jobs group by queue order by queue")->fetchAll(PDO::FETCH_NUM),
+                'jobs' => $other->query('select queue, count(*) from jobs group by queue order by queue')->fetchAll(PDO::FETCH_NUM),
                 'batches' => (int) $other->query('select count(*) from job_batches')->fetchColumn(),
                 'integrity' => $other->query('pragma integrity_check')->fetchColumn(),
             ];
@@ -318,20 +325,20 @@ final class HostFileProcessTest extends TestCase
         HostFileFixture::apply($config, $file, $wal, $second);
         HostFileFixture::useHostTables($config);
         $this->app->forgetInstance('queue.failer');
-        \Illuminate\Support\Facades\Event::listen(\Illuminate\Queue\Events\JobFailed::class, function (\Illuminate\Queue\Events\JobFailed $event): void {
+        Event::listen(JobFailed::class, function (JobFailed $event): void {
             $this->app['queue.failer']->log($event->connectionName, $event->job->getQueue(), $event->job->getRawBody(), $event->exception);
         });
-        $app = \Illuminate\Support\Facades\Queue::connection(HostFileFixture::QUEUE);
-        $app->push(new \Justrau\Orrery\Tests\Feature\Jobs\FailingJob);
-        $options = new \Illuminate\Queue\WorkerOptions;
+        $app = Queue::connection(HostFileFixture::QUEUE);
+        $app->push(new FailingJob);
+        $options = new WorkerOptions;
         $options->sleep = 0;
         $options->maxTries = 1;
         $this->app->make('queue.worker')->runNextJob(HostFileFixture::QUEUE, 'default', $options);
         $app->push(new BasicJob);
-        $gone = \Illuminate\Support\Facades\Queue::connection(HostFileFixture::QUEUE)->push(new BasicJob);
+        $gone = Queue::connection(HostFileFixture::QUEUE)->push(new BasicJob);
         DB::connection(HostFileFixture::CONNECTION)->table('jobs')->where('id', $gone)->delete();
         $app->bulk([new BasicJob, new BasicJob]);
-        $secondGone = \Illuminate\Support\Facades\Queue::connection(HostFileFixture::SECOND_QUEUE)->push(new BasicJob);
+        $secondGone = Queue::connection(HostFileFixture::SECOND_QUEUE)->push(new BasicJob);
         DB::connection(HostFileFixture::SECOND)->table('jobs')->where('id', $secondGone)->delete();
         $mirror = $this->mirror();
         $mirror->table('orrery_jobs')->whereNotNull('bulk_floor_id')->update(['job_id_unresolved' => true, 'job_id' => null]);
@@ -367,7 +374,7 @@ final class HostFileProcessTest extends TestCase
         self::assertSame(0, $batch->waitForExit(60), $batch->describe());
 
         $parent = [];
-        \Justrau\Orrery\Tests\Support\PackageStatements::beforeEach($this->app, HostFileFixture::CONNECTION, static function (string $sql) use (&$parent): void {
+        PackageStatements::beforeEach($this->app, HostFileFixture::CONNECTION, static function (string $sql) use (&$parent): void {
             $parent[] = $sql;
         });
         $workload = collect($this->getJson('/orrery/api/workload')->assertOk()->json())->keyBy('connection');
@@ -387,7 +394,7 @@ final class HostFileProcessTest extends TestCase
         self::assertSame([], array_values(array_filter($log, static fn (array $entry): bool => $entry['source'] === 'log')), 'No error log line: no report.');
         self::assertSame([], $foreign, 'No statement of the package through the application\'s connections (a cache store read included).');
         self::assertSame(0, (int) $mirror->table('orrery_health_events')->count(), 'No health window: no error, no drop, no open breaker.');
-        self::assertFalse(\Justrau\Orrery\Runtime\Watcher::instance()->breakerOpen());
+        self::assertFalse(Watcher::instance()->breakerOpen());
         self::assertNotContains(HostFileFixture::QUEUE, $health->json('missing_fence_tables'), 'No "run orrery:install --fence" hint.');
         self::assertContains('orrery:reconcile', array_column(array_filter($package, static fn (array $entry): bool => $entry['mode'] === PackageSession::OPERATOR), 'command'), 'orrery:reconcile reads the file as an operator.');
         self::assertNotNull($row(HostFileFixture::QUEUE, (int) $gone)->absent_since, 'orrery:reconcile reconciled the file.');

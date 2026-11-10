@@ -7,6 +7,8 @@ namespace Justrau\Orrery\Tests\Support\Fixtures\HostFile;
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Database\Schema\Builder;
+use Justrau\Orrery\Database\Schema\PackageSchema;
+use Justrau\Orrery\Retry\Fence;
 
 /**
  * The application SQLite file of the D18 process tests:
@@ -151,6 +153,6 @@ final class HostFileFixture
             $table->integer('expiration');
         });
         // The fence table, as orrery:install --fence and migrate give the queue's file.
-        \Justrau\Orrery\Database\Schema\PackageSchema::create($schema, [\Justrau\Orrery\Retry\Fence::TABLE]);
+        PackageSchema::create($schema, [Fence::TABLE]);
     }
 }

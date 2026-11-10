@@ -39,14 +39,14 @@ final class Orrery
      */
     public static function check(Request $request): bool
     {
-        return (static::$authUsing ?: fn () => app()->environment('local'))($request) === true;
+        return (self::$authUsing ?: fn () => app()->environment('local'))($request) === true;
     }
 
     public static function auth(Closure $callback): static
     {
-        static::$authUsing = $callback;
+        self::$authUsing = $callback;
 
-        return new static;
+        return new self;
     }
 
     /**
@@ -57,14 +57,14 @@ final class Orrery
      */
     public static function canOperate(Request $request): bool
     {
-        return (static::$operateUsing ?: fn () => app()->environment('local'))($request) === true;
+        return (self::$operateUsing ?: fn () => app()->environment('local'))($request) === true;
     }
 
     public static function operateUsing(Closure $callback): static
     {
-        static::$operateUsing = $callback;
+        self::$operateUsing = $callback;
 
-        return new static;
+        return new self;
     }
 
     /**
@@ -73,9 +73,9 @@ final class Orrery
      */
     public static function actorUsing(Closure $callback): static
     {
-        static::$actorUsing = $callback;
+        self::$actorUsing = $callback;
 
-        return new static;
+        return new self;
     }
 
     /**
@@ -94,7 +94,7 @@ final class Orrery
     public static function actor(?Request $request): ?string
     {
         try {
-            return SafeText::clean(static::$actorUsing !== null ? (static::$actorUsing)($request) : static::defaultActor($request));
+            return SafeText::clean(self::$actorUsing !== null ? (self::$actorUsing)($request) : self::defaultActor($request));
         } catch (Throwable $error) {
             Watcher::instance()->report('control:actor', $error);
 
@@ -154,7 +154,7 @@ final class Orrery
         // closing the script element. An app name that is not valid UTF-8 gets
         // U+FFFD for its bad bytes instead of failing the page.
         $vars = json_encode(
-            static::scriptVariables(request()),
+            self::scriptVariables(request()),
             JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE | JSON_THROW_ON_ERROR,
         );
         $contents = file_get_contents(__DIR__.'/../dist/app.js');
@@ -179,13 +179,13 @@ HTML;
     public static function scriptVariables(Request $request): array
     {
         return [
-            'path' => static::spaPath(config('orrery.path')),
-            'proxy_path' => static::spaProxyPath(config('orrery.proxy_path', '')),
-            'canOperate' => static::canOperate($request),
+            'path' => self::spaPath(config('orrery.path')),
+            'proxy_path' => self::spaProxyPath(config('orrery.proxy_path', '')),
+            'canOperate' => self::canOperate($request),
             'appName' => is_string($name = config('app.name')) ? $name : null,
             'environment' => app()->environment(),
-            'sqliteQueueConnections' => static::sqliteQueueConnections(),
-            'displayTimezone' => static::displayTimezone(),
+            'sqliteQueueConnections' => self::sqliteQueueConnections(),
+            'displayTimezone' => self::displayTimezone(),
             'downForMaintenance' => app()->isDownForMaintenance(),
         ];
     }
@@ -270,9 +270,9 @@ HTML;
      */
     public static function routeMailNotificationsTo(?string $email): static
     {
-        static::$email = self::route($email);
+        self::$email = self::route($email);
 
-        return new static;
+        return new self;
     }
 
     /**
@@ -283,10 +283,10 @@ HTML;
      */
     public static function routeSlackNotificationsTo(?string $url, ?string $channel = null): static
     {
-        static::$slackWebhookUrl = self::route($url);
-        static::$slackChannel = self::route($channel);
+        self::$slackWebhookUrl = self::route($url);
+        self::$slackChannel = self::route($channel);
 
-        return new static;
+        return new self;
     }
 
     /**
@@ -294,9 +294,9 @@ HTML;
      */
     public static function routeSmsNotificationsTo(?string $number): static
     {
-        static::$smsNumber = self::route($number);
+        self::$smsNumber = self::route($number);
 
-        return new static;
+        return new self;
     }
 
     /**
@@ -304,7 +304,7 @@ HTML;
      */
     public static function routeVonageNotificationsTo(?string $number): static
     {
-        return static::routeSmsNotificationsTo($number);
+        return self::routeSmsNotificationsTo($number);
     }
 
     private static function route(?string $value): ?string

@@ -8,20 +8,30 @@ use Illuminate\Container\Container;
 use Illuminate\Support\Facades\Facade;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Route;
+use Justrau\Orrery\Actions\WaitingJobs;
 use Justrau\Orrery\Control\SignalCache;
 use Justrau\Orrery\Control\StopLatch;
+use Justrau\Orrery\Failed\IdReuseProofs;
 use Justrau\Orrery\Failed\OccurrenceSlot;
 use Justrau\Orrery\Failed\StatementCounters;
+use Justrau\Orrery\Lifecycle\IncidentCleanup;
 use Justrau\Orrery\Lifecycle\RuntimeClock;
+use Justrau\Orrery\Maintenance\SiblingLocks;
 use Justrau\Orrery\Monitoring\MonitoredTagCache;
+use Justrau\Orrery\Monitoring\WaitTime;
 use Justrau\Orrery\Observation\CommitDeferral;
 use Justrau\Orrery\Observation\WatchRegistry;
+use Justrau\Orrery\OrreryServiceProvider;
 use Justrau\Orrery\Queue\OpenBulkCaptures;
 use Justrau\Orrery\Queue\PendingBulkCaptures;
+use Justrau\Orrery\Retry\Fence;
+use Justrau\Orrery\Retry\Phases\OperationRetentionPhase;
 use Justrau\Orrery\Runtime\Degradation;
+use Justrau\Orrery\Runtime\ProcessState;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Storage\PackageTransaction;
+use Justrau\Orrery\Tests\Feature\Jobs\BasicJob;
 use Justrau\Orrery\Tests\Feature\Support\Jobs\LifetimeReportJob;
 use Justrau\Orrery\Tests\Support\Barrier;
 use Justrau\Orrery\Tests\Support\WorkerProcess;
@@ -158,13 +168,13 @@ final class BindingLifetimeTest extends TestCase
         $owners = [
             ...self::SCOPED,
             ...self::PROCESS,
-            \Justrau\Orrery\Actions\WaitingJobs::class,
-            \Justrau\Orrery\Failed\IdReuseProofs::class,
-            \Justrau\Orrery\Lifecycle\IncidentCleanup::class,
-            \Justrau\Orrery\Maintenance\SiblingLocks::class,
-            \Justrau\Orrery\Retry\Fence::class,
-            \Justrau\Orrery\Retry\Phases\OperationRetentionPhase::class,
-            \Justrau\Orrery\Runtime\ProcessState::class,
+            WaitingJobs::class,
+            IdReuseProofs::class,
+            IncidentCleanup::class,
+            SiblingLocks::class,
+            Fence::class,
+            OperationRetentionPhase::class,
+            ProcessState::class,
         ];
         $root = dirname(__DIR__, 3);
 
@@ -281,8 +291,8 @@ final class BindingLifetimeTest extends TestCase
     public function test_boot_resolved_state_reads_the_request_configuration(): void
     {
         $base = $this->app;
-        Queue::push(new \Justrau\Orrery\Tests\Feature\Jobs\BasicJob);
-        $waits = $base->make(\Justrau\Orrery\Monitoring\WaitTime::class);
+        Queue::push(new BasicJob);
+        $waits = $base->make(WaitTime::class);
         $sandbox = clone $base;
         $config = clone $base->make('config');
         $sandbox->instance('config', $config);
@@ -311,7 +321,7 @@ final class BindingLifetimeTest extends TestCase
     {
         $bindings = self::PROCESS;
 
-        foreach (\Justrau\Orrery\OrreryServiceProvider::MODULES as $module) {
+        foreach (OrreryServiceProvider::MODULES as $module) {
             if (defined($module.'::PROCESS_STATE')) {
                 $bindings = [...$bindings, ...constant($module.'::PROCESS_STATE')];
             }

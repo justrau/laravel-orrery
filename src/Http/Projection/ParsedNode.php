@@ -32,8 +32,7 @@ final class ParsedNode implements JsonSerializable
         public readonly ?string $class,
         public readonly array $entries,
         public readonly mixed $value,
-    ) {
-    }
+    ) {}
 
     /**
      * @param  list<ParsedEntry>  $entries

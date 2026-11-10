@@ -38,8 +38,7 @@ final class MonitoringRepair
     public function __construct(
         private readonly PackageTransaction $transactions,
         private readonly MonitoringVersion $versions,
-    ) {
-    }
+    ) {}
 
     /**
      * Repairs the rows with an old version. Returns the number of rows that

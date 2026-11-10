@@ -71,8 +71,7 @@ final class DeferralByteBudgetTest extends DeferralTestCase
 
         self::assertSame(40, $this->deferral()->heldBytes());
         $q->setPdo($failing);
-        $q->transaction(static function (): void {
-        });
+        $q->transaction(static function (): void {});
         self::assertSame(0, $this->deferral()->heldBytes(), 'The stale rule gives the bytes back.');
 
         self::assertSame(['root', 'savepoint'], $this->ran());

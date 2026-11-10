@@ -8,8 +8,8 @@ use Illuminate\Config\Repository;
 use Illuminate\Database\SQLiteConnection;
 use Justrau\Orrery\Tests\Support\OffGridTime;
 use Justrau\Orrery\Workers\WorkerLiveness;
-use PHPUnit\Framework\Attributes\DataProvider;
 use PDO;
+use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
 /**

@@ -7,7 +7,6 @@ namespace Justrau\Orrery\Tests\Controller;
 use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Support\Carbon;
 use Illuminate\Testing\TestResponse;
-use Justrau\Orrery\Failures\FailureScan;
 use Justrau\Orrery\Failures\GroupKey;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\Controller\Fakes\User;

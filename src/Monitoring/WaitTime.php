@@ -95,8 +95,7 @@ final class WaitTime
     public function __construct(
         private readonly PackageSession $sessions,
         private readonly LiveWorkers $workers,
-    ) {
-    }
+    ) {}
 
     /**
      * One row per queue of each physical target: the database connection and
