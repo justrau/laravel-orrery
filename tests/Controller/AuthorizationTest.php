@@ -661,8 +661,8 @@ final class AuthorizationTest extends TestCase
                     'the job class series body is missing',
                 ),
             ),
-            'GET orrery/api/queues/{connection}/{queue}/history' => $this->read(
-                fn (): string => $api.'/queues/database/'.self::WORK_QUEUE.'/history',
+            'GET orrery/api/queues/history' => $this->read(
+                fn (): string => $api.'/queues/history?connection=database&queue='.self::WORK_QUEUE,
                 fn (TestResponse $response): ?string => $this->problem(
                     $response->json('bucket_seconds') === 60 && $response->json('queue') === self::WORK_QUEUE,
                     'the queue history body is missing',
@@ -757,6 +757,72 @@ final class AuthorizationTest extends TestCase
                 fn (TestResponse $response): ?string => $this->problem(
                     $response->json('result') === 'deleted',
                     'the response does not report a forget: '.$response->getContent(),
+                ),
+            ),
+            // The writes on waiting jobs: one waiting job per case, on a queue of its own.
+            'POST orrery/api/jobs/{uuid}/delete' => $this->write(
+                fn (): string => $api.'/jobs/'.$this->waitingTarget.'/delete',
+                [],
+                fn () => $this->arrangeWaiting(self::DELETE_QUEUE),
+                fn (): string => $this->waitingTarget,
+                fn (mixed $before): ?string => $this->problem(
+                    $this->mirror()->table('orrery_jobs')->where('uuid', $before)->doesntExist() && $this->waitingOn(self::DELETE_QUEUE) === 0,
+                    'the waiting job still exists',
+                ),
+                fn (TestResponse $response): ?string => $this->problem(
+                    $response->json('result') === 'deleted',
+                    'the response does not report a delete: '.$response->getContent(),
+                ),
+            ),
+            'POST orrery/api/jobs/{uuid}/run-now' => $this->write(
+                fn (): string => $api.'/jobs/'.$this->waitingTarget.'/run-now',
+                [],
+                fn () => $this->arrangeDelayed(),
+                fn (): string => $this->waitingTarget,
+                fn (mixed $before): ?string => $this->problem(
+                    (int) $this->app['db']->connection(TestEnvironment::PRIMARY)->table('jobs')->where('queue', self::LATER_QUEUE)->value('available_at') <= time(),
+                    'the delayed job is still delayed',
+                ),
+                fn (TestResponse $response): ?string => $this->problem(
+                    $response->json('result') === 'available',
+                    'the response does not report a run-now: '.$response->getContent(),
+                ),
+            ),
+            'POST orrery/api/batches/{id}/cancel' => $this->write(
+                fn (): string => $api.'/batches/'.self::CANCEL_BATCH.'/cancel',
+                [],
+                fn () => $this->arrangeCancel(),
+                fn (): string => self::CANCEL_BATCH,
+                fn (mixed $before): ?string => $this->problem(
+                    $this->app['db']->connection(TestEnvironment::PRIMARY)->table('job_batches')->where('id', $before)->value('cancelled_at') !== null,
+                    'the batch was not cancelled',
+                ),
+                fn (TestResponse $response): ?string => $this->problem(
+                    $response->json('result') === 'cancelled',
+                    'the response does not report a cancel: '.$response->getContent(),
+                ),
+            ),
+            'POST orrery/api/queues/waiting' => $this->operatorRead(
+                fn (): string => $api.'/queues/waiting',
+                fn (): array => ['connection' => 'database', 'queue' => self::CLEAR_QUEUE],
+                fn () => $this->arrangeWaiting(self::CLEAR_QUEUE),
+                fn (TestResponse $response): ?string => $this->problem(
+                    $response->json('waiting') === 1 && $response->json('ready') === 1,
+                    'the count does not hold the waiting job: '.$response->getContent(),
+                ),
+            ),
+            'POST orrery/api/queues/clear' => $this->write(
+                fn (): string => $api.'/queues/clear',
+                ['connection' => 'database', 'queue' => self::CLEAR_QUEUE],
+                fn () => $this->arrangeWaiting(self::CLEAR_QUEUE),
+                fn (): int => $this->waitingOn(self::CLEAR_QUEUE),
+                fn (mixed $before): ?string => $this->problem(
+                    $before === 1 && $this->waitingOn(self::CLEAR_QUEUE) === 0,
+                    'the waiting job of the queue was not cleared',
+                ),
+                fn (TestResponse $response): ?string => $this->problem(
+                    $response->json('deleted') === 1 && $response->json('complete') === true,
+                    'the response does not report the clear: '.$response->getContent(),
                 ),
             ),
             // The bulk runs. The freeze only reads; the run retries the failed batch member.
@@ -867,6 +933,68 @@ final class AuthorizationTest extends TestCase
                 html: true,
             ),
         ];
+    }
+
+    /** The queue of the delete fixture. */
+    private const DELETE_QUEUE = 'authz-delete';
+
+    /** The queue of the clear and count fixtures. */
+    private const CLEAR_QUEUE = 'authz-clear';
+
+    /** The batch of the cancel fixture: open again before every case. */
+    private const CANCEL_BATCH = 'c4c4c4c4-c4c4-4c4c-8c4c-c4c4c4c4c4c4';
+
+    private function arrangeCancel(): void
+    {
+        $table = $this->app['db']->connection(TestEnvironment::PRIMARY)->table('job_batches');
+        $table->where('id', self::CANCEL_BATCH)->delete();
+        $table->insert([
+            'id' => self::CANCEL_BATCH, 'name' => 'authorization cancel', 'total_jobs' => 1, 'pending_jobs' => 1, 'failed_jobs' => 0,
+            'failed_job_ids' => '[]', 'options' => null, 'created_at' => time(), 'cancelled_at' => null, 'finished_at' => null,
+        ]);
+    }
+
+    /** The queue of the run-now fixture. */
+    private const LATER_QUEUE = 'authz-later';
+
+    /**
+     * Exactly one waiting job on LATER_QUEUE, delayed by an hour: a new one when there is none, else the
+     * existing one is delayed again.
+     */
+    private function arrangeDelayed(): void
+    {
+        if ($this->waitingOn(self::LATER_QUEUE) === 0) {
+            AuthorizationJob::dispatch()->onConnection('database')->onQueue(self::LATER_QUEUE)->delay(3600);
+        }
+
+        $this->app['db']->connection(TestEnvironment::PRIMARY)->table('jobs')->where('queue', self::LATER_QUEUE)->update(['available_at' => time() + 3600]);
+        $this->mirror()->table('orrery_jobs')->where('queue', self::LATER_QUEUE)->update(['available_at' => Clock::toDecimal(time() + 3600)]);
+        $this->mirror()->table('orrery_job_history')->whereIn('job_uuid', $this->mirror()->table('orrery_jobs')->where('queue', self::LATER_QUEUE)->pluck('uuid')->all())->delete();
+        $this->assertSame(1, $this->waitingOn(self::LATER_QUEUE));
+        $this->waitingTarget = (string) $this->mirror()->table('orrery_jobs')->where('queue', self::LATER_QUEUE)->where('status', 'pending')->value('uuid');
+        $this->assertNotSame('', $this->waitingTarget, 'The delayed job has no mirror row.');
+    }
+
+    /** The uuid of the waiting job of the last arrangeWaiting(). */
+    private string $waitingTarget = '';
+
+    /**
+     * Exactly one waiting job on $queue, pushed through the swapped queue when there is none.
+     */
+    private function arrangeWaiting(string $queue): void
+    {
+        if ($this->waitingOn($queue) === 0) {
+            AuthorizationJob::dispatch()->onConnection('database')->onQueue($queue);
+        }
+
+        $this->assertSame(1, $this->waitingOn($queue));
+        $this->waitingTarget = (string) $this->mirror()->table('orrery_jobs')->where('queue', $queue)->where('status', 'pending')->value('uuid');
+        $this->assertNotSame('', $this->waitingTarget, 'The waiting job has no mirror row.');
+    }
+
+    private function waitingOn(string $queue): int
+    {
+        return $this->app['db']->connection(TestEnvironment::PRIMARY)->table('jobs')->where('queue', $queue)->whereNull('reserved_at')->count();
     }
 
     /** The operation of the resolve fixture. */

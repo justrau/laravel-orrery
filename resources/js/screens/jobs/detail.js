@@ -254,7 +254,7 @@ function validOccurrence(value) {
  * not disabled. `reason` is the read-only reason in words.
  */
 export function actionsFor(detail, canOperate) {
-    if (!detail) return {retry: false, forget: false, resolve: false, held: false, reason: null};
+    if (!detail) return {retry: false, forget: false, resolve: false, delete: false, deleteBlocked: null, runNow: false, held: false, reason: null};
 
     const actions = isObject(detail.actions) ? detail.actions : {};
     const operation = detail.operation;
@@ -264,10 +264,17 @@ export function actionsFor(detail, canOperate) {
         ? codeText(actions.read_only_reason)
         : null;
 
+    const pending = canOperate === true && detail.status === 'pending' && !held && isUuid(detail.id) && actions.delete === true;
+
     return {
         retry: writable && actions.retry === true,
         forget: writable && actions.forget === true,
         resolve: canOperate === true && actions.resolve === true && held && isObject(operation) && typeof operation.id === 'string',
+        delete: pending,
+        // An unresolved bulk row: the button shows, disabled, with this text.
+        deleteBlocked: pending && typeof actions.pending_reason === 'string' ? codeText(actions.pending_reason) : null,
+        // A delayed job (the server compares available_at with now); an unresolved bulk row waits as for Delete.
+        runNow: pending && actions.run_now === true,
         held,
         reason,
     };
@@ -312,6 +319,59 @@ export function forgetSheet(detail) {
     };
 }
 
+/**
+ * The Delete sheet of a waiting job: it names the job, and says what else
+ * goes with it. A job in a batch (its `batch_id`) leaves that batch
+ * unfinished forever, so the sheet offers the batch's Cancel instead
+ * (`batchLink`); a job that carries a chain drops the rest of the chain
+ * (`chained` true), and a chain that cannot be told (null) is named as
+ * possible.
+ */
+export function deleteSheet(detail) {
+    const batchId = typeof detail.batch_id === 'string' && detail.batch_id !== '' ? detail.batch_id : null;
+    const batchName = isObject(detail.batch) && typeof detail.batch.name === 'string' && detail.batch.name !== '' ? detail.batch.name : null;
+    const notes = [];
+
+    if (batchId) notes.push(`This job belongs to the batch ${batchName || batchId}. After the delete, that batch never finishes. To stop the whole batch, cancel the batch instead.`);
+    if (detail.chained === true) notes.push('This job carries a chain: the rest of the chain is dropped and never runs.');
+    if (detail.chained !== true && detail.chained !== false) notes.push('Whether this job carries a chain is unknown; if it does, the rest of the chain is dropped.');
+
+    return {
+        title: 'Delete this waiting job?',
+        message: `${detail.name} · ${shortId(detail.id)} on ${detail.connection}:${detail.queue}. The job is deleted from the queue before any worker takes it, with its rows in Orrery. It never runs. This cannot be undone.`,
+        note: notes.length ? notes.join(' ') : null,
+        footnote: 'If a worker takes the job first, nothing is deleted and you see why.',
+        confirmLabel: 'Delete',
+        tone: 'danger',
+        selection: {action: 'delete', uuid: detail.id, batchLink: batchId ? `/batches/${encodeURIComponent(batchId)}` : null},
+    };
+}
+
+/**
+ * The Run now sheet of a delayed job: it names the job and the time it
+ * waits for, and freezes the uuid of the page read.
+ */
+export function runNowSheet(detail) {
+    return {
+        title: 'Run this job now?',
+        message: `${detail.name} · ${shortId(detail.id)} on ${detail.connection}:${detail.queue} waits until ${formatLocal(detail.available_at)}. It becomes available now, and the next free worker takes it. Its attempts and releases stay as they are.`,
+        note: null,
+        footnote: 'If a worker takes the job first, or its delay ends meanwhile, nothing changes and you see why.',
+        confirmLabel: 'Run now',
+        tone: 'primary',
+        selection: {action: 'run_now', uuid: detail.id},
+    };
+}
+
+/** The answers of a run-now, by `result`. */
+const RUN_NOW_OUTCOMES = {
+    available: {tone: 'success', title: 'Available now', detail: 'The next free worker takes the job.'},
+    not_delayed: {tone: 'info', title: 'Already available', detail: 'The job was no longer delayed: nothing changed.'},
+    not_pending: {tone: 'danger', title: 'Not moved forward', detail: 'The job is no longer waiting: a worker took it, or it already ran. Nothing changed.'},
+    gone: {tone: 'danger', title: 'Not moved forward', detail: 'The job is no longer in its queue table, although Orrery still shows it waiting. Reconciliation updates its row.'},
+    job_id_unknown: {tone: 'warning', title: 'Not moved forward yet', detail: null},
+};
+
 /** What the waiting step of an operation can do, by its action: a held forget step deletes a record. */
 const RESOLVE_STEPS = {
     retry: 'It finishes the retry that waits: it may delete the failed-job record and push the job again, or undo a retry that did not publish.',
@@ -355,6 +415,10 @@ export function writeRequest(selection) {
         return {url: `/api/jobs/${selection.uuid.toLowerCase()}/${selection.action}`, body: {occurrence_id: selection.occurrence_id}};
     }
 
+    if (selection.action === 'delete' || selection.action === 'run_now') {
+        return isUuid(selection.uuid) ? {url: `/api/jobs/${selection.uuid.toLowerCase()}/${selection.action === 'delete' ? 'delete' : 'run-now'}`, body: {}} : null;
+    }
+
     if (selection.action === 'resolve') {
         return typeof selection.operation_id === 'string' && OPERATION_ID.test(selection.operation_id)
             ? {url: `/api/operations/${selection.operation_id}/resolve`, body: {}}
@@ -366,7 +430,16 @@ export function writeRequest(selection) {
 
 const UNKNOWN_OUTCOME = () => ({tone: 'warning', title: 'Outcome unknown', detail: codeText('write_failed')});
 
-const FAILED_TITLES = {retry: 'Retry not started', forget: 'Not forgotten', resolve: 'Not resolved'};
+const FAILED_TITLES = {retry: 'Retry not started', forget: 'Not forgotten', resolve: 'Not resolved', delete: 'Not deleted', run_now: 'Not moved forward'};
+
+/** The answers of a delete, by `result`: every result has its own text, so none reaches the generic outcome. */
+const DELETE_OUTCOMES = {
+    deleted: {tone: 'success', title: 'Deleted', detail: 'The job was deleted from its queue before a worker took it, with its rows in Orrery.'},
+    not_pending: {tone: 'danger', title: 'Not deleted', detail: 'The job is no longer waiting: a worker took it, or it already ran. Nothing was deleted.'},
+    gone: {tone: 'danger', title: 'Not deleted', detail: 'The job is no longer in its queue table, although Orrery still shows it waiting. Reconciliation updates its row.'},
+    job_id_unknown: {tone: 'warning', title: 'Not deleted yet', detail: null},
+    mirror_failed: {tone: 'warning', title: "Deleted; Orrery's row stays for now", detail: "The job was deleted from its queue, but Orrery's row could not be removed. Reconciliation marks it unknown later."},
+};
 
 /**
  * The answer of a per-job write: read from the
@@ -374,6 +447,14 @@ const FAILED_TITLES = {retry: 'Retry not started', forget: 'Not forgotten', reso
  */
 export function writeOutcome(action, item) {
     if (!isObject(item) || typeof item.result !== 'string') return UNKNOWN_OUTCOME();
+
+    if (action === 'delete' || action === 'run_now') {
+        const outcome = (action === 'delete' ? DELETE_OUTCOMES : RUN_NOW_OUTCOMES)[item.result];
+
+        if (!outcome) return UNKNOWN_OUTCOME();
+
+        return {...outcome, detail: outcome.detail === null ? codeText(item.result) : outcome.detail};
+    }
 
     const detail = itemText(item);
     const result = item.result;
@@ -446,6 +527,7 @@ export function writeFailure(action, error) {
         }
     }
 
+    if (status === 409 && typeof body.error === 'string') return {tone: 'danger', title, detail: codeText(body.error)};
     if (status === 404) return {tone: 'danger', title, detail: codeText('not_found')};
     if (status === 422) return {tone: 'danger', title, detail: codeText(typeof body.error === 'string' ? body.error : 'invalid')};
 
@@ -511,11 +593,15 @@ export function readFailure(error) {
  * The not-found state: a job that is no longer kept (404), or a legacy link
  * whose id is not a uuid (the new detail route matches only a
  * uuid). The id is shown as text. After the screen's own successful forget
- * (`forgotten`) it says so.
+ * (`forgotten`) or delete (`deleted`) it says so.
  */
-export function notFoundState(legacyId = null, forgotten = false) {
+export function notFoundState(legacyId = null, forgotten = false, deleted = false) {
     if (forgotten === true) {
         return {title: 'Forgotten: this job is no longer kept', detail: 'Its failed-job record and its row in Orrery were deleted. The page stopped refreshing.'};
+    }
+
+    if (deleted === true) {
+        return {title: 'Deleted: this job is no longer kept', detail: 'It was deleted from its queue before a worker took it, with its row in Orrery. The page stopped refreshing.'};
     }
 
     if (typeof legacyId === 'string') {
@@ -780,6 +866,7 @@ const EVENTS = {
     completed: {label: 'completed', tone: 'success'},
     retried: {label: 'retried', tone: 'accent'},
     retry_aborted: {label: 'retry stopped', tone: 'neutral'},
+    run_now: {label: 'run now', tone: 'accent'},
     late_outcome: {label: 'late outcome', tone: 'neutral'},
 };
 

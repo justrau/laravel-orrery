@@ -4,14 +4,21 @@ namespace Justrau\Orrery\Http\Controllers;
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Justrau\Orrery\Http\QueryTooLong;
+use Justrau\Orrery\Http\RawQuery;
 use Justrau\Orrery\Monitoring\SampleCounts;
 use Justrau\Orrery\Monitoring\SampleCoverage;
 use Justrau\Orrery\Monitoring\Samples;
 use Justrau\Orrery\Storage\Clock;
 
 /**
- * GET /api/queues/{connection}/{queue}/history?minutes=60.
+ * GET /api/queues/history?connection=…&queue=…&minutes=60.
  *
+ * - `connection` and `queue` are query values, read from the raw query
+ *   string (no middleware trims them), never path segments: a browser
+ *   resolves `.` and `..` segments of a path, so a queue named
+ *   `x/../default` would read another queue. Each is a non-empty text of
+ *   valid UTF-8 without NUL, else 422 `invalid` with `field`.
  * - `connection` is a queue connection; an alias of a shared jobs table
  *   reads the series of its primary alias (the first in sorted order), as
  *   the samples store it. The series is byte-exact (SampleCounts::series()).
@@ -44,8 +51,27 @@ class QueueHistoryController extends Controller
 
     private const JSON = JSON_UNESCAPED_UNICODE | JSON_PRESERVE_ZERO_FRACTION | JSON_INVALID_UTF8_SUBSTITUTE;
 
-    public function show(Request $request, Samples $samples, SampleCoverage $coverage, SampleCounts $counts, string $connection, string $queue): JsonResponse
+    public function show(Request $request, Samples $samples, SampleCoverage $coverage, SampleCounts $counts): JsonResponse
     {
+        try {
+            $query = RawQuery::of($request);
+        } catch (QueryTooLong $tooLong) {
+            return $tooLong->response();
+        }
+
+        $target = [];
+
+        foreach (['connection', 'queue'] as $field) {
+            $value = $query[$field] ?? null;
+
+            if (! is_string($value) || $value === '' || ! mb_check_encoding($value, 'UTF-8') || str_contains($value, "\0")) {
+                return new JsonResponse(['error' => 'invalid', 'message' => "{$field} is a non-empty text.", 'field' => $field], 422, [], self::JSON);
+            }
+
+            $target[$field] = $value;
+        }
+
+        ['connection' => $connection, 'queue' => $queue] = $target;
         $minutes = $this->minutes($request->query('minutes'));
 
         if ($minutes === null) {

@@ -198,6 +198,62 @@ class ClearCommandTest extends HooksTestCase
         self::assertStringContainsString('Those jobs are still queued', $output);
     }
 
+    /**
+     * Rejects: a command-line clear without its audit (the event, with the actor `cli` and the counts), and a clear
+     * inside an open transaction of the queue connection, whose batches would not commit one by one.
+     */
+    public function test_clear_is_recorded_and_refused_inside_a_transaction(): void
+    {
+        Queue::push(new BasicJob);
+        $events = new \ArrayObject;
+        \Illuminate\Support\Facades\Event::listen(\Justrau\Orrery\Events\OperatorActionPerformed::class, static function (\Justrau\Orrery\Events\OperatorActionPerformed $event) use ($events): void {
+            $events[] = $event;
+        });
+
+        DB::connection()->beginTransaction();
+
+        try {
+            self::assertSame(1, Artisan::call('orrery:clear', ['connection' => 'database', '--force' => true]));
+            self::assertStringContainsString('inside a transaction', Artisan::output());
+        } finally {
+            DB::connection()->rollBack();
+        }
+
+        self::assertCount(0, $events, 'a refused clear did nothing');
+        self::assertSame(1, DB::table('jobs')->count());
+
+        self::assertSame(0, Artisan::call('orrery:clear', ['connection' => 'database', '--force' => true]));
+        self::assertCount(1, $events);
+        self::assertSame(['clear', ['connection' => 'database', 'queue' => 'default'], 'cli', 'done', 1], [$events[0]->action, $events[0]->target, $events[0]->actor, $events[0]->result, $events[0]->counts['deleted']]);
+    }
+
+    /**
+     * Rejects: a command whose later batch fails after earlier batches committed and that exits without its
+     * summary, so the operator does not see how many jobs are gone; and an exit 0 for it.
+     */
+    public function test_a_later_batch_that_fails_prints_the_summary_and_exits_1(): void
+    {
+        Queue::push(new BasicJob);
+        Queue::push(new BasicJob);
+        ClearCommand::useBatchForTesting(1);
+        $deletes = 0;
+        $failing = true;
+        DB::connection()->beforeExecuting(static function (string $sql) use (&$deletes, &$failing): void {
+            if ($failing && preg_match('/^delete from [`"]?(?!\w*orrery_)\w*jobs[`"]?\s/i', $sql) === 1 && ++$deletes === 2) {
+                throw new \Illuminate\Database\QueryException('testbench', $sql, [], new \PDOException('SQLSTATE[HY000]: General error: 1 disk I/O error'));
+            }
+        });
+
+        $code = Artisan::call('orrery:clear', ['connection' => 'database', '--force' => true]);
+        $failing = false;
+        $output = Artisan::output();
+
+        self::assertSame(1, $code);
+        self::assertStringContainsString('Cleared 1 waiting job(s) and 1 mirror row(s)', $output);
+        self::assertStringContainsString('A later batch could not be deleted', $output);
+        self::assertSame(1, DB::table('jobs')->count());
+    }
+
     public function test_clear_refuses_a_queue_connection_without_the_database_driver(): void
     {
         $this->app['config']->set('queue.connections.sync', ['driver' => 'sync']);

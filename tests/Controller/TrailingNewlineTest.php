@@ -23,7 +23,7 @@ final class TrailingNewlineTest extends ControllerTest
 
         try {
             $this->actingAs(new User)->getJson('/orrery/api/markers?since=1790000000%0A')->assertStatus(422);
-            $this->actingAs(new User)->getJson('/orrery/api/queues/database/default/history?minutes=60%0A')->assertStatus(422);
+            $this->actingAs(new User)->getJson('/orrery/api/queues/history?connection=database&queue=default&minutes=60%0A')->assertStatus(422);
             $this->actingAs(new User)->getJson('/orrery/api/health?from=1790000000%0A')->assertStatus(422);
         } finally {
             TrimStrings::flushState();

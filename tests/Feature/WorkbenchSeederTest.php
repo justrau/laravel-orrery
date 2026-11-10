@@ -271,7 +271,7 @@ final class WorkbenchSeederTest extends TestCase
         // members, the throttled job that took the limiter's slot and the two jobs of the bulk run
         // (step 16b) add theirs.
         foreach (['bulk-retry' => 2, 'campaigns' => 297, 'partial' => 2, 'reports' => 3, 'throttled' => 1] as $queue => $completed) {
-            $history = $this->app->call([$this->app->make(QueueHistoryController::class), 'show'], ['request' => Request::create('/api/queues/database/'.$queue.'/history?minutes=60'), 'connection' => 'database', 'queue' => $queue])->getData(true);
+            $history = $this->app->call([$this->app->make(QueueHistoryController::class), 'show'], ['request' => Request::create('/api/queues/history?'.http_build_query(['connection' => 'database', 'queue' => $queue, 'minutes' => 60]))])->getData(true);
             $this->assertSame($completed, array_sum(array_map('intval', array_column($history['buckets'], 'completed'))), "database:{$queue}");
         }
     }

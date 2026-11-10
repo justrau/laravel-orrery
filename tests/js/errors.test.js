@@ -122,6 +122,8 @@ test('isReadRequest names the safe methods and the read-only POSTs', () => {
     // The bulk freeze only reads: it gets the read timeout and is aborted in a terminal state.
     assert.ok(isReadRequest({method: 'post', url: '/orrery/api/bulk/freeze'}));
     assert.ok(isReadRequest({method: 'post', url: '/orrery/api/bulk/freeze?x=1'}));
+    assert.ok(isReadRequest({method: 'post', url: '/orrery/api/queues/waiting'}), 'the waiting count only reads');
+    assert.ok(!isReadRequest({method: 'post', url: '/orrery/api/queues/clear'}), 'a clear writes');
     assert.ok(!isReadRequest({method: 'post', url: '/orrery/api/bulk/run'}), 'a bulk run page writes');
     assert.ok(!isReadRequest({method: 'post', url: '/orrery/api/jobs/00000000-0000-4000-8000-000000000001/retry'}));
     assert.ok(!isReadRequest({method: 'delete', url: '/orrery/api/tags/monitored/x'}));

@@ -21,6 +21,12 @@ Route::prefix('api')->group(function (): void {
     // The per-job writes (uuid-constrained).
     Route::post('/jobs/{uuid}/retry', 'JobWriteController@retry')->where('uuid', '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}');
     Route::post('/jobs/{uuid}/forget', 'JobWriteController@forget')->where('uuid', '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}');
+    Route::post('/jobs/{uuid}/delete', 'WaitingJobsController@delete')->where('uuid', JobController::UUID_PATTERN);
+    Route::post('/jobs/{uuid}/run-now', 'DelayedJobsController@runNow')->where('uuid', JobController::UUID_PATTERN);
+
+    // The waiting jobs of a queue, named in the JSON body: the count of the clear's sheet (a read-only POST) and the clear.
+    Route::post('/queues/waiting', 'WaitingJobsController@waiting');
+    Route::post('/queues/clear', 'WaitingJobsController@clear');
 
     // The bulk runs.
     Route::get('/bulk', 'BulkController@index');
@@ -41,10 +47,11 @@ Route::prefix('api')->group(function (): void {
     // The batches, read data-only.
     Route::get('/batches', 'BatchesController@index');
     Route::get('/batches/{id}', 'BatchesController@show');
+    Route::post('/batches/{id}/cancel', 'BatchesController@cancel');
 
     Route::get('/throughput', 'ThroughputController@index');
     Route::get('/markers', 'MarkersController@index');
-    Route::get('/queues/{connection}/{queue}/history', 'QueueHistoryController@show')->where('queue', '.+');
+    Route::get('/queues/history', 'QueueHistoryController@show');
     Route::get('/settings/retention', 'RetentionSettingsController@index');
     Route::get('/classes', 'JobClassesController@index');
     Route::get('/classes/series', 'JobClassesController@series');

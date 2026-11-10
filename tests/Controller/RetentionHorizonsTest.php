@@ -93,8 +93,8 @@ final class RetentionHorizonsTest extends ControllerTest
         $this->app['config']->set('orrery.trim_overrides', [['queue' => 'emails', 'completed' => 10]]);
         $this->row('default', 'completed', self::M - 1200 + 5);
 
-        $default = array_column($this->getJson('/orrery/api/queues/database/default/history?minutes=30')->assertOk()->json('buckets'), 'completed', 'at');
-        $emails = array_column($this->getJson('/orrery/api/queues/database/emails/history?minutes=30')->assertOk()->json('buckets'), 'completed', 'at');
+        $default = array_column($this->getJson('/orrery/api/queues/history?connection=database&queue=default&minutes=30')->assertOk()->json('buckets'), 'completed', 'at');
+        $emails = array_column($this->getJson('/orrery/api/queues/history?connection=database&queue=emails&minutes=30')->assertOk()->json('buckets'), 'completed', 'at');
 
         self::assertSame(1, $default[self::M - 1200], 'the default queue keeps its rows for 60 minutes');
         self::assertArrayNotHasKey(self::M - 1200, $emails, 'the emails minute before its 10-minute horizon is unknown (absent)');

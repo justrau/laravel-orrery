@@ -31,8 +31,9 @@
      * the state and Pause / Continue, the big wait gauge, the read-only wait
      * limit, the observed in and out rates, the backlog of the past hour with
      * the markers, the workers that serve the queue, and "Terminate <queue>
-     * workers…". The write actions emit `control` with the action; the screen
-     * opens the confirmation with a frozen selection.
+     * workers…" and "Clear waiting jobs…". The write actions emit `control`
+     * with the action (`clear` too); the screen opens the confirmation with a
+     * frozen selection.
      */
     export default {
         components: {BacklogChart, WaitGauge, 'o-button': Button},
@@ -331,6 +332,8 @@
             <section v-if="canOperate" class="o-qi__terminate">
                 <o-button variant="danger" icon="power" operate data-terminate-queue @click="$emit('control', 'terminate')">Terminate {{ row.name }} workers…</o-button>
                 <div class="o-qi__caption">{{ terminateText() }}</div>
+                <o-button variant="danger" operate data-clear-queue @click="$emit('control', 'clear')">Clear waiting jobs…</o-button>
+                <div class="o-qi__caption">Deletes the jobs of {{ row.name }} that no worker has reserved. Reserved jobs keep running.</div>
             </section>
         </template>
     </div>

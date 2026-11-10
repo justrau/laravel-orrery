@@ -41,8 +41,8 @@ final class RetryTargetTest extends RetryProtocolTestCase
     private const FAILED_DELETE = '/^\s*delete from\s+(?:["`]?\w+["`]?\.)?["`]?\w*failed_jobs/i';
 
     private const VARIABLE_TABLE_DELETES = [
-        // The queue's own jobs table (orrery:clear deletes waiting jobs), never a failed table.
-        'src/Console/ClearCommand.php' => ['/^\$deleted = \$database->table\(\$table\)->whereIn\(\'id\', \$locked\)/', '/->table\(\$dependent\)/', '/->table\(self::TABLE\)|->table\(JobStore::TABLE\)|\$tx->table\(self::/'],
+        // The queue's own jobs table (orrery:clear and the delete of one job delete waiting jobs), never a failed table.
+        'src/Actions/WaitingJobs.php' => ['/^\$deleted = \$database->table\(\$table\)->whereIn\(\'id\', \$locked\)/', '/^return \$database->table\(\$table\)->where\(\'id\', \$jobId\)/', '/->table\(\$dependent\)/', '/->table\(self::TABLE\)|->table\(JobStore::TABLE\)|\$tx->table\(self::/'],
         // Retention's own method, and its dependent tables (DEPENDENT_TABLES: package tables).
         'src/Maintenance/Retention.php' => ['/^return \$this->delete\($/', '/^\$tx->table\(\$table\)->whereIn\(\'job_uuid\', \$chunk\)/', '/^self::belowFloor\(\$this->partition\(\$tx, \$partition\), \$partition\)/'],
         // The forget's mirror deletes: the guarded orrery_jobs query and JOB_TABLES (package tables).

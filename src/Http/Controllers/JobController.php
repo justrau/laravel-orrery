@@ -58,6 +58,8 @@ use Throwable;
  *   first_cycle, last_cycle, count}` when it folded a retry. No entry is
  *   invented for an unrecorded retry.
  * - `history`: the first page of `GET /api/jobs/{uuid}/history`.
+ * - `chained`: pending rows only. Whether the job carries a chain of later
+ *   jobs, which a delete drops (chained()); null when it cannot be told.
  * - `signals` and `enforced_rule`: pending and reserved rows only. Every
  *   stuck signal that holds now (Monitoring\StuckSignals),
  *   `[{signal, facts}]`, and the enforced rule now (EnforcedRule::forRow()),
@@ -66,7 +68,11 @@ use Throwable;
  *   never `payload`, `saved_record` or `error`; `bulk_ref` only where the
  *   column exists), `{id, action: null, …}` when the ledger row is gone or
  *   cannot be read (held, state unknown), or null.
- * - `actions`: `{retry, forget, resolve, read_only_reason}`. Retry and
+ * - `actions`: `{retry, forget, resolve, read_only_reason, delete,
+ *   pending_reason, run_now}`. Delete: the row is pending and no operation holds it;
+ *   run_now also needs an available_at after now (a delayed job);
+ *   `pending_reason` is `job_id_unknown` for an unresolved bulk row, whose
+ *   delete waits until its jobs id is known. Retry and
  *   forget: the row is failed, no operation holds it, and the failed-record
  *   adapter is not read-only (`provider_read_only`, `ids_may_be_reused`) and
  *   proves the occurrence (`occurrence_unprovable` for a null `provider_id`
@@ -118,7 +124,7 @@ class JobController extends Controller
         ...JobProjection::SUMMARY_COLUMNS,
         'cycle_started_at', 'cycle_source', 'max_tries', 'retry_until', 'max_exceptions', 'timeout', 'fail_on_timeout',
         'worker_tries', 'worker_timeout', 'worker_evidence_attempt', 'releases', 'exceptions', 'timeouts', 'reclaims',
-        'observed_gap', 'late_outcomes', 'last_outcome_attempt', 'history_truncated', 'history_discarded', 'provider_id',
+        'observed_gap', 'late_outcomes', 'last_outcome_attempt', 'history_truncated', 'history_discarded', 'provider_id', 'job_id',
         'payload_bytes', 'exception_bytes', 'context_bytes',
     ];
 
@@ -289,11 +295,44 @@ class JobController extends Controller
             $detail['enforced_rule'] = EnforcedRule::forRow($row, $now);
         }
 
+        if ($row->status === 'pending') {
+            $detail['chained'] = self::chained(self::string($row->payload ?? null));
+        }
+
         return $detail + [
             'operation' => $operation,
             'actions' => $this->actions($row, $operation),
             'batch' => $this->batch(self::string($row->batch_id ?? null)),
         ];
+    }
+
+    /**
+     * Whether the payload's command carries a chain of later jobs: true when
+     * any serialized `chained` property of the command text (Laravel's
+     * Queueable) holds an entry, read as text, never unserialized. A serialized object without the property has
+     * no chain: Laravel's serialization leaves out a property at its default
+     * (the empty chain). Null when it cannot be told: a payload over its
+     * bound, or a command that is not a serialized object (an encrypted one).
+     */
+    public static function chained(?string $payload): ?bool
+    {
+        $decoded = $payload === null ? null : json_decode($payload, true, 64);
+        $command = is_array($decoded) && is_array($decoded['data'] ?? null) ? ($decoded['data']['command'] ?? null) : null;
+
+        if (! is_string($command) || ! str_starts_with($command, 'O:')) {
+            return null;
+        }
+
+        // Every `chained` property of the text: the job's own, and those of the jobs that its chain holds.
+        preg_match_all('/s:7:"chained";a:(\d+):/', $command, $matches);
+
+        foreach ($matches[1] as $count) {
+            if ((int) $count > 0) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     /**
@@ -618,18 +657,26 @@ class JobController extends Controller
 
     /**
      * @param  array<string, mixed>|null  $operation
-     * @return array{retry: bool, forget: bool, resolve: bool, read_only_reason: string|null}
+     * @return array{retry: bool, forget: bool, resolve: bool, read_only_reason: string|null, delete: bool, pending_reason: string|null, run_now: bool}
      */
     private function actions(stdClass $row, ?array $operation): array
     {
         $failed = $row->status === 'failed' && $operation === null;
         [$allowed, $reason] = $failed ? $this->adapterDecision($row) : [false, null];
+        $pending = $row->status === 'pending' && $operation === null;
+        // A stored time compared with Clock::now() reads through Clock::stored() (src/Storage/CLAUDE.md).
+        $availableAt = is_numeric($row->available_at ?? null) ? Clock::stored($row->available_at) : null;
 
         return [
             'retry' => $allowed,
             'forget' => $allowed,
             'resolve' => $operation !== null && is_string($operation['awaiting_reason'] ?? null),
             'read_only_reason' => $reason,
+            'delete' => $pending,
+            // An unresolved bulk row: its jobs id is not known yet, so the delete waits (the button is disabled).
+            'pending_reason' => $pending && ($row->job_id ?? null) === null ? 'job_id_unknown' : null,
+            // A delayed job: its available_at is after now, by PHP's clock (the workers' clock).
+            'run_now' => $pending && $availableAt !== null && $availableAt > Clock::now(),
         ];
     }
 

@@ -20,6 +20,7 @@ Where the code and a spec disagree, read the code and report the difference.
 | `Maintenance/` | The tick runner, retention, reconciliation, the sibling file mutex. |
 | `Workers/`, `Markers/` | Heartbeats and live workers; restart and deploy markers. |
 | `Database/` | Models, repositories, the schema. |
+| `Actions/` | The operator actions on the application's queue tables (`WaitingJobs`: delete one, clear, the count; `DelayedJobs`: run now; `BatchCancel`: cancel a batch; `OperatorAudit`: the event `OperatorActionPerformed` and its log line). |
 | `Http/` | The JSON API and the SPA page. |
 | `Notifications/` | `RoutedNotification` (the base of the long-wait routes' messages), `LongWaitDetected`, `LongWaitRecovered`, `FailureSpikeDetected`, `StuckJobDetected`, `StuckJobsSummary`. |
 
@@ -46,7 +47,7 @@ Where the code and a spec disagree, read the code and report the difference.
 - `orrery:forget [id] [--all]`: one forget, or the walk of `ForgetAllRecords` up to the bound of its preview, after a confirmation (`--force` skips it).
 - `orrery:retry --all` and `orrery:forget --all` ask only when the input is interactive and STDIN is a terminal (`Console\Terminal`, bound in tests); else they act on nothing without `--force`.
 - `orrery:retry`, `orrery:forget` and `orrery:clear` refuse a scope option given with an empty value (exit 1): it never reads as absent.
-- `orrery:clear [connection] [--queue=]`: only waiting jobs, in batches of one transaction each on the queue connection (no fence row), with their mirror rows. A batch whose bulk-row probe fails is kept, and the command exits 1. `orrery:clear-metrics`: clears the per-minute counts.
+- `orrery:clear [connection] [--queue=]`: `Actions\WaitingJobs::clear()`, shared with `POST /api/queues/clear`. Only waiting jobs of the byte-exact queue, in batches of one transaction each on the queue connection (no fence row), with their mirror rows on every alias of the jobs table. A batch whose bulk-row probe fails is kept, and the command exits 1. A queue connection inside a transaction is refused; a later batch that fails ends the clear with the counts so far (exit 1). `orrery:clear-metrics`: clears the per-minute counts.
 - `orrery:reconcile`, `orrery:resolve {id?} {--all}`: operator paths of reconciliation and of operations that wait for an operator.
 - `orrery:pause`, `orrery:continue`, `orrery:terminate` (`--connection=`, `--queue=`, actor `cli`), `orrery:deployed {--label=} {--window=600}`.
 - Every operator command whose requested work did not happen exits non-zero. `CommandExitCodeTest` checks a mirror outage for every `orrery:*` command except `orrery:install`, and fails when a command has no row; each command's own test covers its other failures. `orrery:resolve` also exits 1 when an operation stays open after its step. A queue pause or continue whose Laravel part happened before the package record failed says so (`Control\QueuePauseRecordFailed`) and exits 1. The watcher rule covers hooks and listeners, not operator commands.

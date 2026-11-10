@@ -5,6 +5,8 @@ namespace Justrau\Orrery\Http\Controllers;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Justrau\Orrery\Actions\BatchCancel;
+use Justrau\Orrery\Actions\OperatorAudit;
 use Justrau\Orrery\Database\Repositories\DatabaseBatchRepository;
 use Justrau\Orrery\Http\Lists\JobList;
 use Justrau\Orrery\Http\Lists\ListRequest;
@@ -12,8 +14,10 @@ use Justrau\Orrery\Http\Projection\JobProjection;
 use Justrau\Orrery\Http\Projection\RedactionConfigInvalid;
 use Justrau\Orrery\Http\QueryTooLong;
 use Justrau\Orrery\Http\RawQuery;
+use Justrau\Orrery\Orrery;
 use Justrau\Orrery\Runtime\ErrorKinds;
 use Justrau\Orrery\Runtime\Watcher;
+use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Storage\PooledRelationUnresolved;
 use stdClass;
 use Throwable;
@@ -48,7 +52,8 @@ use Throwable;
  *   timeout 503 `read_timeout`, any other read error 503 `read_failed`
  *   (both reported as `http:batch_read`, without a job value).
  *
- * The retry of failed members is a bulk run with a batch source (4.9).
+ * The retry of failed members is a bulk run with a batch source (4.9);
+ * the cancel is cancel().
  */
 class BatchesController extends Controller
 {
@@ -146,6 +151,51 @@ class BatchesController extends Controller
                 'members' => $this->members($id),
             ]);
         });
+    }
+
+    /**
+     * POST /api/batches/{id}/cancel (Actions\BatchCancel, inside one
+     * operator action, D17); every cancel that reached its update is
+     * recorded, a refused one too (Actions\OperatorAudit, with the request's
+     * actor). 200 `{id, result: "cancelled",
+     * cancelled_at}`; 409 `already_cancelled`, `already_finished`,
+     * `unsupported_repository` or `batch_state_unknown`; 404 `not_found`
+     * (also for an id with invalid UTF-8 or a NUL); 503 `write_failed` on a
+     * database error. Laravel's BatchCanceled is not dispatched (it needs a
+     * Batch, whose options only unserialize() can build).
+     */
+    public function cancel(Request $request, string $id, BatchCancel $cancels, OperatorAudit $audit): JsonResponse
+    {
+        if (! self::isText($id)) {
+            return self::json(['error' => 'not_found', 'message' => 'Not found.'], 404);
+        }
+
+        $actor = Orrery::actor($request);
+
+        try {
+            $outcome = PackageSession::asOperator(static fn (): array => $cancels->cancel($id));
+        } catch (Throwable $error) {
+            Watcher::instance()->report('http:batch_cancel', $error);
+
+            return self::json(['error' => 'write_failed', 'message' => 'The change may not have been made. Reload to see the current state.'], 503);
+        }
+
+        $result = $outcome['result'];
+
+        if ($result === BatchCancel::NOT_FOUND) {
+            return self::json(['error' => 'not_found', 'message' => 'Not found.'], 404);
+        }
+
+        if ($result !== BatchCancel::UNSUPPORTED) {
+            // Every cancel that reached its guarded update, also one that changed nothing.
+            $audit->record('cancel_batch', ['batch_id' => $id], $actor, $result, ['cancelled_at' => $outcome['cancelled_at']]);
+        }
+
+        if ($result !== BatchCancel::CANCELLED) {
+            return self::json(['error' => $result, 'message' => 'The batch was not cancelled.'], 409);
+        }
+
+        return self::json(['id' => $id, 'result' => $result, 'cancelled_at' => $outcome['cancelled_at']]);
     }
 
     /**

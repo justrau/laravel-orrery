@@ -387,7 +387,7 @@ final class JobDetailTest extends ControllerTest
             'error_code' => 'publish_failed', 'awaiting_reason' => 'sqlite_host_file', 'bulk_ref' => null,
             'created_at' => self::T, 'updated_at' => self::T + 1, 'next_check_at' => self::T + 5,
         ], $response->json('operation'));
-        self::assertSame(['retry' => false, 'forget' => false, 'resolve' => true, 'read_only_reason' => null], $response->json('actions'));
+        self::assertSame(['retry' => false, 'forget' => false, 'resolve' => true, 'read_only_reason' => null, 'delete' => false, 'pending_reason' => null, 'run_now' => false], $response->json('actions'));
 
         foreach ($this->statements as $sql) {
             if (str_contains($sql, Operations::TABLE)) {
@@ -397,14 +397,14 @@ final class JobDetailTest extends ControllerTest
 
         // A forget claim holds a row that stays failed: still no Retry or Forget.
         $this->mirror()->table(JobStore::TABLE)->where('uuid', self::UUID)->update(['status' => 'failed', 'provider_id' => 7]);
-        self::assertSame(['retry' => false, 'forget' => false, 'resolve' => true, 'read_only_reason' => null], $this->detail()->json('actions'));
+        self::assertSame(['retry' => false, 'forget' => false, 'resolve' => true, 'read_only_reason' => null, 'delete' => false, 'pending_reason' => null, 'run_now' => false], $this->detail()->json('actions'));
 
         $this->mirror()->table(Operations::TABLE)->delete();
         $gone = $this->detail()->assertOk()->json('operation');
         self::assertSame($operation, $gone['id']);
         self::assertNull($gone['action']);
         self::assertNull($gone['state']);
-        self::assertSame(['retry' => false, 'forget' => false, 'resolve' => false, 'read_only_reason' => null], $this->detail()->json('actions'));
+        self::assertSame(['retry' => false, 'forget' => false, 'resolve' => false, 'read_only_reason' => null, 'delete' => false, 'pending_reason' => null, 'run_now' => false], $this->detail()->json('actions'));
     }
 
     /**
@@ -415,10 +415,10 @@ final class JobDetailTest extends ControllerTest
     public function test_the_actions_of_a_failed_row(): void
     {
         $this->job(['status' => 'failed', 'failed_at' => Clock::toDecimal(self::T), 'finished_at' => Clock::toDecimal(self::T), 'provider_id' => null]);
-        self::assertSame(['retry' => false, 'forget' => false, 'resolve' => false, 'read_only_reason' => 'occurrence_unprovable'], $this->detail()->assertOk()->json('actions'));
+        self::assertSame(['retry' => false, 'forget' => false, 'resolve' => false, 'read_only_reason' => 'occurrence_unprovable', 'delete' => false, 'pending_reason' => null, 'run_now' => false], $this->detail()->assertOk()->json('actions'));
 
         $this->mirror()->table(JobStore::TABLE)->where('uuid', self::UUID)->update(['provider_id' => 7]);
-        self::assertSame(['retry' => true, 'forget' => true, 'resolve' => false, 'read_only_reason' => null], $this->detail()->json('actions'));
+        self::assertSame(['retry' => true, 'forget' => true, 'resolve' => false, 'read_only_reason' => null, 'delete' => false, 'pending_reason' => null, 'run_now' => false], $this->detail()->json('actions'));
 
         $this->app['config']->set('queue.failed.driver', 'file');
         $this->app->forgetInstance('queue.failer');
@@ -436,7 +436,7 @@ final class JobDetailTest extends ControllerTest
         $this->job(['status' => 'failed', 'failed_at' => Clock::toDecimal(self::T), 'finished_at' => Clock::toDecimal(self::T), 'provider_id' => 7]);
         $this->app->bind('queue.failer', static fn () => throw new RuntimeException('The failer cannot be built.'));
 
-        self::assertSame(['retry' => false, 'forget' => false, 'resolve' => false, 'read_only_reason' => null], $this->detail()->assertOk()->json('actions'));
+        self::assertSame(['retry' => false, 'forget' => false, 'resolve' => false, 'read_only_reason' => null, 'delete' => false, 'pending_reason' => null, 'run_now' => false], $this->detail()->assertOk()->json('actions'));
     }
 
     /**

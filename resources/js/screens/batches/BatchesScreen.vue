@@ -3,6 +3,7 @@
     import BulkRun from '../../components/ui/BulkRun.vue';
     import Button from '../../components/ui/Button.vue';
     import ConfirmSheet from '../../components/ui/ConfirmSheet.vue';
+    import Notice from '../../components/ui/Notice.vue';
     import {bodyWith, objectBody} from '../../shell/data.js';
     import {setToolbar} from '../../shell/store';
     import {nowSeconds, timeZoneLabel} from '../../support/time.js';
@@ -16,6 +17,11 @@
         batchTitle,
         bulkPanelMounted,
         bulkStorageKey,
+        cancelFailure,
+        cancelOutcome,
+        cancelSheet,
+        cancelUrl,
+        cancelVisible,
         contentShown,
         countParts,
         countText,
@@ -76,7 +82,7 @@
      * - Escape in the detail closes it and returns the focus to its row.
      */
     export default {
-        components: {BulkRun, ConfirmSheet, 'o-button': Button},
+        components: {BulkRun, ConfirmSheet, Notice, 'o-button': Button},
 
         props: {
             batchId: {type: String, default: null},
@@ -108,6 +114,7 @@
                 detailStale: false,
                 detailUpdatedAt: null,
                 bulk: {open: false, running: false, shown: false},
+                cancel: {open: false, content: null, key: 0, busy: false, result: null},
                 leave: {open: false, to: null, confirmed: false, key: 0},
                 copied: null,
                 now: nowSeconds(),
@@ -133,6 +140,11 @@
 
             batch() {
                 return this.detail ? this.detail.batch : null;
+            },
+
+            /** "Cancel batch…": with the operate ability, on a batch that is neither finished nor cancelled. */
+            cancelShown() {
+                return cancelVisible(this.canOperate, this.batch);
             },
 
             detailUnknown() {
@@ -225,6 +237,8 @@
                 handler(id, previous) {
                     // A change of the batch is a change of the selection: an open sheet closes (BulkRun host rule 1).
                     this.bulk = {open: false, running: false, shown: false};
+                    // An open cancel sheet closes; an answer of the old batch is no longer shown.
+                    this.cancel = {...this.cancel, open: false, result: null};
                     this.copied = null;
                     this.detail = null;
                     this.detailFailure = null;
@@ -429,6 +443,34 @@
                 this.bulk = {...this.bulk, open: true};
             },
 
+            /** Open the cancel sheet with the batch id of the page read, frozen. */
+            openCancel() {
+                if (!this.cancelShown || this.cancel.open || this.cancel.busy) return;
+
+                this.cancel = {...this.cancel, open: true, content: cancelSheet(this.batch), key: this.cancel.key + 1, result: null};
+            },
+
+            closeCancel() {
+                if (!this.cancel.busy) this.cancel = {...this.cancel, open: false};
+            },
+
+            /** Post exactly the frozen id; the answer, or why it failed, shows as a notice. */
+            confirmCancel(selection) {
+                if (!selection || this.cancel.busy) return Promise.resolve();
+
+                this.cancel = {...this.cancel, busy: true};
+
+                return this.$http.post(Orrery.basePath + cancelUrl(selection.id), {}, {handles: [404, 409, 422, 500, 502, 503, 504, ...BACKGROUND_FAILURES]})
+                    .then(response => cancelOutcome(response ? response.data : null))
+                    .catch(error => cancelFailure(error))
+                    .then(result => {
+                        const same = this.batchId === selection.id;
+
+                        this.cancel = {...this.cancel, busy: false, open: false, result: same ? result : null};
+                        if (same) this.loadDetail();
+                    });
+            },
+
             onBulkStarted() {
                 // BulkRun host rule 3: the sheet handed over to the run panel.
                 this.bulk = {open: false, running: true, shown: true};
@@ -609,7 +651,14 @@
                         <div class="o-batches__muted o-batches__small">{{ headerTimes(batch) }}</div>
                     </div>
                     <o-button v-if="retry.visible" operate variant="primary" icon="retry" :disabled="bulk.running" @click="openBulk">Retry failed members…</o-button>
+                    <o-button v-if="cancelShown" operate variant="danger" :disabled="cancel.busy" data-cancel-batch @click="openCancel">Cancel batch…</o-button>
                 </header>
+
+                <notice v-if="cancel.result" :tone="cancel.result.tone" :title="cancel.result.title" :detail="cancel.result.detail" data-cancel-result>
+                    <template #actions>
+                        <o-button variant="write" size="sm" @click="cancel.result = null">Dismiss</o-button>
+                    </template>
+                </notice>
 
                 <p v-if="retry.readOnlyText" class="o-batches__muted o-batches__small" role="note">{{ retry.readOnlyText }}</p>
 
@@ -702,6 +751,11 @@
                 <p class="o-batches__muted o-batches__small">Each tab opens its members in the Jobs list, filtered by this batch.</p>
             </template>
         </section>
+
+        <confirm-sheet :open="cancel.open" :title="cancel.content ? cancel.content.title : ''" :message="cancel.content ? cancel.content.message : null"
+                       :confirm-label="cancel.content ? cancel.content.confirmLabel : 'Confirm'" tone="danger"
+                       :selection="cancel.content ? cancel.content.selection : null" :snapshot-key="cancel.key" :busy="cancel.busy"
+                       @confirm="confirmCancel" @cancel="closeCancel" />
 
         <confirm-sheet :open="leave.open" title="Leave this batch?" :message="leaveText" confirm-label="Leave"
                        tone="danger" :snapshot-key="leave.key" @confirm="confirmLeave" @cancel="cancelLeave" />

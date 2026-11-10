@@ -146,6 +146,11 @@ export const CODES = Object.freeze({
     header_missing: 'The server refused the change because the request came without its X-Requested-With header. Reload the page; if it happens again, check that no proxy removes the header.',
     query_too_long: 'The address has too many parameters to be read in full, so nothing was read. Use fewer filters and try again.',
 
+    // The writes on waiting jobs.
+    in_transaction: 'The queue connection was inside a transaction, so nothing was cleared. Try again.',
+    job_id_unknown: "Orrery does not know this job's row in the queue table yet: it came in a bulk push that is still being matched. Try again in a minute.",
+    not_database_queue: 'This queue connection is not a database queue (any more), so nothing changed. Check the queue configuration.',
+
     // The bulk run of a screen.
     bulk_run_in_progress: 'A bulk run is in progress here. If you leave this screen, it stops after its current page; nothing is undone.',
     bulk_run_busy: 'A bulk run is already in progress here. Wait until it ends, or stop it, before you start another.',
@@ -156,6 +161,9 @@ export const CODES = Object.freeze({
     unsupported_repository: 'Batches are unknown: the application stores them in a way that Orrery does not read (only Laravel\'s database batch repository is read).',
     batches_sqlite_reads_not_allowed: "Batches are unknown: Orrery may not read the application's SQLite file on its own. It reads it only in WAL mode, with a busy_timeout above 0, without EXCLUSIVE locking, and with orrery.sqlite_automatic_access on.",
     batches_unknown: 'Batches are unknown: the server did not say why.',
+    already_cancelled: 'This batch was already cancelled: nothing changed.',
+    already_finished: 'This batch has already finished: nothing changed.',
+    batch_state_unknown: 'The state of this batch could not be read, so it was not cancelled. Try again.',
 });
 
 const MISSING = '—';
