@@ -196,6 +196,7 @@ final class Options
         public readonly int $slotWait = DEFAULT_SLOT_WAIT,
         public readonly bool $allFresh = false,
         public readonly bool $quick = false,
+        public readonly bool $memoryOnly = false,
     ) {
     }
 
@@ -225,7 +226,7 @@ final class Options
                 continue;
             }
 
-            if (in_array($argument, ['--no-lowest', '--no-latest', '--dry-run', '--ci', '--all-fresh', '--quick'], true)) {
+            if (in_array($argument, ['--no-lowest', '--no-latest', '--dry-run', '--ci', '--all-fresh', '--quick', '--memory-only'], true)) {
                 $flags[$argument] = true;
 
                 continue;
@@ -235,7 +236,7 @@ final class Options
         }
 
         if (isset($flags['--quick'])) {
-            foreach (['--php' => isset($values['php']), '--laravel' => isset($values['laravel']), '--no-lowest' => isset($flags['--no-lowest']), '--no-latest' => isset($flags['--no-latest'])] as $option => $given) {
+            foreach (['--php' => isset($values['php']), '--laravel' => isset($values['laravel']), '--no-lowest' => isset($flags['--no-lowest']), '--no-latest' => isset($flags['--no-latest']), '--memory-only' => isset($flags['--memory-only'])] as $option => $given) {
                 if ($given) {
                     throw new UsageError("--quick selects its own legs, so it takes no {$option}");
                 }
@@ -244,7 +245,11 @@ final class Options
 
         $php = self::list($values['php'] ?? implode(',', PHP_VERSIONS), PHP_VERSIONS, 'php');
         $laravel = array_map('intval', self::list($values['laravel'] ?? implode(',', LARAVEL_MAJORS), array_map('strval', LARAVEL_MAJORS), 'laravel'));
-        $db = self::list($values['db'] ?? implode(',', ENGINES), ENGINES, 'db');
+        if (isset($flags['--memory-only']) && isset($values['db']) && $values['db'] !== 'sqlite') {
+            throw new UsageError('--memory-only runs in-memory SQLite only, so it takes no --db other than sqlite');
+        }
+
+        $db = isset($flags['--memory-only']) ? ['sqlite'] : self::list($values['db'] ?? implode(',', ENGINES), ENGINES, 'db');
         $mirror = self::list($values['mirror'] ?? implode(',', MIRRORS), MIRRORS, 'mirror');
         $variants = self::list($values['variants'] ?? implode(',', VARIANTS), VARIANTS, 'variants');
 
@@ -301,6 +306,7 @@ final class Options
             $slotWait,
             isset($flags['--all-fresh']),
             isset($flags['--quick']),
+            isset($flags['--memory-only']),
         );
     }
 
@@ -459,6 +465,7 @@ final class Leg
      * @param  'fresh'|'reuse'  $serverSchema  the mode of the MySQL and Postgres runs of the variants
      * @param  bool  $scripts  run the scripts and workbench groups; else only the workbench group
      * @param  bool  $docker  run the docker group, after every leg of the matrix
+     * @param  bool  $memoryOnly  run only the in-memory SQLite runs of each variant (--memory-only)
      */
     public function __construct(
         public readonly string $php,
@@ -470,6 +477,7 @@ final class Leg
         public readonly string $serverSchema = SCHEMA_FRESH,
         public readonly bool $scripts = true,
         public readonly bool $docker = false,
+        public readonly bool $memoryOnly = false,
     ) {
     }
 
@@ -521,9 +529,17 @@ final class Leg
             // SQLite database, also when --db selects only
             // server engines. The file suite runs the tests that skip in
             // memory and on the servers. No engine skip: only in-memory
-            // SQLite may skip the shared-database members.
-            $runs = [...$runs, ...$this->fileAndServerRuns($variant)];
+            // SQLite may skip the shared-database members. --memory-only
+            // (the quick CI tier) leaves them out.
+            if (! $this->memoryOnly) {
+                $runs = [...$runs, ...$this->fileAndServerRuns($variant)];
+            }
+
             $units[] = new Unit($this, $variant->label(), Unit::suffix($variant), $runs);
+        }
+
+        if ($this->memoryOnly) {
+            return $units;
         }
 
         $kind = $this->scripts ? 'scripts' : 'workbench';
@@ -720,6 +736,7 @@ final class Plan
                 $serverFresh ? SCHEMA_FRESH : SCHEMA_REUSE,
                 $lowest || ($scripts[$php] ?? null) === $laravel,
                 ! $options->ci && $hasServer && ($options->quick ? $id === QUICK_DOCKER_LEG : ($docker[$php] ?? null) === $key),
+                $options->memoryOnly,
             );
         }
 
@@ -2597,7 +2614,7 @@ final class MatrixCommand
     public const USAGE = <<<'TXT'
         Usage: bin/matrix [--php=8.3,8.4,8.5] [--laravel=12,13] [--db=sqlite,mysql,pgsql]
                           [--mirror=same,separate] [--variants=same/none,...]
-                          [--no-lowest] [--no-latest] [--quick] [--all-fresh]
+                          [--no-lowest] [--no-latest] [--quick] [--all-fresh] [--memory-only]
                           [--dry-run] [--php-binary=<version>=<path>]... [--composer=<path>]
                           [--run-id=<id>] [--timeout=<seconds>] [--slot-wait=<seconds>] [--ci]
 
@@ -2635,6 +2652,10 @@ final class MatrixCommand
                                      and php8.3-laravel13-lowest; docker once (PHP 8.4).
                                      Not with --php, --laravel, --no-lowest, --no-latest
           --all-fresh                every file and server run uses --schema=fresh
+          --memory-only              each variant runs only the suite and the required
+                                     groups on in-memory SQLite: no file or server run,
+                                     no scripts, workbench or docker group (the quick
+                                     CI tier). Implies --db=sqlite; not with --quick
           --variants=<labels>        the variants to run, from same/none,
                                      separate/none, same/prefix, separate/prefix
                                      (default: all); with --mirror, a variant runs

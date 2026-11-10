@@ -789,6 +789,29 @@ final class MatrixRunnerTest extends TestCase
     }
 
     /**
+     * Rejects: a --memory-only leg that still runs a SQLite file or a server engine, the scripts or
+     * workbench unit or the docker group (the quick CI tier runs only the fast suite), that drops the
+     * in-memory required groups, or that runs another schema mode than fresh.
+     * Still passes: a --memory-only leg whose in-memory runs take as long as before (the test counts
+     * runs, not time).
+     */
+    public function test_memory_only_runs_only_the_in_memory_sqlite_suite_and_groups(): void
+    {
+        $run = $this->matrix(['--ci', '--memory-only', '--php=8.5', '--laravel=13', '--no-lowest'], ['CI' => 'true']);
+
+        self::assertSame(0, $run['exit'], $run['stdout'].$run['stderr']);
+        self::assertSame(['same-none.sqlite.suite', 'same-none.sqlite.groups'], array_column($this->onlyLeg($run, 'php8.5-laravel13')['runs'], 'run'));
+
+        foreach ($this->callsOf('bin/test') as $call) {
+            if (! str_ends_with($call['run'], '/list')) {
+                self::assertSame('sqlite', $call['engine'], $call['run']);
+                self::assertNotContains('--sqlite-file', $call['wrapper'], $call['run']);
+                self::assertContains('--schema=fresh', $call['wrapper'], $call['run']);
+            }
+        }
+    }
+
+    /**
      * @return iterable<string, array{0: list<string>, 1: array<string, string>, 2: string}>
      */
     public static function refusedSelections(): iterable
@@ -808,6 +831,8 @@ final class MatrixRunnerTest extends TestCase
         yield '--quick with --no-lowest' => [['--quick', '--no-lowest'], [], '--quick selects its own legs, so it takes no --no-lowest'];
         yield '--quick with --no-latest' => [['--quick', '--no-latest'], [], '--quick selects its own legs, so it takes no --no-latest'];
         yield 'an option of the removed parallel mode' => [['--jobs=2'], [], 'unknown argument --jobs=2'];
+        yield '--memory-only with a server engine' => [['--memory-only', '--db=sqlite,mysql'], [], '--memory-only runs in-memory SQLite only, so it takes no --db'];
+        yield '--memory-only with --quick' => [['--memory-only', '--quick'], [], '--quick selects its own legs, so it takes no --memory-only'];
         yield 'CI mode without a token' => [['--ci', '--php=8.4', '--laravel=13', '--db=mysql', '--no-lowest'], ['CI' => 'true', 'ORRERY_TEST_DATABASE' => 'orrery_ci_1_1'], 'needs ORRERY_TEST_TOKEN'];
     }
 
