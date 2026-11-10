@@ -15,7 +15,8 @@ use ReflectionMethod;
  * accepts: this class asks the DatabaseManager's own parser
  * (`parseConnectionName()`), and does not guess from a version number. So
  * where Laravel has no direct alias, `x::direct` stays a literal connection
- * name. Laravel also names a direct connection instance `x::direct`.
+ * name. From Laravel 13.31, Laravel also names a direct connection instance
+ * `x::direct` (13.30 names it `x`).
  *
  * The package tables and the fence live on the writer of that configuration,
  * so the package uses the base name and never the alias's PDO.
