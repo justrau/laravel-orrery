@@ -9,8 +9,8 @@ use Justrau\Orrery\Storage\TrustedSql;
 
 /**
  * The history rows: exception, timeout, failed, completed
- * (cycle > 1), late_outcome, and the retry events retried, retry_aborted
- * and retry_uncertain.
+ * (cycle > 1), late_outcome, the retry events retried, retry_aborted
+ * and retry_uncertain, and the operator's run_now (Actions\DelayedJobs).
  *
  * Deduplication uses the unique key (job_uuid, dedupe_key), so two jobs
  * never share a key. Counter idempotency never depends on these rows: the

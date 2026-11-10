@@ -69,7 +69,9 @@ These actions change your queue tables, so they need `operateOrrery`. Each one r
 - **Delete one job.** "Delete…" on the detail of a pending job deletes it from its queue before a worker takes it, with its rows in Orrery. A job that a worker took meanwhile is kept, and the answer says so. A job in a batch leaves that batch unfinished forever, so the sheet offers to cancel the batch instead; a job that carries a chain drops the rest of the chain. The delete of a bulk-pushed job waits until Orrery knows its row in the queue table: try again in a minute.
 - **Clear a queue.** "Clear waiting jobs…" on the Queues screen first counts the waiting jobs of the queue (ready and delayed, and how many belong to batches, whose batches then never finish). It deletes every job of the queue that no worker has reserved, with the rows in Orrery of every connection name on the same jobs table. From the dashboard it stops after 15 seconds and says so; clear again to go on. `orrery:clear` does the same work without a time limit.
 
-**Audit.** Each delete and clear dispatches the event `Justrau\Orrery\Events\OperatorActionPerformed` (the action, its target, the actor, the time, the result and the counts) and writes one `info` line to your log. Orrery keeps no activity log of its own: listen to the event to store one.
+- **Run a delayed job now.** "Run now…" on the detail of a delayed job makes it available at once, by the clock of your workers (PHP's, not the database's). Its attempts and releases stay as they are. The history shows a `run now` entry.
+
+**Audit.** Each delete, clear and run-now dispatches the event `Justrau\Orrery\Events\OperatorActionPerformed` (the action, its target, the actor, the time, the result and the counts) and writes one `info` line to your log. Orrery keeps no activity log of its own: listen to the event to store one.
 
 ## Deploys and restarts
 

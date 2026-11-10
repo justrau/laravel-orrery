@@ -75,10 +75,10 @@ final class OperateAbilityTest extends TestCase
         }
 
         // POST /api/control, /api/tags/monitored, /api/jobs/{uuid}/retry, /api/jobs/{uuid}/forget,
-        // /api/jobs/{uuid}/delete, /api/queues/{connection}/{queue}/waiting and …/clear,
+        // /api/jobs/{uuid}/delete, /api/jobs/{uuid}/run-now, /api/queues/{connection}/{queue}/waiting and …/clear,
         // /api/bulk/freeze, /api/bulk/run and /api/operations/{id}/resolve, and DELETE /api/tags/monitored/{tag}
         // and /api/tags/monitored?tag=. The legacy writes are gone.
-        $this->assertCount(12, $writes, 'The write routes changed: check that each one still needs the operate ability.');
+        $this->assertCount(13, $writes, 'The write routes changed: check that each one still needs the operate ability.');
 
         $this->viewerWithoutOperate();
 

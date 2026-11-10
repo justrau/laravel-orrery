@@ -41,6 +41,7 @@
         resolveSheet,
         retriesBlock,
         retrySheet,
+        runNowSheet,
         statusChip,
         toolbarSubtitle,
         writeFailure,
@@ -617,6 +618,7 @@
                 if (kind === 'forget' && this.actions.forget) content = forgetSheet(this.detail);
                 if (kind === 'resolve' && this.actions.resolve) content = resolveSheet(this.detail.operation, this.detail);
                 if (kind === 'delete' && this.actions.delete && !this.actions.deleteBlocked) content = deleteSheet(this.detail);
+                if (kind === 'run_now' && this.actions.runNow && !this.actions.deleteBlocked) content = runNowSheet(this.detail);
 
                 if (!content) return;
 
@@ -698,6 +700,7 @@
             <template v-if="layout !== 'phone'">
                 <o-button v-if="actions.retry" operate variant="primary" icon="retry" :disabled="busy" @click="openSheet('retry')">Retry…</o-button>
                 <o-button v-if="actions.forget" operate variant="danger" :disabled="busy" @click="openSheet('forget')">Forget…</o-button>
+                <o-button v-if="actions.runNow" operate variant="primary" :disabled="busy || !!actions.deleteBlocked" :title="actions.deleteBlocked || null" data-run-now @click="openSheet('run_now')">Run now…</o-button>
                 <o-button v-if="actions.delete" operate variant="danger" :disabled="busy || !!actions.deleteBlocked" :title="actions.deleteBlocked || null" data-delete @click="openSheet('delete')">Delete…</o-button>
             </template>
         </toolbar-controls>
@@ -1034,6 +1037,7 @@
             <div v-if="detail && layout === 'phone' && (actions.retry || actions.forget || actions.delete)" class="o-jd__bottom-bar">
                 <o-button v-if="actions.retry" operate variant="primary" size="lg" block :disabled="busy" @click="openSheet('retry')">Retry…</o-button>
                 <o-button v-if="actions.forget" operate variant="danger" size="lg" block :disabled="busy" @click="openSheet('forget')">Forget…</o-button>
+                <o-button v-if="actions.runNow" operate variant="primary" size="lg" block :disabled="busy || !!actions.deleteBlocked" data-run-now @click="openSheet('run_now')">Run now…</o-button>
                 <o-button v-if="actions.delete" operate variant="danger" size="lg" block :disabled="busy || !!actions.deleteBlocked" data-delete @click="openSheet('delete')">Delete…</o-button>
             </div>
             <div v-if="detail && actions.deleteBlocked" class="o-jd__sheet-footnote" data-delete-blocked>{{ actions.deleteBlocked }}</div>

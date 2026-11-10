@@ -49,6 +49,7 @@ import {
     resolveSheet,
     retriesBlock,
     retrySheet,
+    runNowSheet,
     statusChip,
     toolbarSubtitle,
     treeNode,
@@ -235,8 +236,8 @@ test('headerFacts lists the identity and the times, unknown as "—"', () => {
 
 // Rejects: Retry or Forget offered without canOperate, on a held row, on a row that is not failed, without a usable occurrence id, or when the server says no; Resolve without an awaiting operation; and a read-only reason shown as its raw code.
 test('actionsFor offers exactly what the server would accept now', () => {
-    assert.deepEqual(actionsFor(failedDetail(), true), {retry: true, forget: true, resolve: false, delete: false, deleteBlocked: null, held: false, reason: null});
-    assert.deepEqual(actionsFor(failedDetail(), false), {retry: false, forget: false, resolve: false, delete: false, deleteBlocked: null, held: false, reason: null});
+    assert.deepEqual(actionsFor(failedDetail(), true), {retry: true, forget: true, resolve: false, delete: false, deleteBlocked: null, runNow: false, held: false, reason: null});
+    assert.deepEqual(actionsFor(failedDetail(), false), {retry: false, forget: false, resolve: false, delete: false, deleteBlocked: null, runNow: false, held: false, reason: null});
     assert.equal(actionsFor(failedDetail({status: 'completed'}), true).retry, false);
     assert.equal(actionsFor(failedDetail({occurrence_id: null}), true).retry, false);
     assert.equal(actionsFor(failedDetail({occurrence_id: 0}), true).forget, false);
@@ -244,10 +245,10 @@ test('actionsFor offers exactly what the server would accept now', () => {
     assert.equal(actionsFor(failedDetail({actions: {retry: false, forget: true, resolve: false, read_only_reason: null}}), true).retry, false);
 
     const held = failedDetail({status: 'retrying', operation: {id: OP, action: 'retry', state: 'claimed', awaiting_reason: 'sqlite_host_file'}, actions: {retry: true, forget: true, resolve: true, read_only_reason: null}});
-    assert.deepEqual(actionsFor(held, true), {retry: false, forget: false, resolve: true, delete: false, deleteBlocked: null, held: true, reason: null});
+    assert.deepEqual(actionsFor(held, true), {retry: false, forget: false, resolve: true, delete: false, deleteBlocked: null, runNow: false, held: true, reason: null});
     assert.equal(actionsFor(held, false).resolve, false);
     // A forget claim holds a row that is still failed: nothing may start beside it.
-    assert.deepEqual(actionsFor(failedDetail({operation: {id: OP, action: 'forget', state: 'claimed', awaiting_reason: null}}), true), {retry: false, forget: false, resolve: false, delete: false, deleteBlocked: null, held: true, reason: null});
+    assert.deepEqual(actionsFor(failedDetail({operation: {id: OP, action: 'forget', state: 'claimed', awaiting_reason: null}}), true), {retry: false, forget: false, resolve: false, delete: false, deleteBlocked: null, runNow: false, held: true, reason: null});
     assert.equal(actionsFor(failedDetail({actions: {retry: false, forget: false, resolve: true, read_only_reason: null}}), true).resolve, false, 'no operation, no resolve');
 
     const readOnly = actionsFor(failedDetail({actions: {retry: false, forget: false, resolve: false, read_only_reason: 'ids_may_be_reused'}}), true);
@@ -889,7 +890,7 @@ function pendingDetail(over = {}) {
 // Rejects: a Delete offered to a viewer, on a row that is not pending, beside an operation, or without the server's
 // consent; and an unresolved bulk row whose Delete is enabled (it must show disabled, with its reason).
 test('actionsFor offers Delete on a waiting job only', () => {
-    assert.deepEqual(actionsFor(pendingDetail(), true), {retry: false, forget: false, resolve: false, delete: true, deleteBlocked: null, held: false, reason: null});
+    assert.deepEqual(actionsFor(pendingDetail(), true), {retry: false, forget: false, resolve: false, delete: true, deleteBlocked: null, runNow: false, held: false, reason: null});
     assert.equal(actionsFor(pendingDetail(), false).delete, false);
     assert.equal(actionsFor(pendingDetail({status: 'reserved'}), true).delete, false);
     assert.equal(actionsFor(pendingDetail({operation: {id: OP, action: 'retry', state: 'claimed', awaiting_reason: null}}), true).delete, false);
@@ -936,4 +937,27 @@ test('writeOutcome words every delete result', () => {
     assert.equal(writeOutcome('delete', {result: 'other'}).title, 'Outcome unknown');
     assert.equal(writeFailure('delete', {response: {status: 409, data: {error: 'not_database_queue'}}}).title, 'Not deleted');
     assert.match(notFoundState(null, false, true).title, /^Deleted/);
+});
+
+// Rejects: a Run now offered on a job that is not delayed, to a viewer, or beside an operation; a sheet that misses
+// the job or its time, or whose selection is not the page's uuid; and a run-now result that reaches the generic outcome.
+test('runNowSheet and the run-now outcomes', () => {
+    const delayed = pendingDetail({available_at: T + 3600, actions: {delete: true, pending_reason: null, run_now: true}});
+    assert.equal(actionsFor(delayed, true).runNow, true);
+    assert.equal(actionsFor(delayed, false).runNow, false);
+    assert.equal(actionsFor(pendingDetail(), true).runNow, false, 'the server did not offer it');
+    assert.equal(actionsFor({...delayed, operation: {id: OP, action: 'retry', state: 'claimed', awaiting_reason: null}}, true).runNow, false);
+
+    const sheet = runNowSheet(delayed);
+    assert.equal(sheet.title, 'Run this job now?');
+    assert.ok(sheet.message.startsWith('App\\Jobs\\SendInvoice · 3f9b0c12 on database:emails waits until '));
+    assert.deepEqual(sheet.selection, {action: 'run_now', uuid: UUID});
+
+    assert.equal(writeOutcome('run_now', {result: 'available'}).tone, 'success');
+    assert.equal(writeOutcome('run_now', {result: 'not_delayed'}).title, 'Already available');
+    assert.equal(writeOutcome('run_now', {result: 'not_pending'}).tone, 'danger');
+    assert.equal(writeOutcome('run_now', {result: 'gone'}).tone, 'danger');
+    assert.match(writeOutcome('run_now', {result: 'job_id_unknown'}).detail, /Try again in a minute/);
+    assert.equal(writeOutcome('run_now', {result: 'other'}).title, 'Outcome unknown');
+    assert.deepEqual(historyEventLabel('run_now'), {label: 'run now', tone: 'accent'});
 });

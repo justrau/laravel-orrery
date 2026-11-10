@@ -20,7 +20,7 @@ Where the code and a spec disagree, read the code and report the difference.
 | `Maintenance/` | The tick runner, retention, reconciliation, the sibling file mutex. |
 | `Workers/`, `Markers/` | Heartbeats and live workers; restart and deploy markers. |
 | `Database/` | Models, repositories, the schema. |
-| `Actions/` | The operator actions on the application's queue tables (`WaitingJobs`: delete one, clear, the count; `OperatorAudit`: the event `OperatorActionPerformed` and its log line). |
+| `Actions/` | The operator actions on the application's queue tables (`WaitingJobs`: delete one, clear, the count; `DelayedJobs`: run now; `OperatorAudit`: the event `OperatorActionPerformed` and its log line). |
 | `Http/` | The JSON API and the SPA page. |
 | `Notifications/` | `LongWaitDetected`, `StuckJobDetected`, `StuckJobsSummary`. |
 

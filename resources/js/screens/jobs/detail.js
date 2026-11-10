@@ -254,7 +254,7 @@ function validOccurrence(value) {
  * not disabled. `reason` is the read-only reason in words.
  */
 export function actionsFor(detail, canOperate) {
-    if (!detail) return {retry: false, forget: false, resolve: false, delete: false, deleteBlocked: null, held: false, reason: null};
+    if (!detail) return {retry: false, forget: false, resolve: false, delete: false, deleteBlocked: null, runNow: false, held: false, reason: null};
 
     const actions = isObject(detail.actions) ? detail.actions : {};
     const operation = detail.operation;
@@ -273,6 +273,8 @@ export function actionsFor(detail, canOperate) {
         delete: pending,
         // An unresolved bulk row: the button shows, disabled, with this text.
         deleteBlocked: pending && typeof actions.pending_reason === 'string' ? codeText(actions.pending_reason) : null,
+        // A delayed job (the server compares available_at with now); an unresolved bulk row waits as for Delete.
+        runNow: pending && actions.run_now === true,
         held,
         reason,
     };
@@ -344,6 +346,31 @@ export function deleteSheet(detail) {
         selection: {action: 'delete', uuid: detail.id, batchLink: batchId ? `/batches/${encodeURIComponent(batchId)}` : null},
     };
 }
+
+/**
+ * The Run now sheet of a delayed job: it names the job and the time it
+ * waits for, and freezes the uuid of the page read.
+ */
+export function runNowSheet(detail) {
+    return {
+        title: 'Run this job now?',
+        message: `${detail.name} · ${shortId(detail.id)} on ${detail.connection}:${detail.queue} waits until ${formatLocal(detail.available_at)}. It becomes available now, and the next free worker takes it. Its attempts and releases stay as they are.`,
+        note: null,
+        footnote: 'If a worker takes the job first, or its delay ends meanwhile, nothing changes and you see why.',
+        confirmLabel: 'Run now',
+        tone: 'primary',
+        selection: {action: 'run_now', uuid: detail.id},
+    };
+}
+
+/** The answers of a run-now, by `result`. */
+const RUN_NOW_OUTCOMES = {
+    available: {tone: 'success', title: 'Available now', detail: 'The next free worker takes the job.'},
+    not_delayed: {tone: 'info', title: 'Already available', detail: 'The job was no longer delayed: nothing changed.'},
+    not_pending: {tone: 'danger', title: 'Not moved forward', detail: 'The job is no longer waiting: a worker took it, or it already ran. Nothing changed.'},
+    gone: {tone: 'danger', title: 'Not moved forward', detail: 'The job is no longer in its queue table, although Orrery still shows it waiting. Reconciliation updates its row.'},
+    job_id_unknown: {tone: 'warning', title: 'Not moved forward yet', detail: null},
+};
 
 /** What the waiting step of an operation can do, by its action: a held forget step deletes a record. */
 const RESOLVE_STEPS = {
@@ -421,8 +448,8 @@ const DELETE_OUTCOMES = {
 export function writeOutcome(action, item) {
     if (!isObject(item) || typeof item.result !== 'string') return UNKNOWN_OUTCOME();
 
-    if (action === 'delete') {
-        const outcome = DELETE_OUTCOMES[item.result];
+    if (action === 'delete' || action === 'run_now') {
+        const outcome = (action === 'delete' ? DELETE_OUTCOMES : RUN_NOW_OUTCOMES)[item.result];
 
         if (!outcome) return UNKNOWN_OUTCOME();
 
@@ -839,6 +866,7 @@ const EVENTS = {
     completed: {label: 'completed', tone: 'success'},
     retried: {label: 'retried', tone: 'accent'},
     retry_aborted: {label: 'retry stopped', tone: 'neutral'},
+    run_now: {label: 'run now', tone: 'accent'},
     late_outcome: {label: 'late outcome', tone: 'neutral'},
 };
 

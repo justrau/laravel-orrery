@@ -69,7 +69,8 @@ use Throwable;
  *   column exists), `{id, action: null, …}` when the ledger row is gone or
  *   cannot be read (held, state unknown), or null.
  * - `actions`: `{retry, forget, resolve, read_only_reason, delete,
- *   pending_reason}`. Delete: the row is pending and no operation holds it;
+ *   pending_reason, run_now}`. Delete: the row is pending and no operation holds it;
+ *   run_now also needs an available_at after now (a delayed job);
  *   `pending_reason` is `job_id_unknown` for an unresolved bulk row, whose
  *   delete waits until its jobs id is known. Retry and
  *   forget: the row is failed, no operation holds it, and the failed-record
@@ -654,6 +655,7 @@ class JobController extends Controller
         $failed = $row->status === 'failed' && $operation === null;
         [$allowed, $reason] = $failed ? $this->adapterDecision($row) : [false, null];
         $pending = $row->status === 'pending' && $operation === null;
+        $availableAt = self::time($row->available_at ?? null);
 
         return [
             'retry' => $allowed,
@@ -663,6 +665,8 @@ class JobController extends Controller
             'delete' => $pending,
             // An unresolved bulk row: its jobs id is not known yet, so the delete waits (the button is disabled).
             'pending_reason' => $pending && ($row->job_id ?? null) === null ? 'job_id_unknown' : null,
+            // A delayed job: its available_at is after now, by PHP's clock (the workers' clock).
+            'run_now' => $pending && $availableAt !== null && $availableAt > Clock::now(),
         ];
     }
 

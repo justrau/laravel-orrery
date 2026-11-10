@@ -22,6 +22,7 @@ Route::prefix('api')->group(function (): void {
     Route::post('/jobs/{uuid}/retry', 'JobWriteController@retry')->where('uuid', '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}');
     Route::post('/jobs/{uuid}/forget', 'JobWriteController@forget')->where('uuid', '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}');
     Route::post('/jobs/{uuid}/delete', 'WaitingJobsController@delete')->where('uuid', JobController::UUID_PATTERN);
+    Route::post('/jobs/{uuid}/run-now', 'DelayedJobsController@runNow')->where('uuid', JobController::UUID_PATTERN);
 
     // The waiting jobs of a queue: the count of the clear's sheet (a read-only POST) and the clear.
     Route::post('/queues/{connection}/{queue}/waiting', 'WaitingJobsController@waiting')->where('queue', '.+');

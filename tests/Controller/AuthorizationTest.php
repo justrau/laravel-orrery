@@ -774,6 +774,20 @@ final class AuthorizationTest extends TestCase
                     'the response does not report a delete: '.$response->getContent(),
                 ),
             ),
+            'POST orrery/api/jobs/{uuid}/run-now' => $this->write(
+                fn (): string => $api.'/jobs/'.$this->waitingTarget.'/run-now',
+                [],
+                fn () => $this->arrangeDelayed(),
+                fn (): string => $this->waitingTarget,
+                fn (mixed $before): ?string => $this->problem(
+                    (int) $this->app['db']->connection(TestEnvironment::PRIMARY)->table('jobs')->where('queue', self::LATER_QUEUE)->value('available_at') <= time(),
+                    'the delayed job is still delayed',
+                ),
+                fn (TestResponse $response): ?string => $this->problem(
+                    $response->json('result') === 'available',
+                    'the response does not report a run-now: '.$response->getContent(),
+                ),
+            ),
             'POST orrery/api/queues/{connection}/{queue}/waiting' => $this->operatorRead(
                 fn (): string => $api.'/queues/database/'.self::CLEAR_QUEUE.'/waiting',
                 fn (): array => [],
@@ -912,6 +926,27 @@ final class AuthorizationTest extends TestCase
 
     /** The queue of the clear and count fixtures. */
     private const CLEAR_QUEUE = 'authz-clear';
+
+    /** The queue of the run-now fixture. */
+    private const LATER_QUEUE = 'authz-later';
+
+    /**
+     * Exactly one waiting job on LATER_QUEUE, delayed by an hour: a new one when there is none, else the
+     * existing one is delayed again.
+     */
+    private function arrangeDelayed(): void
+    {
+        if ($this->waitingOn(self::LATER_QUEUE) === 0) {
+            AuthorizationJob::dispatch()->onConnection('database')->onQueue(self::LATER_QUEUE)->delay(3600);
+        }
+
+        $this->app['db']->connection(TestEnvironment::PRIMARY)->table('jobs')->where('queue', self::LATER_QUEUE)->update(['available_at' => time() + 3600]);
+        $this->mirror()->table('orrery_jobs')->where('queue', self::LATER_QUEUE)->update(['available_at' => Clock::toDecimal(time() + 3600)]);
+        $this->mirror()->table('orrery_job_history')->whereIn('job_uuid', $this->mirror()->table('orrery_jobs')->where('queue', self::LATER_QUEUE)->pluck('uuid')->all())->delete();
+        $this->assertSame(1, $this->waitingOn(self::LATER_QUEUE));
+        $this->waitingTarget = (string) $this->mirror()->table('orrery_jobs')->where('queue', self::LATER_QUEUE)->where('status', 'pending')->value('uuid');
+        $this->assertNotSame('', $this->waitingTarget, 'The delayed job has no mirror row.');
+    }
 
     /** The uuid of the waiting job of the last arrangeWaiting(). */
     private string $waitingTarget = '';

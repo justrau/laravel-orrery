@@ -5,6 +5,7 @@ namespace Justrau\Orrery\Registration\Modules;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Container\Container;
 use Illuminate\Contracts\Foundation\Application;
+use Justrau\Orrery\Actions\DelayedJobs;
 use Justrau\Orrery\Actions\OperatorAudit;
 use Justrau\Orrery\Actions\WaitingJobs;
 use Justrau\Orrery\Console\ClearCommand;
@@ -27,6 +28,7 @@ use Justrau\Orrery\Storage\PackageSession;
 /**
  * Maintenance: the tick runner, retention,
  * reconciliation, orrery:clear and its service (Actions\WaitingJobs), the
+ * run-now of a delayed job (Actions\DelayedJobs), the
  * operator audit (Actions\OperatorAudit) and the schedule.
  *
  * - Tick phases: `retention` (100), `reconcile_active` (260),
@@ -64,6 +66,7 @@ final class MaintenanceModule implements Module
         $app->singleton(Reconciliation::class);
         $app->singleton(ClearCommand::class);
         $app->singleton(WaitingJobs::class);
+        $app->singleton(DelayedJobs::class);
         $app->singleton(OperatorAudit::class);
         $app->singleton(SiblingLocks::class);
 
