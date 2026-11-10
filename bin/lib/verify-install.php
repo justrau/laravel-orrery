@@ -8,7 +8,8 @@
  * applications through a Composer `path` repository (`dev-candidate`), runs
  * the README install commands (one substitution: the `composer config
  * repositories` line and the `composer require` line), the job flows, the tick, the health check, a
- * browser smoke and the README removal steps. Every directory and process it
+ * browser smoke and the removal steps of docs/upgrading.md. The docs are not
+ * in the export, so it reads them from HEAD. Every directory and process it
  * starts is its own, and it removes or stops them on success, on failure and
  * on SIGINT or SIGTERM.
  */
@@ -152,9 +153,18 @@ final class Apps
     }
 }
 
-/** The commands that bin/verify-install reads from the candidate's README. */
-final class Readme
+/**
+ * The commands that bin/verify-install reads from the candidate's README
+ * (the install) and from the docs of HEAD (the CSP middleware, the removal).
+ */
+final class Docs
 {
+    public const README = 'README.md';
+
+    public const SECURITY = 'docs/security.md';
+
+    public const UPGRADING = 'docs/upgrading.md';
+
     public const REPOSITORY_LINE = 'composer config repositories.orrery vcs https://github.com/justrau/laravel-orrery';
 
     public const REQUIRE_LINE = 'composer require justrau/laravel-orrery:^0.1';
@@ -162,7 +172,8 @@ final class Readme
     public const CANDIDATE_REQUIRE = 'composer require justrau/laravel-orrery:dev-candidate';
 
     /**
-     * The install steps of "## Installation" up to its first subsection:
+     * The install steps of "## Installation" up to the next "## " or "### "
+     * heading:
      * each `{kind: repository|command, text, readme}`. The repository command
      * and the require line are the one substitution (readme holds the
      * original); every other command is literal.
@@ -171,7 +182,7 @@ final class Readme
      */
     public static function installSteps(string $readme, string $candidateDir): array
     {
-        $section = self::section($readme, '## Installation', '### ');
+        $section = self::section($readme, self::README, '## Installation', ['## ', '### ']);
         $steps = [];
         $repository = false;
         $require = false;
@@ -201,7 +212,7 @@ final class Readme
         }
 
         if (! $repository || ! $require) {
-            throw new VerifyFailure('README: the installation lacks the line "'.self::REPOSITORY_LINE.'" or the line "'.self::REQUIRE_LINE.'"');
+            throw new VerifyFailure(self::README.': the installation lacks the line "'.self::REPOSITORY_LINE.'" or the line "'.self::REQUIRE_LINE.'"');
         }
 
         return $steps;
@@ -213,10 +224,10 @@ final class Readme
         return ['type' => 'path', 'url' => $candidateDir, 'options' => ['symlink' => false, 'versions' => ['justrau/laravel-orrery' => 'dev-candidate']]];
     }
 
-    /** The middleware class of "### Content Security Policy", and its config line. @return array{class: string, config: string} */
-    public static function csp(string $readme): array
+    /** The middleware class of "## Content Security Policy" in docs/security.md, and its config line. @return array{class: string, config: string} */
+    public static function csp(string $security): array
     {
-        $section = self::section($readme, '### Content Security Policy', '## ');
+        $section = self::section($security, self::SECURITY, '## Content Security Policy', ['## ']);
         $class = null;
         $config = null;
 
@@ -229,21 +240,21 @@ final class Readme
         }
 
         if ($class === null || $config === null) {
-            throw new VerifyFailure('README: the Content Security Policy section lacks the middleware class or its config line');
+            throw new VerifyFailure(self::SECURITY.': the Content Security Policy section lacks the middleware class or its config line');
         }
 
         return ['class' => $class, 'config' => $config];
     }
 
     /**
-     * The commands of "## Removing Orrery": the package reset (step 2), the
+     * The commands of "## Removing Orrery" in docs/upgrading.md: the package reset (step 2), the
      * jobs index reset (step 3) and the composer remove (step 7).
      *
      * @return array{reset: string, index_reset: string, remove: string}
      */
-    public static function removal(string $readme): array
+    public static function removal(string $upgrading): array
     {
-        $section = self::section($readme, '## Removing Orrery', '## ');
+        $section = self::section($upgrading, self::UPGRADING, '## Removing Orrery', ['## ']);
         $reset = null;
 
         foreach (self::blocks($section) as [$lang, $body]) {
@@ -256,24 +267,25 @@ final class Readme
         preg_match('/`(composer remove justrau\/laravel-orrery)`/', $section, $remove);
 
         if ($reset === null || ! isset($index[1], $remove[1])) {
-            throw new VerifyFailure('README: the removal section lacks the reset, the jobs index reset or the composer remove command');
+            throw new VerifyFailure(self::UPGRADING.': the removal section lacks the reset, the jobs index reset or the composer remove command');
         }
 
         return ['reset' => $reset, 'index_reset' => $index[1], 'remove' => $remove[1]];
     }
 
-    private static function section(string $readme, string $heading, string $next): string
+    /** The text after $heading up to the first of the $next headings. @param  list<string>  $next */
+    private static function section(string $text, string $file, string $heading, array $next): string
     {
-        $start = strpos($readme, "\n".$heading."\n");
+        $start = strpos($text, "\n".$heading."\n");
 
         if ($start === false) {
-            throw new VerifyFailure("README: no section \"{$heading}\"");
+            throw new VerifyFailure("{$file}: no section \"{$heading}\"");
         }
 
-        $body = substr($readme, $start + strlen($heading) + 2);
-        $end = strpos($body, "\n".$next);
+        $body = substr($text, $start + strlen($heading) + 2);
+        $ends = array_filter(array_map(static fn (string $n): int|false => strpos($body, "\n".$n), $next), static fn (int|false $e): bool => $e !== false);
 
-        return $end === false ? $body : substr($body, 0, $end);
+        return $ends === [] ? $body : substr($body, 0, min($ends));
     }
 
     /** @return list<array{0: string, 1: string}> */
@@ -375,12 +387,12 @@ final class Plan
 
         $lines[] = 'Checks: vendor copy (not a symlink) equals the export, no dev autoload, the migration published and migrated';
         $lines[] = 'l13-latest: php artisan vendor:publish --tag=orrery-jobs-index, php artisan migrate';
-        $lines[] = 'Fixtures: the README CSP middleware in orrery.middleware, gates for viewer and operator, a login route, users, two jobs';
+        $lines[] = 'Fixtures: the CSP middleware of docs/security.md in orrery.middleware, gates for viewer and operator, a login route, users, two jobs';
         $lines[] = 'Production: APP_ENV=production, config:cache, route:cache; php -S on an owned port; an owned queue:work';
         $lines[] = 'Flows: access (guest 401, denied 403, viewer write 403); a job that succeeds and one that fails;';
         $lines[] = '  POST /api/jobs/{uuid}/retry and /forget as the operator (operations done, failed record gone); schedule:run (tick, samples)';
         $lines[] = '  GET /api/health without warnings; tools/browser/smoke.mjs over every screen under the enforced CSP';
-        $lines[] = 'Removal (README "Removing Orrery"):';
+        $lines[] = 'Removal (docs/upgrading.md "Removing Orrery"):';
         $lines[] = '  php artisan orrery:resolve --all';
         $lines[] = '  '.$removal['reset'];
         $lines[] = '  l13-latest: '.$removal['index_reset'].', and delete it';
@@ -649,10 +661,8 @@ final class Runner
     public function run(): int
     {
         if ($this->options->dryRun) {
-            $readme = (string) Shell::exec(['git', '-C', $this->repo, 'show', 'HEAD:README.md'], null, [])['out'];
-
             try {
-                $lines = Plan::lines($this->options, Readme::installSteps($readme, '<export of HEAD>'), Readme::removal($readme));
+                $lines = Plan::lines($this->options, Docs::installSteps($this->doc(Docs::README), '<export of HEAD>'), Docs::removal($this->doc(Docs::UPGRADING)));
             } catch (VerifyFailure $failure) {
                 fwrite(STDERR, 'bin/verify-install: '.$failure->getMessage()."\n");
 
@@ -777,6 +787,18 @@ final class Runner
         return $wrong === 0 ? 0 : 1;
     }
 
+    /** A file of HEAD (the export holds the README but not docs/). */
+    private function doc(string $path): string
+    {
+        $text = (string) Shell::exec(['git', '-C', $this->repo, 'show', 'HEAD:'.$path], null, [])['out'];
+
+        if ($text === '') {
+            throw new VerifyFailure("HEAD has no {$path}");
+        }
+
+        return $text;
+    }
+
     /** The export of HEAD, checked. */
     private function candidate(): string
     {
@@ -842,9 +864,9 @@ final class Runner
         Shell::copyTree($base, $dir);
         $env = $this->childEnv();
         $readme = (string) file_get_contents($candidate.'/README.md');
-        $steps = Readme::installSteps($readme, $candidate);
+        $steps = Docs::installSteps($readme, $candidate);
 
-        // The README's "The queue" and "SQLite" settings.
+        // The "The queue" and "SQLite" settings of docs/installation.md.
         $this->writeEnv($dir, 'local');
         $this->edit($dir.'/config/database.php', [
             "'busy_timeout' => null," => "'busy_timeout' => 5000,",
@@ -856,7 +878,7 @@ final class Runner
             if ($step['kind'] === 'repository') {
                 $this->step($id, 'repository (substituted): path '.$candidate);
                 $composer = json_decode((string) file_get_contents($dir.'/composer.json'), true);
-                $composer['repositories'] = [Readme::pathRepository($candidate)];
+                $composer['repositories'] = [Docs::pathRepository($candidate)];
                 file_put_contents($dir.'/composer.json', json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");
 
                 continue;
@@ -878,7 +900,7 @@ final class Runner
             }
         }
 
-        $this->fixtures($dir, $readme);
+        $this->fixtures($dir, $this->doc(Docs::SECURITY));
         $this->writeEnv($dir, 'production');
         $this->must([$php, 'artisan', 'verify:users'], $dir, $env, "{$id}: the fixture users");
         $this->must([$php, 'artisan', 'config:cache'], $dir, $env, "{$id}: config:cache");
@@ -904,7 +926,7 @@ final class Runner
             }
         }
 
-        $this->removal($id, $dir, $php, $env, $readme, $app['jobs_index']);
+        $this->removal($id, $dir, $php, $env, $this->doc(Docs::UPGRADING), $app['jobs_index']);
     }
 
     private function checkInstall(string $id, string $dir, string $candidate): void
@@ -954,9 +976,9 @@ final class Runner
         }
     }
 
-    private function fixtures(string $dir, string $readme): void
+    private function fixtures(string $dir, string $security): void
     {
-        $csp = Readme::csp($readme);
+        $csp = Docs::csp($security);
         @mkdir($dir.'/app/Http/Middleware', 0755, true);
         file_put_contents($dir.'/app/Http/Middleware/OrreryContentSecurityPolicy.php', $csp['class']);
         $this->edit($dir.'/config/orrery.php', ["'middleware' => ['web']," => $csp['config']], 'the middleware key of config/orrery.php');
@@ -1179,9 +1201,9 @@ final class Runner
         }
     }
 
-    private function removal(string $id, string $dir, string $php, array $env, string $readme, bool $jobsIndex): void
+    private function removal(string $id, string $dir, string $php, array $env, string $upgrading, bool $jobsIndex): void
     {
-        $commands = Readme::removal($readme);
+        $commands = Docs::removal($upgrading);
         $this->writeEnv($dir, 'local');
         $this->must([$php, 'artisan', 'config:clear'], $dir, $env, "{$id}: config:clear");
         $this->must([$php, 'artisan', 'route:clear'], $dir, $env, "{$id}: route:clear");
@@ -1192,7 +1214,7 @@ final class Runner
         $this->must($this->command($commands['reset'], $php), $dir, $env, "{$id}: {$commands['reset']}");
 
         if ($jobsIndex) {
-            // The README names the published copy by its time prefix (`<date>`): the one file that vendor:publish wrote.
+            // docs/upgrading.md names the published copy by its time prefix (`<date>`): the one file that vendor:publish wrote.
             $published = glob($dir.'/database/migrations/*_add_orrery_jobs_index.php') ?: [];
 
             if (count($published) !== 1) {
@@ -1238,7 +1260,7 @@ final class Runner
         $this->must([$php, 'artisan', 'migrate:fresh'], $dir, $env, "{$id}: php artisan migrate:fresh after the removal");
     }
 
-    /** A README command as an argument list: `php` and `composer` become the app's binaries. @return list<string> */
+    /** A docs command as an argument list: `php` and `composer` become the app's binaries. @return list<string> */
     private function command(string $line, string $php): array
     {
         $words = preg_split('/\s+/', trim($line)) ?: [];
@@ -1246,7 +1268,7 @@ final class Runner
         return match ($words[0] ?? '') {
             'php' => [$php, ...array_slice($words, 1)],
             'composer' => [$php, $this->composer(), ...array_slice($words, 1), '--no-interaction'],
-            default => throw new VerifyFailure("README command not supported: {$line}"),
+            default => throw new VerifyFailure("docs command not supported: {$line}"),
         };
     }
 

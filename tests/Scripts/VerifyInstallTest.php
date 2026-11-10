@@ -6,7 +6,7 @@ namespace Justrau\Orrery\Tests\Scripts;
 
 use OrreryVerify\Health;
 use OrreryVerify\Options;
-use OrreryVerify\Readme;
+use OrreryVerify\Docs;
 use OrreryVerify\VerifyFailure;
 use PHPUnit\Framework\Attributes\Group;
 use PHPUnit\Framework\TestCase;
@@ -14,7 +14,8 @@ use RuntimeException;
 
 /**
  * The pure logic of bin/verify-install (bin/lib/verify-install.php): the
- * options, the README commands with their one substitution, and the health
+ * options, the commands of the README and the docs (the install steps with
+ * their one substitution, the CSP middleware, the removal), and the health
  * warnings. The app flows themselves run only in bin/verify-install.
  */
 #[Group('scripts')]
@@ -64,7 +65,7 @@ final class VerifyInstallTest extends TestCase
     public function test_the_install_steps_are_the_readme_commands_with_one_substitution(): void
     {
         $readme = (string) file_get_contents(dirname(__DIR__, 2).'/README.md');
-        $steps = Readme::installSteps($readme, '/tmp/candidate');
+        $steps = Docs::installSteps($readme, '/tmp/candidate');
 
         self::assertSame(['repository', 'command', 'command', 'command'], array_column($steps, 'kind'));
         self::assertSame(['composer require justrau/laravel-orrery:dev-candidate', 'php artisan orrery:install', 'php artisan migrate'], array_column(array_slice($steps, 1), 'text'));
@@ -82,11 +83,11 @@ final class VerifyInstallTest extends TestCase
      */
     public function test_a_readme_without_the_expected_require_line_is_refused(): void
     {
-        $readme = str_replace(Readme::REQUIRE_LINE, 'composer require justrau/laravel-orrery:dev-main', (string) file_get_contents(dirname(__DIR__, 2).'/README.md'));
+        $readme = str_replace(Docs::REQUIRE_LINE, 'composer require justrau/laravel-orrery:dev-main', (string) file_get_contents(dirname(__DIR__, 2).'/README.md'));
 
         $this->expectException(VerifyFailure::class);
         $this->expectExceptionMessage('^0.1');
-        Readme::installSteps($readme, '/tmp/candidate');
+        Docs::installSteps($readme, '/tmp/candidate');
     }
 
     /**
@@ -98,33 +99,72 @@ final class VerifyInstallTest extends TestCase
      */
     public function test_a_readme_without_the_expected_repository_line_is_refused(): void
     {
-        $readme = str_replace(Readme::REPOSITORY_LINE, 'composer config repositories.orrery vcs git@github.com:justrau/laravel-orrery.git', (string) file_get_contents(dirname(__DIR__, 2).'/README.md'));
+        $readme = str_replace(Docs::REPOSITORY_LINE, 'composer config repositories.orrery vcs git@github.com:justrau/laravel-orrery.git', (string) file_get_contents(dirname(__DIR__, 2).'/README.md'));
 
         $this->expectException(VerifyFailure::class);
         $this->expectExceptionMessage('repositories.orrery');
-        Readme::installSteps($readme, '/tmp/candidate');
+        Docs::installSteps($readme, '/tmp/candidate');
     }
 
     /**
-     * Rejects: removal commands that are not the README's (for example
-     * migrate:rollback instead of migrate:reset), or a CSP middleware that is
-     * not the README's class.
-     * Still passes: a README step that the runner performs without reading it
+     * Rejects: an install section that runs on past the next "## " heading,
+     * so a later section's commands (here a destructive one) become install
+     * steps when the README has no "### " subsection after the install.
+     * Still passes: a parser that also stops at a "#### " heading.
+     */
+    public function test_the_install_steps_end_at_the_next_section(): void
+    {
+        $readme = "# Orrery\n\n## Installation\n\n```bash\n".Docs::REPOSITORY_LINE."\n".Docs::REQUIRE_LINE."\nphp artisan orrery:install\n```\n\n"
+            ."## Removing\n\n```bash\nphp artisan migrate:reset\n```\n";
+
+        self::assertSame(
+            ['composer require justrau/laravel-orrery:dev-candidate', 'php artisan orrery:install'],
+            array_column(array_slice(Docs::installSteps($readme, '/tmp/candidate'), 1), 'text'),
+        );
+    }
+
+    /**
+     * Rejects: removal commands that are not those of docs/upgrading.md (for
+     * example migrate:rollback instead of migrate:reset), or a CSP middleware
+     * that is not the class of docs/security.md, or a parser that still
+     * looks for these sections in the README.
+     * Still passes: a docs step that the runner performs without reading it
      * (the file deletions of steps 4 to 6).
      */
-    public function test_the_removal_and_csp_come_from_the_readme(): void
+    public function test_the_removal_and_csp_come_from_the_docs(): void
     {
-        $readme = (string) file_get_contents(dirname(__DIR__, 2).'/README.md');
-        $removal = Readme::removal($readme);
+        $root = dirname(__DIR__, 2);
+        $removal = Docs::removal((string) file_get_contents($root.'/'.Docs::UPGRADING));
 
         self::assertSame('php artisan migrate:reset --path=vendor/justrau/laravel-orrery/database/migrations', $removal['reset']);
         self::assertSame('php artisan migrate:reset --path=database/migrations/<date>_add_orrery_jobs_index.php', $removal['index_reset']);
         self::assertSame('composer remove justrau/laravel-orrery', $removal['remove']);
 
-        $csp = Readme::csp($readme);
+        $csp = Docs::csp((string) file_get_contents($root.'/'.Docs::SECURITY));
         self::assertStringStartsWith("<?php\n\nnamespace App\\Http\\Middleware;", $csp['class']);
         self::assertStringContainsString("script-src 'nonce-{nonce}'", $csp['class']);
         self::assertSame("'middleware' => ['web', \\App\\Http\\Middleware\\OrreryContentSecurityPolicy::class],", $csp['config']);
+    }
+
+    /**
+     * Rejects: a refusal that names the README for a section that lives in a
+     * docs file, so the operator looks in the wrong file.
+     * Still passes: a message that names the file but not the heading.
+     */
+    public function test_a_missing_section_names_its_file(): void
+    {
+        foreach ([
+            [static fn () => Docs::removal("# Upgrading\n"), 'docs/upgrading.md: no section "## Removing Orrery"'],
+            [static fn () => Docs::csp("# Security\n"), 'docs/security.md: no section "## Content Security Policy"'],
+            [static fn () => Docs::installSteps("# Orrery\n", '/tmp/candidate'), 'README.md: no section "## Installation"'],
+        ] as [$call, $message]) {
+            try {
+                $call();
+                self::fail("no refusal: {$message}");
+            } catch (VerifyFailure $failure) {
+                self::assertSame($message, $failure->getMessage());
+            }
+        }
     }
 
     /**

@@ -10,10 +10,10 @@ use Workbench\App\Http\Middleware\ContentSecurityPolicy;
 
 /**
  * The Workbench serves the dashboard under the enforced Content Security
- * Policy of the README (Workbench\App\Http\Middleware\ContentSecurityPolicy,
- * the README's example middleware), so every browser check of the Workbench
- * runs under it. These tests add the middleware to the package's `orrery`
- * group themselves, so they check the middleware and the README;
+ * Policy of docs/security.md (Workbench\App\Http\Middleware\ContentSecurityPolicy,
+ * the example middleware of docs/security.md), so every browser check of the
+ * Workbench runs under it. These tests add the middleware to the package's
+ * `orrery` group themselves, so they check the middleware and the docs;
  * WorkbenchServeModesTest::test_the_web_server_of_serve_sends_the_enforced_policy
  * checks that the Workbench provider registers it for `composer serve`.
  */
@@ -63,17 +63,17 @@ final class WorkbenchContentSecurityPolicyTest extends ControllerTest
     }
 
     /**
-     * Rejects: a README that documents another policy than the one the
+     * Rejects: a docs/security.md that documents another policy than the one the
      * Workbench enforces (the browser check would then prove a policy that
      * no host is told to set).
      */
-    public function test_the_readme_documents_the_enforced_policy(): void
+    public function test_the_security_docs_document_the_enforced_policy(): void
     {
         $policy = (string) $this->get('/orrery')->headers->get('Content-Security-Policy');
         $documented = str_replace('{nonce}', 'NONCE', ContentSecurityPolicy::POLICY);
-        $readme = (string) file_get_contents(dirname(__DIR__, 2).'/README.md');
+        $docs = (string) file_get_contents(dirname(__DIR__, 2).'/docs/security.md');
 
         self::assertSame($documented, (string) preg_replace("/'nonce-[A-Za-z0-9]+'/", "'nonce-NONCE'", $policy));
-        self::assertStringContainsString('"'.ContentSecurityPolicy::POLICY.'"', $readme, 'the README example middleware holds the same policy text');
+        self::assertStringContainsString('"'.ContentSecurityPolicy::POLICY.'"', $docs, 'the example middleware of docs/security.md holds the same policy text');
     }
 }
