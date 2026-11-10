@@ -8,7 +8,7 @@
 - A fast conditional statement serves the expected case: an insert-or-ignore for a push, one update for a reservation and a release. Every other case reads the row, decides, and writes with a guard. A guard miss repeats at most `JobStore::MAX_ATTEMPTS` (3) times, then counts a dropped observation.
 - A completion writes `runtime_ms`. The store writes no metric: the tick counts minutes into `orrery_samples`.
 - Side effects (tag rows, failed tags, history, the occurrence) run only in the package transaction of the write that changed the row.
-- Every write whose `$set` contains `exception_class` or `exception_message` also writes `failure_key = Failures\GroupKey::of(…)`. The key is an HMAC keyed by `app.key`; rows keyed before the UI rebuild keep their unsalted key.
+- Every write whose `$set` contains `exception_class` or `exception_message` also writes `failure_key = Failures\GroupKey::of(…)`. The key is an HMAC keyed by `app.key` of the normalised first line (`GroupKey::normalise()`: the variable parts replaced, version `v2`). A stored key is never recomputed: rows keyed under `v1` (the exact first line) or before the UI rebuild (unsalted) keep their key until retention drops them.
 - Rows carry cycles, generations (`cycle_gen`), occurrences (`occurrence_id`), outcome accounting (`observed_attempts`, `late_outcomes`, `last_outcome_attempt`, `observed_gap`), bounded history (`History`), cycle summaries (`CycleSummaries`) and the operation hold (`operation_id`).
 - Statuses: `pending`, `reserved`, `completed`, `failed`, `retrying`, `unknown`.
 - `LifecycleModule` listens to `JobProcessing`, `JobExceptionOccurred`, `JobTimedOut`, `JobProcessed`, `JobFailed`, `JobAttempted` and `JobRetryRequested` on every database connection.

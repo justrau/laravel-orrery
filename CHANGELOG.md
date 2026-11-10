@@ -6,6 +6,10 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 ## [Unreleased]
 
+### Changed
+
+- **Failure groups merge messages that differ only in an id.** The group key (`GroupKey::VERSION` `v2`) replaces datetimes, UUIDs, ULIDs, long hexadecimal runs, email addresses and numbers of 4 or more digits in the first line, and cuts it at " (Connection: ". Short numbers stay, so "HTTP 404" and "HTTP 503" stay apart. Old failures keep their stored key, so a group can show twice until `trim.failed` removes the old rows (see [Upgrading](docs/upgrading.md)).
+
 ## [0.1.0] - 2026-11-10
 
 The first release: a Horizon-style dashboard for the `database` queue driver of Laravel. Orrery is a watcher only. It never starts, supervises or scales queue workers; you run `queue:work` under systemd, supervisord, Forge or another process manager. Your `jobs`, `failed_jobs` and `job_batches` tables stay authoritative, and Orrery keeps its own `orrery_*` mirror tables next to them.
