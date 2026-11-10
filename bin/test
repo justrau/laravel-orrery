@@ -1,0 +1,864 @@
+#!/usr/bin/env bash
+#
+# Run the PHPUnit suite against one database engine.
+#
+#   bin/test <sqlite|mysql|pgsql> [--no-provision] [--sqlite-file] [--drop-database] [--alt] [--schema=<reuse|fresh>] [--timeout=<seconds>] [--slot-wait=<seconds>] [--php=<binary>] [--] [phpunit arguments...]
+#
+#   sqlite                in-memory SQLite. No Docker and no registry.
+#   sqlite --sqlite-file  a SQLite file in the run's temporary directory,
+#                         removed after the run. No Docker and no registry.
+#   mysql, pgsql          take a lease and the name lock in the registry,
+#                         recreate <base> and <base>_mirror in the orrery-testing
+#                         containers, run PHPUnit behind the startup gate, then
+#                         release. The base name is $ORRERY_TEST_DATABASE,
+#                         else a generated orrery_run_<8 hex> that is dropped at the end.
+#   --drop-database       (mysql, pgsql) the release drops an explicit database
+#                         too, as it drops a generated one: after the run's
+#                         processes are confirmed stopped, while the lease holds the name.
+#                         Without it, the release does not drop an explicit pair,
+#                         and bin/test prints one notice with the drop command.
+#   --no-provision        (mysql, pgsql; for CI) no Docker and no registry. It
+#                         needs ORRERY_TEST_DATABASE and ORRERY_TEST_TOKEN.
+#   --alt                 (mysql, pgsql with a lease) also the second server of
+#                         the engine (the Compose profile alt: mysql-alt on
+#                         127.0.0.1:33107, pgsql-alt on 127.0.0.1:54337). The
+#                         admission starts it only while no lease is live, else
+#                         it must already run (exit 71). It recreates <base> and
+#                         <base>_mirror there too, and exports ORRERY_TEST_ALT=1
+#                         and the alt port variable of the engine.
+#   --schema=<mode>       the schema mode, exported as ORRERY_TEST_SCHEMA (an
+#                         inherited value has no effect). fresh: every test
+#                         migrates and rolls back. reuse: one migration per
+#                         PHPUnit process; after each test the harness checks
+#                         the schema fingerprint and empties every table. The
+#                         default is reuse for mysql and pgsql with a lease and
+#                         for sqlite --sqlite-file, else fresh. In-memory
+#                         sqlite accepts only fresh. bin/matrix and CI use fresh.
+#   --timeout=<seconds>   the hard limit of the PHPUnit run; 0 turns it off. The
+#                         default: 600 for in-memory sqlite, 900 for
+#                         --sqlite-file, 2400 for mysql and pgsql in the reuse
+#                         mode, 3600 in the fresh mode. PHPUnit writes an event
+#                         log (--log-events-text) in the run's directory. At the
+#                         limit, bin/test prints one line with the test that is
+#                         running, stops the run through its cleanup, and exits
+#                         124. PHPUnit gets the limit as ORRERY_RUN_TIMEOUT.
+#   --slot-wait=<seconds> (mysql, pgsql with a lease) the longest wait for the
+#                         heavy-run slot (default 7200; 0 fails at once). Such a
+#                         run takes the one machine-wide slot of the registry
+#                         before its admission; another heavy run waits and
+#                         prints a line with the holder every 60 s. A run with
+#                         the holder's ORRERY_SLOT_TOKEN (a descendant of the
+#                         holder) enters at once. sqlite and --no-provision
+#                         take no slot.
+#   --php=<binary>        the PHP binary. Else $ORRERY_TEST_PHP, else php on PATH.
+#
+# Variables that pass through to the tests:
+#   ORRERY_TEST_PG_POOLED=1        (pgsql) orrery.sessions.pooled is true, and the
+#                                  harness drops its search_path = public.
+#   ORRERY_TEST_SQLITE_JOURNAL=delete  (sqlite --sqlite-file) the harness configures
+#                                  rollback mode instead of WAL, so the package
+#                                  makes no automatic access to the file (D18).
+#
+# The wrapper options come directly after the engine. The remaining arguments
+# go to PHPUnit.
+#
+# Every run has one owner record: its lease (mysql, pgsql), or a private record
+# in its temporary directory (the modes without a registry). PHPUnit runs in
+# its own process group. Before PHPUnit starts, that group joins the owner
+# record of this run and of every bin/test above it (ORRERY_OWNERS). The group's
+# leader is an anchor process that runs PHPUnit and stays until this script is
+# gone, so the group's ID stays provably this run's. The records also list the
+# run's temporary directory. The cleanup closes the record, so nothing can
+# join it any more, stops every recorded group (SIGTERM, 10 s, SIGKILL, the
+# anchor last), and only then removes the recorded directories and releases
+# the lease. If a group cannot be confirmed stopped, the record, the
+# directories and the lease stay.
+#
+# Exit codes: 64 usage, 78 missing --no-provision variables, 72 the heavy-run
+# slot did not become free within --slot-wait, the bin/lib/testdb.php code when
+# the admission fails, 74 when PHPUnit cannot join its owner records or the
+# run's processes cannot be confirmed stopped, 124 the run passed --timeout
+# (its processes are stopped), else the PHPUnit exit code (130, 143 or 129
+# after a signal).
+
+set -euo pipefail
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+root=$(cd "$script_dir/.." && pwd -P)
+# PHPUnit and Testbench resolve vendor/ and the package path from the
+# working directory, so run from this checkout's root.
+cd "$root"
+lib="$root/bin/lib/testdb.php"
+
+# The settings of another application must never reach the tests.
+unset DB_URL DATABASE_URL DB_HOST DB_PORT DB_DATABASE DB_USERNAME DB_PASSWORD DB_CONNECTION
+# Only this script opens a startup gate for its own child.
+unset ORRERY_START_GATE
+
+# The header comment from its third line to its end.
+usage() {
+    awk 'NR >= 3 { if ($0 !~ /^#/) exit; sub(/^# ?/, ""); print }' "$root/bin/test" >&2
+}
+
+die() {
+    local code=$1
+    shift
+    echo "bin/test: $*" >&2
+    exit "$code"
+}
+
+# For the holder line of the heavy-run slot.
+command_text="bin/test $*"
+
+engine=${1:-}
+case "$engine" in
+    sqlite | mysql | pgsql) shift ;;
+    -h | --help)
+        usage
+        exit 0
+        ;;
+    *)
+        usage
+        exit 64
+        ;;
+esac
+
+no_provision=0
+sqlite_file=0
+drop_database=0
+alt=0
+schema=
+php_option=
+timeout=
+timeout_given=0
+slot_wait=7200
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --no-provision) no_provision=1 ;;
+        --sqlite-file) sqlite_file=1 ;;
+        --drop-database) drop_database=1 ;;
+        --alt) alt=1 ;;
+        --schema=*) schema=${1#--schema=} ;;
+        --timeout=*)
+            timeout=${1#--timeout=}
+            timeout_given=1
+            ;;
+        --slot-wait=*) slot_wait=${1#--slot-wait=} ;;
+        --php=*) php_option=${1#--php=} ;;
+        --)
+            shift
+            break
+            ;;
+        *) break ;;
+    esac
+    shift
+done
+
+if [ "$no_provision" = 1 ] && [ "$engine" = sqlite ]; then
+    die 64 "--no-provision applies to mysql and pgsql only"
+fi
+if [ "$sqlite_file" = 1 ] && [ "$engine" != sqlite ]; then
+    die 64 "--sqlite-file applies to sqlite only"
+fi
+if [ "$drop_database" = 1 ] && { [ "$engine" = sqlite ] || [ "$no_provision" = 1 ]; }; then
+    die 64 "--drop-database applies to mysql and pgsql with a lease, not to sqlite or --no-provision"
+fi
+if [ "$alt" = 1 ] && { [ "$engine" = sqlite ] || [ "$no_provision" = 1 ]; }; then
+    die 64 "--alt applies to mysql and pgsql with a lease, not to sqlite or --no-provision"
+fi
+# Only --alt gives a run the alt server.
+unset ORRERY_TEST_ALT
+
+# The schema mode. Only --schema or the default of the engine selects it.
+case "$schema" in
+    '')
+        if [ "$engine" = sqlite ] && [ "$sqlite_file" = 0 ]; then
+            schema=fresh
+        elif [ "$no_provision" = 1 ]; then
+            schema=fresh
+        else
+            schema=reuse
+        fi
+        ;;
+    fresh | reuse) ;;
+    *) die 64 "--schema must be reuse or fresh, not '$schema'" ;;
+esac
+if [ "$schema" = reuse ] && [ "$engine" = sqlite ] && [ "$sqlite_file" = 0 ]; then
+    die 64 "--schema=reuse needs a database that lives longer than one test: use sqlite --sqlite-file, mysql or pgsql"
+fi
+export ORRERY_TEST_SCHEMA=$schema
+
+# The hard limit of the PHPUnit run, about 3 times the measured durations.
+if [ "$timeout_given" = 1 ]; then
+    :
+elif [ "$engine" = sqlite ] && [ "$sqlite_file" = 0 ]; then
+    timeout=600
+elif [ "$engine" = sqlite ]; then
+    timeout=900
+elif [ "$schema" = reuse ]; then
+    timeout=2400
+else
+    timeout=3600
+fi
+case "$timeout" in
+    '' | *[!0-9]* | ???????*) die 64 "--timeout must be a whole number of seconds from 0 to 999999, not '$timeout'" ;;
+esac
+case "$slot_wait" in
+    '' | *[!0-9]* | ???????*) die 64 "--slot-wait must be a whole number of seconds from 0 to 999999, not '$slot_wait'" ;;
+esac
+# Leading zeros would read as octal in arithmetic.
+timeout=$((10#$timeout))
+slot_wait=$((10#$slot_wait))
+export ORRERY_RUN_TIMEOUT=$timeout
+
+# PHP selection order: --php, then $ORRERY_TEST_PHP, then php on PATH.
+if [ -n "$php_option" ]; then
+    php=$php_option
+elif [ -n "${ORRERY_TEST_PHP:-}" ]; then
+    php=$ORRERY_TEST_PHP
+else
+    php=php
+fi
+case "$php" in
+    */*) ;;
+    *) php=$(command -v "$php" || true) ;;
+esac
+if [ -z "$php" ] || [ ! -x "$php" ] || [ -d "$php" ]; then
+    die 64 "no usable PHP binary (use --php=<binary>, ORRERY_TEST_PHP, or put php on PATH)"
+fi
+
+phpunit=vendor/bin/phpunit
+if [ "${ORRERY_REGISTRY_TEST:-}" = 1 ] && [ -n "${ORRERY_TEST_PHPUNIT:-}" ]; then
+    # Logic tests replace PHPUnit with a stub that records its environment.
+    phpunit=$ORRERY_TEST_PHPUNIT
+fi
+
+random_hex() {
+    od -An -N4 -tx1 /dev/urandom | tr -d ' \n'
+}
+
+# testdb.php needs only built-in functions. -n skips the ini files, so a
+# debugger extension or a disabled function in them cannot slow it down or
+# break it, and each call starts about 30 ms faster. PHPUnit keeps the ini.
+# Its descendants never inherit the slot pipe (descriptor 7), so the slot is
+# released when this script ends, whatever they do.
+testdb() {
+    "$php" -n "$lib" "$@" 7>&-
+}
+
+run_id="run_$$_$(random_hex)"
+
+# One grace period before SIGKILL at every nesting level. An inner run does not
+# have to finish its own cleanup in time: every record above it lists its
+# process groups and its directories too. Logic tests can shorten it (test
+# mode only), also to a fraction of a second: ORRERY_TEST_GRACE=0.5.
+grace=10
+if [ "${ORRERY_REGISTRY_TEST:-}" = 1 ] && [ -n "${ORRERY_TEST_GRACE:-}" ]; then
+    grace=$ORRERY_TEST_GRACE
+fi
+case "$grace" in
+    '' | *[!0-9.]* | .* | *. | *.*.* | *.????*) die 64 "ORRERY_TEST_GRACE must be a number of seconds with at most 3 decimals" ;;
+esac
+grace_whole=${grace%%.*}
+# Four digits are over 600 anyway; refusing them first keeps the arithmetic
+# below from wrapping on a huge value.
+case "$grace_whole" in
+    ????*) die 64 "ORRERY_TEST_GRACE must be a number of seconds from 0 to 600" ;;
+esac
+grace_fraction=
+if [ "$grace_whole" != "$grace" ]; then
+    grace_fraction=${grace#*.}
+fi
+grace_fraction="${grace_fraction}000"
+# The grace in milliseconds, for the waits of this script.
+grace_ms=$((10#$grace_whole * 1000 + 10#${grace_fraction:0:3}))
+if [ "$grace_ms" -gt 600000 ]; then
+    die 64 "ORRERY_TEST_GRACE must be a number of seconds from 0 to 600"
+fi
+
+# The interval of every poll of this script, in milliseconds. Logic tests can
+# shorten it (test mode only): ORRERY_TEST_POLL_MS=20. testdb.php reads the
+# same variable for its own polls.
+poll_ms=100
+if [ "${ORRERY_REGISTRY_TEST:-}" = 1 ] && [ -n "${ORRERY_TEST_POLL_MS:-}" ]; then
+    poll_ms=$ORRERY_TEST_POLL_MS
+fi
+case "$poll_ms" in
+    '' | *[!0-9]* | ????*) die 64 "ORRERY_TEST_POLL_MS must be a whole number of milliseconds from 1 to 999" ;;
+esac
+poll_ms=$((10#$poll_ms))
+if [ "$poll_ms" -lt 1 ]; then
+    die 64 "ORRERY_TEST_POLL_MS must be a whole number of milliseconds from 1 to 999"
+fi
+# The same interval as an argument of sleep.
+poll=$(printf '0.%03d' "$poll_ms")
+
+# The longest wait of release_slot for the slot helper, in milliseconds. Logic
+# tests can lengthen it (test mode only), so that a helper that only this
+# fallback ends stands out from a slow run on a loaded machine:
+# ORRERY_TEST_SLOT_RELEASE_MS=60000.
+slot_release_ms=5000
+if [ "${ORRERY_REGISTRY_TEST:-}" = 1 ] && [ -n "${ORRERY_TEST_SLOT_RELEASE_MS:-}" ]; then
+    slot_release_ms=$ORRERY_TEST_SLOT_RELEASE_MS
+fi
+case "$slot_release_ms" in
+    '' | *[!0-9]* | ??????*) die 64 "ORRERY_TEST_SLOT_RELEASE_MS must be a whole number of milliseconds from 1 to 99999" ;;
+esac
+slot_release_ms=$((10#$slot_release_ms))
+if [ "$slot_release_ms" -lt 1 ]; then
+    die 64 "ORRERY_TEST_SLOT_RELEASE_MS must be a whole number of milliseconds from 1 to 99999"
+fi
+
+newline='
+'
+# The owner records of the bin/test runs above this one.
+inherited_owners=${ORRERY_OWNERS:-}
+# The entry of this run's own record ("<run id> <directory>"), and whether the
+# record may not exist yet.
+own_owner=
+record_pending=0
+child_pid=
+child_start=
+child_reaped=0
+run_dir=
+waiter_pid=
+group_token=
+status=0
+# The notice that the cleanup prints after a released lease that did not drop
+# its databases: an explicit name without --drop-database.
+keep_notice=
+# The helper that holds the heavy-run slot, and the time (in $SECONDS) when
+# the run passes --timeout.
+slot_pid=
+deadline=
+
+# Whether the child is still a running job of this shell. While it is, no
+# other process can have its PID, and its process group ID is its PID. Only
+# the EXIT trap uses it, and ShellCheck does not follow trap handlers.
+# shellcheck disable=SC2329
+job_running() {
+    local pid
+    for pid in $(jobs -rp); do
+        if [ "$pid" = "$1" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# Logic tests hold the run at the point "spawned", right after the child
+# starts and before bin/test waits for its join. Test mode only.
+spawn_barrier() {
+    local dir=${ORRERY_TEST_SPAWN_BARRIER:-} waited=0
+    if [ "${ORRERY_REGISTRY_TEST:-}" != 1 ] || [ -z "$dir" ] || [ "${ORRERY_TEST_SPAWN_BARRIER_AT:-}" != "$1" ]; then
+        return 0
+    fi
+    echo "$2" >"$dir/$1.tmp"
+    mv "$dir/$1.tmp" "$dir/$1.reached"
+    while [ ! -e "$dir/$1.release" ] && [ "$waited" -lt 60000 ]; do
+        sleep "$poll"
+        waited=$((waited + poll_ms))
+    done
+}
+
+# Starts the child: the anchor of a new process group, with stdin from
+# /dev/null. The anchor's first step is owner-join: its process group joins
+# every owner record of ORRERY_OWNERS. A refused or failed join ends it with 74
+# before anything else runs. Then it runs "$@" (PHPUnit) as its own child, in
+# its group, and writes PHPUnit's exit status into $run_dir/status: a
+# temporary file first, then a rename, so the file is complete when it exists.
+# If it cannot write the status, it ends (74), so this script never waits for
+# a status that cannot come.
+#
+# The anchor leads the group and stays until this script is gone. The
+# shutdown stops it last, so while it runs, its PID and start time prove that
+# every process with the group's ID is this run's (a group ID is not reused
+# while its leader exists). If the anchor ends early anyway (a stop from
+# outside), the random ORRERY_GROUP_TOKEN that every descendant inherits is the
+# fallback proof, where the environment of a process can be read exactly
+# (Linux).
+#
+# The alive pipe: 5 is this script's end (read and write), held until this
+# script exits. The anchor waits on 6, a read end of the same pipe, and sees
+# end-of-file only when no writer is left: when this script is gone. Neither
+# open can wait for a peer. The read and write open of 5 never blocks, and
+# when 6 opens, this script already holds 5 as a writer.
+spawn_child() {
+    group_token=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+    mkfifo -m 600 "$run_dir/alive.fifo"
+    exec 5<>"$run_dir/alive.fifo"
+    exec 6<"$run_dir/alive.fifo"
+    spawn_barrier pipes "$own_owner"
+    # A background process group that writes to a terminal with "tostop"
+    # set gets SIGTTOU and stops. The child inherits an ignored SIGTTOU.
+    trap '' TTOU
+    set -m
+    (
+        exec 5>&- 7>&-
+        set +m
+        ORRERY_GROUP_TOKEN=$group_token
+        export ORRERY_GROUP_TOKEN
+        rc=0
+        "$php" -n "$lib" owner-join 6<&- >/dev/null || rc=$?
+        if [ "$rc" != 0 ]; then
+            echo "bin/test: PHPUnit did not start, because its process group could not join the owner records (exit $rc)" >&2
+            exit 74
+        fi
+        rc=0
+        "$@" 6<&- || rc=$?
+        if ! { echo "$rc" >"$run_dir/status.tmp" && mv "$run_dir/status.tmp" "$run_dir/status"; } 2>/dev/null; then
+            echo "bin/test: the anchor could not write PHPUnit's exit status ($rc) into $run_dir/status" >&2
+            exit 74
+        fi
+        read -r _ <&6 || true
+        # This script is gone without stopping the anchor (it was killed, or
+        # its shutdown failed). The anchor stays while other processes of its
+        # group live, so a later stop can still prove them.
+        exec "$php" -n "$lib" anchor-linger >/dev/null 6<&-
+    ) </dev/null &
+    set +m
+    child_pid=$!
+    child_reaped=0
+    exec 6<&-
+    spawn_barrier spawned "$child_pid"
+    if [ "$timeout" -gt 0 ]; then
+        deadline=$((SECONDS + timeout))
+    fi
+}
+
+# Takes the heavy-run slot before the admission. The helper (testdb.php
+# slot-hold) waits for the slot, writes its token into $run_dir/slot.out, and
+# holds the slot until its stdin ends: a pipe whose only write end is this
+# script's descriptor 7. So the slot is released when this script ends, also
+# when it is killed. The helper ignores the signals of a terminal or of an
+# outer run's stop; the cleanup releases the slot last. A run with the
+# holder's ORRERY_SLOT_TOKEN enters at once. The wait polls every 0.1 s
+# ($poll) with a background sleep, so a signal trap runs at once.
+acquire_slot() {
+    local out="$run_dir/slot.out" rc value
+    mkfifo -m 600 "$run_dir/slot.fifo"
+    exec 7<>"$run_dir/slot.fifo"
+    (
+        trap '' INT TERM HUP
+        # A plain exec closes it for good. As a redirection of the exec of
+        # the helper, bash 3.2 keeps a saved copy of it open in the helper.
+        exec 7>&-
+        exec "$php" -n "$lib" slot-hold "--run-id=$run_id" "--pid=$$" "--checkout=$root" "--command=$command_text" "--wait=$slot_wait" "--out=$out" >/dev/null
+    ) <"$run_dir/slot.fifo" &
+    slot_pid=$!
+    while [ ! -e "$out" ]; do
+        if ! job_running "$slot_pid"; then
+            # One more look covers a result written just before the end.
+            if [ -e "$out" ]; then
+                break
+            fi
+            rc=0
+            wait "$slot_pid" 2>/dev/null || rc=$?
+            slot_pid=
+            if [ "$rc" = 0 ]; then
+                rc=74
+            fi
+            # The helper printed the reason (72: the wait limit).
+            exit "$rc"
+        fi
+        sleep "$poll" &
+        waiter_pid=$!
+        wait "$waiter_pid" || true
+        waiter_pid=
+    done
+    value=$(cat "$out")
+    # A token is 32 hex characters.
+    case "$value" in
+        *'"acquired":true'*'"token":"'*) ;;
+        *) die 74 "the heavy-run slot helper wrote no token: $value" ;;
+    esac
+    value=${value#*\"token\":\"}
+    value=${value%%\"*}
+    case "$value" in
+        *[!0-9a-f]* | '') die 74 "the heavy-run slot helper wrote an invalid token" ;;
+    esac
+    export ORRERY_SLOT_TOKEN=$value
+}
+
+# Gives the slot up: closes the pipe and waits, at most 5 s
+# ($slot_release_ms), for the helper to end. Only the EXIT trap uses it.
+# shellcheck disable=SC2329
+release_slot() {
+    local waited=0
+    exec 7>&-
+    if [ -z "$slot_pid" ]; then
+        return 0
+    fi
+    while job_running "$slot_pid" && [ "$waited" -lt "$slot_release_ms" ]; do
+        sleep "$poll"
+        waited=$((waited + poll_ms))
+    done
+    if job_running "$slot_pid"; then
+        kill -KILL "$slot_pid" 2>/dev/null || true
+    fi
+    reap_job "$slot_pid" 3000
+    slot_pid=
+}
+
+# Prints the line with the running test and ends the run with 124. The EXIT
+# trap then stops its processes and releases its lease.
+fail_timeout() {
+    local text
+    # shellcheck disable=SC2016
+    text=$(testdb running-test "$run_dir/events.txt" | "$php" -n -r '$d = json_decode((string) stream_get_contents(STDIN), true); echo is_array($d) && is_string($d["text"] ?? null) ? $d["text"] : "while the running test was unknown";' 2>/dev/null) || true
+    die 124 "timeout: the run passed --timeout=$timeout s ${text:-while the running test was unknown}; stopping it (exit 124)"
+}
+
+# Waits until the anchor reports PHPUnit's exit status, and sets status. It
+# polls every 0.1 s ($poll) with a background sleep, so a signal trap runs at
+# once.
+# Every other outcome is a transport failure, which ends this script through
+# its cleanup with 74: a status file that holds no exit status, or an anchor
+# that ended without a status file.
+wait_for_status() {
+    local value anchor_status
+    while :; do
+        if [ -e "$run_dir/status" ]; then
+            value=
+            read -r value <"$run_dir/status" 2>/dev/null || true
+            case "$value" in
+                '' | *[!0-9]* | ????*)
+                    die 74 "the status file $run_dir/status holds no exit status of PHPUnit ('$value')"
+                    ;;
+            esac
+            if [ "$value" -gt 255 ]; then
+                die 74 "the status file $run_dir/status holds no exit status of PHPUnit ('$value')"
+            fi
+            status=$value
+            return 0
+        fi
+        if [ -n "$deadline" ] && [ "$SECONDS" -ge "$deadline" ]; then
+            fail_timeout
+        fi
+        if ! job_running "$child_pid"; then
+            # One more look covers a status written just before the end.
+            if [ -e "$run_dir/status" ]; then
+                continue
+            fi
+            anchor_status=0
+            wait "$child_pid" 2>/dev/null || anchor_status=$?
+            child_reaped=1
+            die 74 "the anchor of PHPUnit's process group (pid $child_pid) ended (exit $anchor_status) without PHPUnit's exit status"
+        fi
+        sleep "$poll" &
+        waiter_pid=$!
+        wait "$waiter_pid" || true
+        waiter_pid=
+    done
+}
+
+# Waits until the child's process group is in this run's record (and so in
+# every record above it). Sets child_start. The helper runs in the
+# background: a foreground command would hold back a signal trap until the
+# join ends, while the wait builtin returns at once for a trapped signal.
+# The helper is a simple command, not the testdb function: then $! is the
+# PHP process itself, and the cleanup ends it (SIGTERM) and waits until it is
+# gone before the shutdown, at most for the grace (reap_job).
+# A background function is a subshell, and a SIGTERM to it leaves its PHP
+# child running: that orphan kept reading the owner store while the
+# shutdown removed it.
+wait_for_join() {
+    local out rc=0
+    "$php" -n "$lib" owner-wait "--owner=$own_owner" "$child_pid" >"$run_dir/joined.json" 7>&- &
+    waiter_pid=$!
+    wait "$waiter_pid" || rc=$?
+    waiter_pid=
+    out=$(cat "$run_dir/joined.json")
+    if [ "$rc" != 0 ]; then
+        die 74 "could not confirm that PHPUnit's process group (anchor pid $child_pid) joined the owner record of $run_id (exit $rc); it is stopped without opening the startup gate"
+    fi
+    case "$out" in
+        *'"joined":true'*) ;;
+        *) die 74 "PHPUnit's process group (anchor pid $child_pid) could not join the owner records of $run_id, so PHPUnit did not start" ;;
+    esac
+    # An lstart value contains no quote.
+    child_start=${out#*\"start\":\"}
+    child_start=${child_start%%\"*}
+}
+
+# The next functions run from the EXIT trap. ShellCheck does not follow trap
+# handlers, so it reports them as never invoked (SC2329).
+
+# Waits until the job $1 has ended, polling at least once and at most $2
+# milliseconds, and reaps it only when the job table shows it ended. It never
+# calls the wait builtin on a job that may still run: a wait for a helper that
+# ended at the moment of a signal blocked for good once (bash 5.3,
+# 2026-11-07, in the cleanup), on the anchor, which waits for this script.
+# kill -0 ends the poll early for a job that the table still lists although
+# its process is gone.
+# shellcheck disable=SC2329
+reap_job() {
+    local waited=0
+    while job_running "$1" && kill -0 "$1" 2>/dev/null; do
+        sleep "$poll"
+        waited=$((waited + poll_ms))
+        if [ "$waited" -ge "$2" ]; then
+            break
+        fi
+    done
+    if ! job_running "$1"; then
+        wait "$1" 2>/dev/null || true
+    fi
+}
+
+# A child that is still a running job after the shutdown never joined this
+# run's record, so it cannot have started PHPUnit (its join is refused once
+# the record closes). It is stopped through the job table of this shell:
+# SIGTERM to its process group, the grace period, SIGKILL.
+# shellcheck disable=SC2329
+stop_unjoined_child() {
+    local waited=0
+    if job_running "$child_pid"; then
+        kill -TERM -- "-$child_pid" 2>/dev/null || true
+    fi
+    while job_running "$child_pid" && [ "$waited" -lt "$grace_ms" ]; do
+        sleep "$poll"
+        waited=$((waited + poll_ms))
+    done
+    if job_running "$child_pid"; then
+        kill -KILL -- "-$child_pid" 2>/dev/null || true
+    fi
+    reap_job "$child_pid" 3000
+    child_reaped=1
+}
+
+# shellcheck disable=SC2329
+cleanup() {
+    local status=$? rc=0 out=
+    set +e
+    # The helpers below inherit the ignored signals, so a stop of a group
+    # that contains this script (an outer run's shutdown) cannot end them.
+    trap '' INT TERM HUP
+    # An interrupted wait for the join (its helper only reads) or for the
+    # status (a sleep). The shutdown runs after the grace at the latest.
+    if [ -n "$waiter_pid" ] && job_running "$waiter_pid"; then
+        kill -TERM "$waiter_pid" 2>/dev/null || true
+        reap_job "$waiter_pid" "$grace_ms"
+    fi
+    if [ -n "$own_owner" ]; then
+        if [ "$record_pending" = 1 ]; then
+            out=$(testdb shutdown "--owner=$own_owner" "--grace=$grace" --missing-ok) || rc=$?
+        else
+            out=$(testdb shutdown "--owner=$own_owner" "--grace=$grace") || rc=$?
+        fi
+        if [ "$rc" = 0 ]; then
+            case "$out" in
+                *'"released":true'*)
+                    # Only a released lease: a failed release returns
+                    # before this point, and a refused admission has no lease.
+                    if [ -n "$keep_notice" ]; then
+                        echo "bin/test: $keep_notice" >&2
+                    fi
+                    ;;
+            esac
+            case "$out" in
+                *'"record":false'*)
+                    # The record was never created: nothing started, and
+                    # nothing can use the directory.
+                    rm -rf "$run_dir"
+                    ;;
+            esac
+        else
+            # Its own process group, at least, when the record cannot be read.
+            if [ -n "$child_start" ]; then
+                testdb stop-group "$child_pid" "$child_start" "--token=$group_token" "--grace=$grace" >/dev/null 2>&1 || true
+            fi
+            echo "bin/test: kept the owner record of $run_id, its directories and its databases, because its processes could not be confirmed stopped (exit $rc). When they are gone, run: php bin/lib/testdb.php shutdown --owner=\"$own_owner\"" >&2
+            status=74
+        fi
+    elif [ -n "$run_dir" ]; then
+        # No record: nothing started, and nothing can use the directory.
+        rm -rf "$run_dir"
+    fi
+    if [ -n "$child_pid" ] && [ "$child_reaped" = 0 ]; then
+        if ! job_running "$child_pid"; then
+            wait "$child_pid" 2>/dev/null || true
+            child_reaped=1
+        elif [ -z "$child_start" ]; then
+            stop_unjoined_child
+        fi
+        # A joined anchor that still runs here means that the shutdown failed.
+        # It stays and keeps proving its group for the recovery (anchor-linger).
+    fi
+    # Last: the run's processes are stopped and its lease is released.
+    release_slot
+    exit "$status"
+}
+
+# The traps are in place before any provisioning.
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+trap 'exit 129' HUP
+
+# The private directory of this run: the startup gate (mysql, pgsql), or the
+# owner record and the SQLite files (the modes without a registry).
+run_dir=$(mktemp -d "${TMPDIR:-/tmp}/orrery-run.XXXXXXXX")
+run_dir=$(cd "$run_dir" && pwd -P)
+if [ -n "$inherited_owners" ]; then
+    # The runs above this one record the directory first, so it is removed
+    # even when this run is killed.
+    testdb owner-path "$run_dir" >/dev/null || die 74 "could not record $run_dir in the owner records of the runs above this one"
+fi
+
+# Sets generated_name. It runs in this shell (not in a command
+# substitution), so the test sequence below advances.
+next_generated_name() {
+    if [ "${ORRERY_REGISTRY_TEST:-}" = 1 ] && [ -n "${ORRERY_TEST_GENERATED_NAMES:-}" ]; then
+        # Logic tests supply the sequence, so a collision can be forced.
+        generated_name=${ORRERY_TEST_GENERATED_NAMES%% *}
+        if [ "$generated_name" = "$ORRERY_TEST_GENERATED_NAMES" ]; then
+            ORRERY_TEST_GENERATED_NAMES=
+        else
+            ORRERY_TEST_GENERATED_NAMES=${ORRERY_TEST_GENERATED_NAMES#* }
+        fi
+        return
+    fi
+    generated_name="orrery_run_$(random_hex)"
+}
+
+if [ "$engine" != sqlite ] && [ "$no_provision" = 0 ]; then
+    export ORRERY_TEST_DRIVER=$engine
+    export ORRERY_TEST_MYSQL_PORT=${ORRERY_TEST_MYSQL_PORT:-33106}
+    export ORRERY_TEST_PGSQL_PORT=${ORRERY_TEST_PGSQL_PORT:-54336}
+    export ORRERY_TEST_PASSWORD=orrery
+    unset ORRERY_TEST_CI ORRERY_TEST_SQLITE_FILE ORRERY_TEST_RUN_ID ORRERY_TEST_TOKEN
+    alt_option=
+    if [ "$alt" = 1 ]; then
+        alt_option=--alt
+        export ORRERY_TEST_ALT=1
+        if [ "$engine" = mysql ]; then
+            export ORRERY_TEST_MYSQL_ALT_PORT=${ORRERY_TEST_MYSQL_ALT_PORT:-33107}
+        else
+            export ORRERY_TEST_PGSQL_ALT_PORT=${ORRERY_TEST_PGSQL_ALT_PORT:-54337}
+        fi
+    fi
+
+    # A generated name is always dropped at release. --drop-database gives an
+    # explicit name the same release.
+    drop=
+    if [ -n "${ORRERY_TEST_DATABASE:-}" ]; then
+        mode=--explicit
+        base=$ORRERY_TEST_DATABASE
+        if [ "$drop_database" = 1 ]; then
+            drop=--drop-at-release
+        else
+            # The release does not check the service, so the notice states
+            # only what this run did: it requested no drop.
+            keep_notice="this run did not drop its explicit databases $base and ${base}_mirror (no --drop-database). They stay while the service keeps its data. To drop them, run: bin/test-db drop $base --engine=$engine${alt_option:+ $alt_option}"
+        fi
+    else
+        mode=--generated
+        base=
+    fi
+
+    rc=0
+    registry_json=$(testdb path) || rc=$?
+    if [ "$rc" != 0 ]; then
+        exit "$rc"
+    fi
+    # The registry path contains no quote.
+    registry=${registry_json#*\"path\":\"}
+    registry=${registry%%\"*}
+    case "$registry" in
+        /*) ;;
+        *) die 74 "unusable registry path: $registry_json" ;;
+    esac
+
+    # One heavy run at a time: the slot comes before the lease, so a waiting
+    # run holds no lease and no name.
+    acquire_slot
+
+    # The lease is this run's owner record. It is set before the admission,
+    # so a signal during it still shuts the lease down.
+    own_owner="$run_id $registry"
+    record_pending=1
+    attempt=0
+    while :; do
+        if [ "$mode" = --generated ]; then
+            next_generated_name
+            base=$generated_name
+        fi
+        rc=0
+        admit_json=$(testdb admit "$run_id" "$$" auto "$base" "$mode" ${drop:+"$drop"} ${alt_option:+"$alt_option"} "--engine=$engine" "--path=$run_dir") || rc=$?
+        if [ "$rc" = 0 ]; then
+            break
+        fi
+        # A generated name never collides: on a collision, take another one.
+        if [ "$rc" = 73 ] && [ "$mode" = --generated ] && [ "$attempt" -lt 5 ]; then
+            attempt=$((attempt + 1))
+            continue
+        fi
+        exit "$rc"
+    done
+    record_pending=0
+
+    # Both values are validated by testdb.php: [a-z0-9_] and hex, no spaces.
+    # The single quotes keep the PHP code away from the shell (SC2016).
+    # shellcheck disable=SC2016
+    admitted=$("$php" -n -r '$d = json_decode($argv[1], true); echo ($d["base"] ?? ""), " ", ($d["token"] ?? ""), "\n";' -- "$admit_json")
+    ORRERY_TEST_DATABASE=${admitted% *}
+    ORRERY_TEST_TOKEN=${admitted#* }
+    if [ -z "$ORRERY_TEST_DATABASE" ] || [ -z "$ORRERY_TEST_TOKEN" ]; then
+        die 74 "the admission returned no database name or token: $admit_json"
+    fi
+    export ORRERY_TEST_RUN_ID=$run_id ORRERY_TEST_DATABASE ORRERY_TEST_TOKEN
+    export ORRERY_OWNERS="${inherited_owners:+$inherited_owners$newline}$own_owner"
+
+    # PHPUnit waits in tests/bootstrap.php until the gate file exists. The
+    # gate opens only after PHPUnit's process group joined the lease.
+    if [ "$timeout" -gt 0 ]; then
+        set -- --log-events-text "$run_dir/events.txt" "$@"
+    fi
+    spawn_child env ORRERY_START_GATE="$run_dir/open" "$php" "$phpunit" "$@"
+    wait_for_join
+    : >"$run_dir/open"
+
+    wait_for_status
+    exit "$status"
+fi
+
+# Modes without a registry: no lease, no add-child, no startup gate. The owner
+# record is private, in the run's own directory.
+if [ "$engine" = sqlite ]; then
+    export ORRERY_TEST_DRIVER=sqlite
+    unset ORRERY_TEST_RUN_ID ORRERY_TEST_TOKEN ORRERY_TEST_CI ORRERY_TEST_DATABASE ORRERY_TEST_SQLITE_FILE
+else
+    if [ -z "${ORRERY_TEST_DATABASE:-}" ] || [ -z "${ORRERY_TEST_TOKEN:-}" ]; then
+        die 78 "--no-provision needs ORRERY_TEST_DATABASE and ORRERY_TEST_TOKEN"
+    fi
+    testdb validate-name "$ORRERY_TEST_DATABASE" >/dev/null || exit 64
+    export ORRERY_TEST_CI=1
+    export ORRERY_TEST_DRIVER=$engine
+    export ORRERY_TEST_MYSQL_PORT=${ORRERY_TEST_MYSQL_PORT:-33106}
+    export ORRERY_TEST_PGSQL_PORT=${ORRERY_TEST_PGSQL_PORT:-54336}
+    export ORRERY_TEST_PASSWORD=${ORRERY_TEST_PASSWORD:-orrery}
+    unset ORRERY_TEST_RUN_ID ORRERY_TEST_SQLITE_FILE
+fi
+
+own_owner="$run_id $run_dir"
+record_pending=1
+testdb owner-init "$run_dir" "$run_id" "$$" auto >/dev/null || die 74 "could not create the owner record of $run_id in $run_dir"
+record_pending=0
+export ORRERY_OWNERS="${inherited_owners:+$inherited_owners$newline}$own_owner"
+
+if [ "$sqlite_file" = 1 ]; then
+    sqlite_dir=$run_dir/orrery-sqlite-$run_id
+    mkdir -m 700 "$sqlite_dir"
+    : >"$sqlite_dir/primary.sqlite"
+    : >"$sqlite_dir/primary.sqlite.mirror"
+    export ORRERY_TEST_SQLITE_FILE=$sqlite_dir/primary.sqlite
+fi
+
+if [ "$timeout" -gt 0 ]; then
+    set -- --log-events-text "$run_dir/events.txt" "$@"
+fi
+spawn_child "$php" "$phpunit" "$@"
+wait_for_join
+wait_for_status
+exit "$status"

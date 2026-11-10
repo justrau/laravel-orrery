@@ -1,0 +1,73 @@
+# Workbench app for local development and browser checks.
+#
+# `composer build` creates and seeds workbench/database/database.sqlite. `composer serve` builds it
+# and serves the dashboard at /orrery. The PHPUnit suite does not use these providers, this
+# env list or these build steps: tests/TestCase.php defines its own providers and connections.
+#
+# WorkbenchServiceProvider resolves the SQLite file (workbench/database/database.sqlite, or
+# DB_DATABASE from the process environment when it names another database.sqlite inside that
+# directory) and refuses every other path before any command runs. It also sets databasePath()
+# to the file's directory, so `create-sqlite-db`, the migrations and workbench/check.php use one
+# file. A YAML env value cannot hold that absolute path, because it depends on the checkout.
+#
+# The provider also forces the local environment, and it pins the database, Redis, queue,
+# failed-job, batch, cache, session, maintenance, log, mail, broadcast and filesystem settings
+# to owned local implementations. It pins the application storage path to workbench/storage and
+# sets every path that Laravel computed from the storage path again (compiled views, disk root,
+# session files, log). The env values below are defaults only: the process environment
+# overrides them, and the provider overrides both.
+#
+# Start the Workbench CLI with `php workbench/bin/testbench`, as the Composer scripts do, not
+# with vendor/bin/testbench. Laravel reads and writes the package and services manifests
+# (APP_PACKAGES_CACHE, APP_SERVICES_CACHE) before any provider runs, so the launcher pins them,
+# and the three other APP_*_CACHE paths, to workbench/storage/bootstrap-cache first. The provider
+# refuses to run when one of the five resolves elsewhere. It trusts the checkout: see
+# WorkbenchBootstrapCache::isOwned() for the symbolic links that it does not refuse.
+#
+# The five APP_*_CACHE entries below are for the web server child of `serve` only. It inherits
+# the pinned values, but PHP's built-in server does not put the process environment in $_SERVER
+# or $_ENV, where Laravel reads four of them. The values are relative to Testbench's skeleton
+# (vendor/orchestra/testbench-core/laravel) and name the same owned files. In the CLI, the
+# launcher's absolute values win, because an env entry never replaces a value that is set.
+
+providers:
+  - Justrau\Orrery\OrreryServiceProvider
+  - Workbench\App\Providers\WorkbenchServiceProvider
+
+env:
+  - APP_ENV=local
+  - DB_CONNECTION=sqlite
+  - QUEUE_CONNECTION=database
+  - APP_SERVICES_CACHE=../../../../workbench/storage/bootstrap-cache/services.php
+  - APP_PACKAGES_CACHE=../../../../workbench/storage/bootstrap-cache/packages.php
+  - APP_CONFIG_CACHE=../../../../workbench/storage/bootstrap-cache/config.php
+  - APP_ROUTES_CACHE=../../../../workbench/storage/bootstrap-cache/routes-v7.php
+  - APP_EVENTS_CACHE=../../../../workbench/storage/bootstrap-cache/events.php
+
+# The package migrations, and the Workbench's fence migration of its queue file (as
+# `orrery:install --fence` writes it beside the sibling mirror file). Testbench
+# adds its default Laravel migrations because `workbench.install` is true: users, cache and
+# cache_locks, jobs, job_batches and failed_jobs.
+migrations:
+  - database/migrations
+  - workbench/database/migrations
+
+workbench:
+  start: '/orrery'
+  install: true
+  build:
+    # Every build starts from no database: this step deletes the guarded file and its -wal,
+    # -shm and -journal files. The Workbench build ignores the exit code of each step, so a
+    # later failure leaves no file or an empty one, and workbench/check.php then fails.
+    - workbench-drop-database
+    - create-sqlite-db
+    # The cache store is the file store in workbench/storage (WorkbenchConfiguration::pinCache()),
+    # which a new database file does not empty. A pause flag of queue:pause or a queue:restart
+    # time of an earlier session must not survive the build.
+    - cache:clear
+    # The only seeding path: no top-level `seeders` key, so the seeder never runs twice.
+    # The provider forces the local environment, and --force also skips the production prompt.
+    - migrate-fresh:
+        --force: true
+        --seed: true
+        --seeder: Workbench\Database\Seeders\DatabaseSeeder

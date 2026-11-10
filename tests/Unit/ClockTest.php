@@ -1,0 +1,190 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Justrau\Orrery\Tests\Unit;
+
+use Illuminate\Container\Container;
+use Illuminate\Support\Carbon;
+use Justrau\Orrery\Registration\Modules\StorageModule;
+use Justrau\Orrery\Runtime\Watcher;
+use Justrau\Orrery\Storage\Clock;
+use PHPUnit\Framework\TestCase;
+
+final class ClockTest extends TestCase
+{
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        // The watcher is a container singleton.
+        $container = new Container;
+        $container->singleton(Watcher::class);
+        Container::setInstance($container);
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+        StorageModule::resetForTesting();
+        Container::setInstance(null);
+
+        parent::tearDown();
+    }
+
+    /**
+     * Rejects: time() or a whole-second Carbon value.
+     */
+    public function test_now_follows_carbon_test_now_and_keeps_microseconds(): void
+    {
+        Carbon::setTestNow(Carbon::createFromFormat('U.u', '1790000000.123456'));
+
+        self::assertSame((float) '1790000000.123456', Clock::now());
+
+        Carbon::setTestNow(Carbon::createFromFormat('U.u', '1790000007.000001'));
+
+        self::assertSame((float) '1790000007.000001', Clock::now());
+
+        $first = Clock::monotonic();
+        $second = Clock::monotonic();
+
+        self::assertGreaterThanOrEqual($first, $second);
+    }
+
+    /**
+     * Rejects: a string cast of the float, which follows PHP's precision setting.
+     */
+    public function test_to_decimal_keeps_six_places_whatever_the_precision_setting(): void
+    {
+        $precision = ini_get('precision');
+        ini_set('precision', '14');
+
+        try {
+            self::assertSame('1789999999.1235', (string) 1789999999.123456, 'The control: a string cast loses the microseconds.');
+            self::assertSame('1789999999.123456', Clock::toDecimal(1789999999.123456));
+            self::assertSame('1789999999.123457', Clock::toDecimal(1789999999.123457));
+            self::assertSame('1790000000.000001', Clock::toDecimal(1790000000.000001));
+            self::assertSame('0.000000', Clock::toDecimal(0.0));
+            self::assertSame('-12.500000', Clock::toDecimal(-12.5));
+        } finally {
+            ini_set('precision', (string) $precision);
+        }
+
+        foreach ([NAN, INF, -INF] as $invalid) {
+            try {
+                Clock::toDecimal($invalid);
+                self::fail('A time that is not finite is refused.');
+            } catch (\InvalidArgumentException $expected) {
+                self::assertStringContainsString('finite', $expected->getMessage());
+            }
+        }
+    }
+
+    /**
+     * Rejects: %f, which writes a decimal comma in some locales.
+     */
+    public function test_to_decimal_ignores_a_decimal_comma_locale(): void
+    {
+        $locale = (string) setlocale(LC_NUMERIC, '0');
+        $comma = setlocale(LC_NUMERIC, 'de_DE.UTF-8', 'de_DE', 'fr_FR.UTF-8', 'fr_FR');
+
+        try {
+            if ($comma === false) {
+                self::markTestSkipped('This system has no locale with a decimal comma (de_DE or fr_FR).');
+            }
+
+            self::assertSame('0,5', sprintf('%.1f', 0.5), 'The control: %f follows the locale.');
+            self::assertSame('1789999999.123456', Clock::toDecimal(1789999999.123456));
+        } finally {
+            setlocale(LC_NUMERIC, $locale);
+        }
+    }
+
+    /**
+     * Rejects: an offset that monotonic() ignores, an offset that replaces the
+     * clock instead of adding to it, and a second advance that overwrites the first.
+     */
+    public function test_advance_monotonic_for_testing_adds_to_the_clock(): void
+    {
+        $before = Clock::monotonic();
+
+        Clock::advanceMonotonicForTesting(300.0);
+        Clock::advanceMonotonicForTesting(0.25);
+
+        $after = Clock::monotonic();
+        $real = hrtime(true) / 1e9;
+
+        self::assertGreaterThanOrEqual($before + 300.25, $after);
+        self::assertLessThan($before + 301.25, $after, 'The offset adds 300.25 s, not more.');
+        self::assertGreaterThan($real + 299.0, $after, 'The offset is added to the running clock.');
+    }
+
+    /**
+     * Rejects: a module reset that leaves the offset of Clock, so it leaks
+     * into the next test through the reset hook (StorageModule).
+     */
+    public function test_storage_reset_clears_the_clock_offset(): void
+    {
+        Clock::advanceMonotonicForTesting(1000.0);
+
+        StorageModule::resetForTesting();
+
+        self::assertLessThan(hrtime(true) / 1e9 + 1.0, Clock::monotonic());
+    }
+
+    /**
+     * Rejects: a watcher clock that reads hrtime() directly, so the offset of
+     * Clock does not reach it; and a frozen watcher clock that still follows it.
+     */
+    public function test_the_offset_reaches_the_watcher_clock_unless_it_is_frozen(): void
+    {
+        $before = Watcher::monotonic();
+
+        Clock::advanceMonotonicForTesting(50.0);
+
+        self::assertGreaterThanOrEqual($before + 50.0, Watcher::monotonic());
+
+        Watcher::freezeMonotonicForTesting();
+        $frozen = Watcher::monotonic();
+
+        Clock::advanceMonotonicForTesting(50.0);
+
+        self::assertSame($frozen, Watcher::monotonic());
+    }
+
+    /**
+     * Rejects: a frozen clock that still follows hrtime(), a freeze that does
+     * not keep the current value (the offset counted twice, nanoseconds), a
+     * frozen clock that ignores the test offset, and a module reset that
+     * leaves it frozen.
+     */
+    public function test_a_frozen_clock_moves_only_by_the_offset(): void
+    {
+        Clock::advanceMonotonicForTesting(5.0);
+        $before = Clock::monotonic();
+        Clock::freezeMonotonicForTesting();
+        $frozen = Clock::monotonic();
+
+        self::assertGreaterThanOrEqual($before, $frozen, 'The freeze keeps the current value.');
+        self::assertLessThan($before + 1.0, $frozen, 'The freeze does not add the offset twice.');
+
+        // Real time passes: about 1 ms of busy work.
+        $until = hrtime(true) + 1_000_000;
+        while (hrtime(true) < $until) {
+        }
+
+        self::assertSame($frozen, Clock::monotonic());
+
+        Clock::advanceMonotonicForTesting(0.25);
+
+        self::assertSame($frozen + 0.25, Clock::monotonic());
+
+        StorageModule::resetForTesting();
+        $first = Clock::monotonic();
+        $until = hrtime(true) + 1_000_000;
+        while (hrtime(true) < $until) {
+        }
+
+        self::assertGreaterThan($first, Clock::monotonic(), 'The reset lets the clock run again.');
+    }
+}

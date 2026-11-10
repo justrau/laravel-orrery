@@ -1,0 +1,17 @@
+includes:
+    - vendor/larastan/larastan/extension.neon
+
+parameters:
+    phpVersion: 80300
+    paths:
+        - config
+        - database
+        - routes
+        - src
+    level: 8
+    # The result cache of this checkout (gitignored), never the shared one in
+    # the system temporary directory: parallel checkouts and matrix legs
+    # corrupted it there. A relative path is resolved from this file.
+    tmpDir: .phpstan-cache
+    configDirectories:
+        - '%currentWorkingDirectory%/config'

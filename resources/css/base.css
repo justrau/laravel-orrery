@@ -1,0 +1,224 @@
+/*
+ * The element defaults of the page. Until the UI rebuild the
+ * Bootstrap stylesheet (resources/sass) set them, and the screens were built
+ * on them; this file keeps the same defaults, written with the tokens of
+ * tokens.css, so the screens look the same without Bootstrap. It styles
+ * elements only, never a class: each screen styles its own parts with
+ * scoped component CSS.
+ */
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+body {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-text-size-adjust: 100%;
+    background-color: var(--color-bg);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-size: var(--text-body);
+    font-weight: var(--font-weight-regular);
+    line-height: 1.5;
+    margin: 0;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-weight: var(--font-weight-medium);
+    line-height: 1.2;
+    margin-bottom: 0.5rem;
+    margin-top: 0;
+}
+
+h1 { font-size: calc(1.34375rem + 1.125vw); }
+h2 { font-size: calc(1.3rem + 0.6vw); }
+h3 { font-size: calc(1.278125rem + 0.3375vw); }
+h4 { font-size: calc(1.25625rem + 0.075vw); }
+h5 { font-size: 1.09375rem; }
+h6 { font-size: 0.875rem; }
+
+@media (min-width: 1200px) {
+    h1 { font-size: 2.1875rem; }
+    h2 { font-size: 1.75rem; }
+    h3 { font-size: 1.53125rem; }
+    h4 { font-size: 1.3125rem; }
+}
+
+hr {
+    border: 0;
+    border-top: 1px solid;
+    color: inherit;
+    margin: 1rem 0;
+    opacity: 0.25;
+}
+
+p {
+    margin-bottom: 1rem;
+    margin-top: 0;
+}
+
+ol, ul {
+    padding-left: 2rem;
+}
+
+ol, ul, dl {
+    margin-bottom: 1rem;
+    margin-top: 0;
+}
+
+ol ol, ul ul, ol ul, ul ol {
+    margin-bottom: 0;
+}
+
+dt {
+    font-weight: var(--font-weight-semibold);
+}
+
+dd {
+    margin-bottom: 0.5rem;
+    margin-left: 0;
+}
+
+b, strong {
+    font-weight: bolder;
+}
+
+small {
+    font-size: 0.875em;
+}
+
+a {
+    color: var(--color-accent);
+    text-decoration: none;
+}
+
+a:hover {
+    text-decoration: underline;
+}
+
+pre, code, kbd, samp {
+    font-family: var(--font-mono);
+    font-size: 1em;
+}
+
+pre {
+    display: block;
+    font-size: 0.875em;
+    margin-bottom: 1rem;
+    margin-top: 0;
+    overflow: auto;
+}
+
+code {
+    font-size: 0.875em;
+    overflow-wrap: break-word;
+}
+
+pre code {
+    font-size: inherit;
+    word-break: normal;
+}
+
+figure {
+    margin: 0 0 1rem;
+}
+
+img, svg {
+    vertical-align: middle;
+}
+
+table {
+    border-collapse: collapse;
+    caption-side: bottom;
+}
+
+th {
+    text-align: inherit;
+    text-align: -webkit-match-parent;
+}
+
+thead, tbody, tfoot, tr, td, th {
+    border-color: inherit;
+    border-style: solid;
+    border-width: 0;
+}
+
+label {
+    display: inline-block;
+}
+
+button {
+    border-radius: 0;
+}
+
+button:focus:not(:focus-visible) {
+    outline: 0;
+}
+
+input, button, select, optgroup, textarea {
+    font-family: inherit;
+    font-size: inherit;
+    line-height: inherit;
+    margin: 0;
+}
+
+button, select {
+    text-transform: none;
+}
+
+[role="button"] {
+    cursor: pointer;
+}
+
+button, [type="button"], [type="reset"], [type="submit"] {
+    -webkit-appearance: button;
+}
+
+button:not(:disabled), [type="button"]:not(:disabled), [type="reset"]:not(:disabled), [type="submit"]:not(:disabled) {
+    cursor: pointer;
+}
+
+textarea {
+    resize: vertical;
+}
+
+fieldset {
+    border: 0;
+    margin: 0;
+    min-width: 0;
+    padding: 0;
+}
+
+/* The date and time inputs (the FilterBar range) keep the height of a text input. */
+::-webkit-datetime-edit-fields-wrapper,
+::-webkit-datetime-edit-text,
+::-webkit-datetime-edit-minute,
+::-webkit-datetime-edit-hour-field,
+::-webkit-datetime-edit-day-field,
+::-webkit-datetime-edit-month-field,
+::-webkit-datetime-edit-year-field {
+    padding: 0;
+}
+
+::-webkit-inner-spin-button {
+    height: auto;
+}
+
+[type="search"] {
+    -webkit-appearance: textfield;
+    outline-offset: -2px;
+}
+
+::-webkit-search-decoration {
+    -webkit-appearance: none;
+}
+
+summary {
+    cursor: pointer;
+    display: list-item;
+}
+
+[hidden] {
+    display: none !important;
+}

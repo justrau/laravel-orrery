@@ -1,0 +1,82 @@
+# Dependencies and build output
+/vendor/
+/node_modules/
+/tools/browser/node_modules/
+/build/
+/composer.lock
+/yarn.lock
+/pnpm-lock.yaml
+/.pnpm-store/
+
+# Editors and OS
+/.idea/
+/.vscode/
+/.fleet/
+/.zed/
+.DS_Store
+Thumbs.db
+.~lock.*
+*.swp
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+auth.json
+*.secrets.env
+*.pem
+*.key
+/tinkerwell.php
+/.phpactor.json
+
+# Maintainers' private notes: specs, plans, reviews, scratch (never public)
+/.internal/
+/.excluded/
+/docs/superpowers/
+/docs/specs/
+/docs/plans/
+/docs/reviews/
+/docs/notes/
+/docs/solo/
+/notes/
+/scratch/
+/plans/
+/specs/
+*.local.md
+*.private.md
+/_*
+
+# AI agent state and per-user agent files (the tracked CLAUDE.md files are the shared guide)
+/.claude/
+**/.claude/settings.local.json
+CLAUDE.local.md
+/AGENTS.md
+/.agents/
+/.codex/
+/.superpowers/
+/.cursor/
+/.windsurf/
+/.aider*
+/.continue/
+/.gemini/
+
+# Test, analysis and tooling output
+/.phpunit.cache/
+/.phpunit.result.cache
+/.phpstan-cache/
+phpstan-baseline.neon
+/coverage/
+/.testbench/
+/.matrix/
+/.tia/
+/.verify/
+/screenshots/
+/test-results/
+/playwright-report/
+*.log
+
+# Workbench runtime files
+/workbench/database/**/*.sqlite*
+/workbench/database/.workbench-test-*/
+/workbench/database/.workbench-tests.lock
+/workbench/storage/

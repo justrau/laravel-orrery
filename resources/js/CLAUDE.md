@@ -1,0 +1,37 @@
+# resources/js/ (the SPA)
+
+The screens, their states and their wording live in the code and in `tests/js/`; the API they read is described in `src/Http/CLAUDE.md` and the controllers' docblocks. The design values are the tokens in `resources/css/tokens.css`; take values from there, never from screenshots. (Maintainers also keep the full UI spec privately, section 5 of `.internal/specs/2026-11-08-d8-ui-api-end-state.md`.)
+
+## After a change
+
+Run `npm test`, `npm run build` and `bin/check-assets`, and commit `dist/`. `bin/check-assets` needs Node 24 (`.nvmrc`) and npm `^11.10.0`; see `bin/CLAUDE.md`.
+
+## Rules
+
+- **CSP.** The page runs under a strict policy (README): runtime-only Vue (`App.vue` holds the root; `app.js` imports `createApp` from `vue`); no `eval` or `Function(` in `dist/app.js` (`bin/check-assets` fails); no static `style="…"`, no `<style>` inside a template and no `v-html` in a `.vue` file, and no HTML write (`.innerHTML =`, `insertAdjacentHTML()`), `eval` or style attribute in any script (`tests/Scripts/TemplateStyleTest.php`); use `:style` bindings. The bundled Inter font is a `data:` URL; the page loads no external font.
+- **Bundle budget.** `bin/check-assets` fails when `dist/app.js` passes `bundle_budget_bytes`; Vite's `chunkSizeWarningLimit` matches it.
+- **Epoch seconds.** Every number from the API goes through `toSeconds()` (`support/time.js`). Convert to local time only at display, with a zone label; a time that can be of an earlier day shows its date (`formatDayMinute()`, `formatDayClock()`, `formatDayMinuteZoned()`, `formatDayRangeZoned()`). `nowSeconds()` follows the server clock from the `as_of` of the shell's health and failure-group polls (`noteServerTime()`; an answer with a slow round trip is not used), so a skewed browser clock never makes a fresh tick late.
+- **Unknown is never zero.** A null value, an absent bucket, a failed read or `paused_unknown` shows as "—", a gap or "unknown", never as 0, "idle", "running" or "healthy". A truncated or censored value says "at least" (or "≥").
+- **canOperate.** Every write button uses `operate` (hidden, not disabled, without `window.Orrery.canOperate === true`); controls that serve only writes are hidden too. The server still refuses with 403.
+- **Frozen confirmations.** A write opens a `ConfirmSheet` with a frozen selection: the sheet deep-copies it when it opens and takes a new snapshot only when its `snapshotKey` changes. A bulk action freezes its source on the server (`POST /api/bulk/freeze`) and runs exactly that token.
+- **Cancelled preparations.** Each screen's `cancelPreparation()` starts a new operation sequence, so a slow read never opens a sheet after the user moved on.
+- **Polls.** A response is applied only while its request is the newest (`startRequest()`, `isCurrentRequest()`). `Poll.vue` never starts a poll while the previous one is pending (`createSingleFlight()`). Every GET, and the read-only POSTs (`READ_POSTS`), time out after `READ_TIMEOUT_MS`; other writes have no timeout. Background reads pass `handles` with `ANY_ERROR_STATUS` (`errors.js`: every status from 400 except 401, 403 and 419), so a failing section keeps its last data, marked stale, without a global alert. A read whose body has the wrong shape is a failed read, never "none": the shell's (`shell/data.js` `listBody()`, `objectBody()`) and a screen's own (`bodyWith()`). Nothing refreshes after unmount.
+- **Auth errors** (`errors.js`, `shell/poll.js`): 401, and 419 on a write, give the session-expired state; 403 `forbidden` the access-lost state (both stop every poll); 403 `forbidden_action` an alert for that action only. Decide on the `error` code, never `message`.
+- **Paths.** A queue page link is `queuePath()` (`support/redirects.js`): the name's "/" stay path separators, never `%2F`. localStorage goes through `support/storage.js`, which scopes every key by the base path, so two dashboards on one origin keep their own values.
+- **Text.** Every sentence is a template filled with stored data. Codes render only through `support/wording.js`. The actor (`issued_by`) is text, never HTML.
+- **Pure rules in modules.** Keep the rules that decide write lists, confirmation texts, pause causes and unknown-versus-zero in `support/*.js`, `shell/data.js`, `shell/poll.js`, `errors.js` and `screens/<screen>/*.js`, not in `.vue` files, so Node can test them. Their relative imports end in `.js` (Node ESM).
+
+## Structure
+
+- **Tokens.** `resources/css/tokens.css` holds the design tokens as CSS custom properties. Components use scoped CSS on these tokens. Do not add a CSS framework.
+- **The shell** (`shell/`): `AppShell.vue` polls every 10 s (workload, workers, health, the 1 h failure groups; slower reads on every nth poll), `Sidebar.vue`, `Toolbar.vue`, `InspectorLayout.vue`, `store.js` (the shared `live` data: each part null until its first read, with an error flag), `data.js` (sidebar, attention and footer rules), `poll.js`. A screen reads `live` instead of polling the same endpoint, and calls `requestLiveRefresh()` after a control write.
+- **The footer** (`watcherHealth()` in `data.js`) warns on a refused mirror or an uninstalled schema (their reason first, never "No tick yet"), a missing or late tick, a recent degradation, missing fence tables, operations awaiting an operator, unknown or uninstrumented parts, and retention or counts behind. Unknown is never healthy.
+- **Attention** (`data.js`): one rule for the sidebar and the Overview. It counts definite items only, says "at least" when a part is unknown, and never says a definite "0 need attention" while a part is unknown.
+- **Components** (`components/ui/`): `Button`, `Notice`, `Icon`, `WaitGauge`, `BarChart`, `Sparkline`, `ConfirmSheet`, `BulkRun`, `CursorPager`, `FilterBar`, `AlertHost`. `/gallery` shows them, only in the `local` environment.
+- **Screens** (`screens/`, routes in `routes.js`): `overview`, `queues`, `workers`, `jobs` (list and detail), `failed` (failure groups), `tags`, `classes`, `batches`, `gallery`. Old paths (`/metrics`, `/monitoring`, the old job and failed URLs) redirect.
+
+## JavaScript tests
+
+- `npm test` runs `node --test` over `tests/js/*.test.js` with `TZ=UTC` and `en_US.UTF-8`, so dates format the same everywhere. No test package; Node 24.
+- `tests/Scripts/JsTestCoverageTest.php` (group `scripts`) fails when an exported function of `support/*.js`, `shell/data.js` or `screens/<screen>/*.js` is called in no test file of its own module. It does not check `errors.js`, `shell/poll.js` or `shell/store.js`. Keep `tests/js/pending-owners.txt` free of entries.
+- The `.vue` components have no tests. A browser check runs against the Workbench (`SERVER_PORT=<port> composer serve`), in WAL and in rollback mode, and under the enforced CSP. A task result says how it was done: server command, port, PHP version, data changed, what was checked, where the screenshots are. Stop the server by its exact PIDs afterwards.

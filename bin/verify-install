@@ -1,0 +1,14 @@
+#!/usr/bin/env php
+<?php
+
+/*
+ * Consumer verification of HEAD in fresh Laravel apps.
+ * bin/verify-install --help shows the options. The logic is in
+ * bin/lib/verify-install.php; the browser smoke is tools/browser/smoke.mjs.
+ */
+
+declare(strict_types=1);
+
+require __DIR__.'/lib/verify-install.php';
+
+exit(OrreryVerify\Runner::main($argv, dirname(__DIR__), getenv()));

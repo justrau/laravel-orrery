@@ -1,0 +1,95 @@
+{
+    "name": "justrau/laravel-orrery",
+    "description": "Dashboard and monitoring for Laravel's database queue driver.",
+    "type": "library",
+    "keywords": ["laravel", "queue", "database", "dashboard", "horizon"],
+    "license": "MIT",
+    "authors": [
+        { "name": "Justas Raudonius", "homepage": "https://github.com/justrau" }
+    ],
+    "homepage": "https://github.com/justrau/laravel-orrery",
+    "support": {
+        "issues": "https://github.com/justrau/laravel-orrery/issues",
+        "source": "https://github.com/justrau/laravel-orrery",
+        "security": "https://github.com/justrau/laravel-orrery/security/policy"
+    },
+    "require": {
+        "php": "^8.3",
+        "ext-json": "*",
+        "ext-pdo": "*",
+        "laravel/framework": "^12.69.0|^13.30.0"
+    },
+    "require-dev": {
+        "larastan/larastan": "^3.4",
+        "laravel/slack-notification-channel": "^3.8",
+        "mockery/mockery": "^1.6",
+        "orchestra/testbench": "^10.0|^11.0",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^11.5.3|^12.5.8"
+    },
+    "suggest": {
+        "ext-pcntl": "Lets queue workers handle stop signals gracefully.",
+        "ext-posix": "Fallback for the terminate control when no Worker instance is available.",
+        "laravel/slack-notification-channel": "Required for Slack long-wait and stuck-job notifications.",
+        "laravel/vonage-notification-channel": "Required for SMS long-wait and stuck-job notifications."
+    },
+    "autoload": {
+        "psr-4": {
+            "Justrau\\Orrery\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Justrau\\Orrery\\Tests\\": "tests/",
+            "Workbench\\App\\": "workbench/app/",
+            "Workbench\\Database\\Seeders\\": "workbench/database/seeders/"
+        }
+    },
+    "extra": {
+        "laravel": {
+            "providers": [
+                "Justrau\\Orrery\\OrreryServiceProvider"
+            ]
+        }
+    },
+    "scripts": {
+        "post-autoload-dump": [
+            "@prepare"
+        ],
+        "prepare": "@php workbench/bin/testbench package:discover --ansi",
+        "build": [
+            "@php workbench/bin/testbench workbench:build --ansi",
+            "@php workbench/check.php"
+        ],
+        "serve": [
+            "Composer\\Config::disableProcessTimeout",
+            "@build",
+            "@php workbench/bin/testbench serve --ansi"
+        ],
+        "serve:strict": [
+            "Composer\\Config::disableProcessTimeout",
+            "@putenv WORKBENCH_AUTH=strict",
+            "@serve"
+        ],
+        "workbench:worker": [
+            "Composer\\Config::disableProcessTimeout",
+            "@php workbench/bin/testbench workbench:slow --ansi",
+            "@php workbench/bin/testbench queue:work database --queue=slow --max-time=600 --ansi"
+        ],
+        "workbench:check": "@php workbench/check.php",
+        "test": "@php vendor/bin/phpunit",
+        "test:all": [
+            "Composer\\Config::disableProcessTimeout",
+            "@php vendor/bin/phpunit --exclude-group docker"
+        ],
+        "test:docker": [
+            "Composer\\Config::disableProcessTimeout",
+            "@putenv ORRERY_DOCKER_TESTS=1",
+            "@php vendor/bin/phpunit --group docker"
+        ],
+        "lint": "@php workbench/bin/phpstan analyse"
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

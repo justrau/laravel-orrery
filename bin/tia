@@ -1,0 +1,14 @@
+#!/usr/bin/env php
+<?php
+
+/*
+ * The test impact analysis: runs only the tests that a change can affect.
+ * bin/tia --help shows the usage. The logic is in bin/lib/tia.php, the
+ * recorder in tests/Support/Tia/.
+ */
+
+declare(strict_types=1);
+
+require __DIR__.'/lib/tia.php';
+
+exit(OrreryTia\Command::main($argv, dirname(__DIR__)));

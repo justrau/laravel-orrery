@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit backupGlobals="false"
+         beStrictAboutTestsThatDoNotTestAnything="true"
+         bootstrap="tests/bootstrap.php"
+         cacheDirectory=".phpunit.cache"
+         colors="true"
+         failOnRisky="true"
+         failOnWarning="true"
+         processIsolation="false">
+    <testsuites>
+        <testsuite name="Unit">
+            <directory suffix="Test.php">./tests/Unit</directory>
+        </testsuite>
+        <testsuite name="Feature">
+            <directory suffix="Test.php">./tests/Feature</directory>
+        </testsuite>
+        <testsuite name="Controller">
+            <directory suffix="Test.php">./tests/Controller</directory>
+        </testsuite>
+        <testsuite name="Scripts">
+            <directory suffix="Test.php">./tests/Scripts</directory>
+        </testsuite>
+    </testsuites>
+    <!-- composer test is the fast package loop. composer test:all adds the
+         groups scripts (bin/test and bin/lib/testdb.php) and workbench.
+         composer test:docker runs the group docker, which also needs
+         ORRERY_DOCKER_TESTS=1. A command-line exclude-group option replaces
+         this list, so test:all names docker itself. -->
+    <groups>
+        <exclude>
+            <group>docker</group>
+            <group>scripts</group>
+            <group>workbench</group>
+        </exclude>
+    </groups>
+    <php>
+        <env name="DB_CONNECTION" value="testbench"/>
+        <env name="QUEUE_CONNECTION" value="database"/>
+        <env name="APP_KEY" value="base64:UTyp33UhGolgzCK5CJmT+hNHcA+dJyp3+oINtX+VoPI="/>
+    </php>
+</phpunit>

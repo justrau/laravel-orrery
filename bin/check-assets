@@ -1,0 +1,130 @@
+#!/usr/bin/env bash
+#
+# Reproducible assets: builds dist/ from the committed sources
+# and package-lock.json, and fails when the result differs from the committed
+# dist/.
+#
+#   bin/check-assets
+#
+# 1. It refuses to start when package-lock.json is not committed, or when
+#    dist/, package.json or package-lock.json has uncommitted changes.
+# 2. The running Node must have the major version of .nvmrc.
+# 3. npm ci --engine-strict: it fails when package-lock.json does not match
+#    package.json, or when Node or npm is outside package.json "engines".
+# 4. npm run build.
+# 5. It fails when git status shows a change in dist/, package.json or
+#    package-lock.json: a modified, staged or untracked file.
+# 5a. Before step 5, it fails when dist/app.js calls eval() or Function()
+#    The documented Content Security Policy has no
+#    'unsafe-eval'. The patterns are the spec's \bFunction\s*\( and
+#    \beval\s*\( (so `retrieval(` and `isFunction(` do not match), an
+#    indirect eval, eval or Function by a string index, setTimeout or
+#    setInterval with a string, and `.constructor("…")`. A dist/app.js that
+#    cannot be read fails too.
+# 5a2. Before step 5, it fails when dist/app.js holds a literal style
+#    attribute (`style="` or `style=\"` after a space): Vue's static
+#    stringifier can hoist a large static block, a constant :style included,
+#    as one HTML string that it inserts through innerHTML, and the policy's
+#    style-src without 'unsafe-inline' blocks that inline style.
+#    The CSSOM forms (`el.style=…`, `{style: …}`) are allowed.
+# 5b. Before step 5, it fails when dist/app.js has more bytes than the bundle
+#    budget: Orrery::js() inlines the file into every page.
+#    The budget is bundle_budget_bytes below, and vite.config.js sets
+#    chunkSizeWarningLimit to the same value in kB of 1,000 bytes
+#    (AssetsCheckTest checks that both agree).
+#
+# Exit codes: 0 the build reproduces dist/, 1 it does not or a step failed.
+
+set -euo pipefail
+
+root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
+cd "$root"
+
+fail() {
+    echo "bin/check-assets: $*" >&2
+    exit 1
+}
+
+for tool in git node npm; do
+    command -v "$tool" >/dev/null 2>&1 || fail "$tool is not on PATH"
+done
+
+# --no-optional-locks: status does not write the index of the checkout.
+changes() {
+    git --no-optional-locks status --porcelain --untracked-files=all -- dist package.json package-lock.json
+}
+
+git ls-files --error-unmatch package-lock.json >/dev/null 2>&1 || fail "package-lock.json is not committed"
+
+before=$(changes)
+if [ -n "$before" ]; then
+    printf '%s\n' "$before" >&2
+    fail "dist/, package.json or package-lock.json has uncommitted changes before the build. Commit or discard them first."
+fi
+
+[ -f .nvmrc ] || fail ".nvmrc is missing"
+wanted=$(tr -d ' \t\r\n' <.nvmrc)
+wanted=${wanted#v}
+wanted_major=${wanted%%.*}
+case "$wanted_major" in
+    '' | *[!0-9]*) fail ".nvmrc must hold a Node version such as 24, not '$wanted'" ;;
+esac
+actual=$(node --version)
+actual=${actual#v}
+if [ "${actual%%.*}" != "$wanted_major" ]; then
+    fail "node $actual is not Node $wanted_major (.nvmrc). Switch to Node $wanted_major first, for example with 'fnm use' or 'nvm use'."
+fi
+
+echo "bin/check-assets: node $actual, npm $(npm --version)"
+
+npm ci --engine-strict --no-audit --no-fund ||
+    fail "npm ci failed: package-lock.json does not match package.json, or Node or npm is outside the engines of package.json"
+npm run build || fail "npm run build failed"
+
+# The eval check (step 6), before the comparison, so it also names a build
+# that differs. A word boundary before the name: not preceded by a letter, a
+# digit or "_" (POSIX ERE has no \b; "$" and "." are boundaries, as in \b).
+# The other forms run a string as code too: an indirect eval, eval or Function
+# by a string index, a timer with a string, and Function reached through a
+# constructor. grep exit 1 is "no match"; exit 2 (a missing or unreadable
+# file) fails the check.
+eval_pattern='(^|[^[:alnum:]_])(Function|eval)[[:space:]]*\(|\(0,[[:space:]]*eval\)|\[["'"'"'](eval|Function)["'"'"']\]|set(Timeout|Interval)[[:space:]]*\([[:space:]]*["'"'"']|\.constructor[[:space:]]*\([[:space:]]*["'"'"']'
+eval_status=0
+LC_ALL=C grep -Eq "$eval_pattern" dist/app.js 2>/dev/null || eval_status=$?
+case "$eval_status" in
+    0)
+        LC_ALL=C grep -Eo ".{0,40}($eval_pattern).{0,40}" dist/app.js | head -n 5 >&2 || true
+        fail "dist/app.js calls eval() or Function(), which a Content Security Policy without 'unsafe-eval' blocks. Remove the code or the package that brings it."
+        ;;
+    1) ;;
+    *) fail "could not read dist/app.js for the eval check (grep exit $eval_status)." ;;
+esac
+
+# The style check (step 5a2): a space (a tab or a line break too) before the
+# attribute, so `el.style="…"` (the CSSOM) and `data-style=` do not match.
+style_pattern='[[:space:]]style=\\?"'
+style_status=0
+LC_ALL=C grep -Eq "$style_pattern" dist/app.js 2>/dev/null || style_status=$?
+case "$style_status" in
+    0) fail "dist/app.js holds a literal style attribute (style=\"…\"), which Vue inserts through innerHTML and the Content Security Policy blocks. Bind the style to data that is not constant, or move it into the scoped CSS of the component." ;;
+    1) ;;
+    *) fail "could not read dist/app.js for the style check (grep exit $style_status)." ;;
+esac
+
+# The bundle budget (step 5b): the size of dist/app.js when it was set (592,526
+# bytes) plus about 10%.
+bundle_budget_bytes=650000
+bundle_bytes=$(wc -c <dist/app.js) || fail "could not read dist/app.js for the bundle budget."
+bundle_bytes=$(printf '%s' "$bundle_bytes" | tr -d ' ')
+if [ "$bundle_bytes" -gt "$bundle_budget_bytes" ]; then
+    fail "dist/app.js has $bundle_bytes bytes, above the bundle budget of $bundle_budget_bytes bytes (D8 spec 8.2). Make the bundle smaller, or raise the budget here and chunkSizeWarningLimit in vite.config.js together."
+fi
+
+after=$(changes)
+if [ -n "$after" ]; then
+    printf '%s\n' "$after" >&2
+    git --no-pager diff --stat -- dist >&2 || true
+    fail "the build does not reproduce the committed dist/ (or it changed package.json or package-lock.json). Commit the rebuilt dist/ in a commit of its own, or fix the build."
+fi
+
+echo "bin/check-assets: the build reproduces the committed dist/"

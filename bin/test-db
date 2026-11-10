@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+#
+# Manage the orrery-testing test database containers and the lease registry.
+#
+#   bin/test-db up              start or verify the services, marker and token
+#   bin/test-db up --alt        the same, with the alt services (mysql-alt, pgsql-alt);
+#                               they start only while no lease is live (else exit 71)
+#   bin/test-db down            stop the services (refused while a live lease exists)
+#   bin/test-db down --dry-run  remove stale leases, report whether down would run
+#   bin/test-db down --force    humans only: stop even with live leases (asks for confirmation)
+#   bin/test-db create <base>   recreate <base> and <base>_mirror (the name must be free)
+#   bin/test-db drop <base>     drop <base> and <base>_mirror (the name must be free)
+#                               (create and drop take --alt: on the alt services too)
+#   bin/test-db status          leases, names, token, containers and test databases
+#   bin/test-db token           print the endpoint token
+#   bin/test-db path            print the registry path
+#   bin/test-db validate-name <base>
+#
+# Every command prints one JSON object on stdout. The logic is in
+# bin/lib/testdb.php. The PHP binary is $ORRERY_TEST_PHP, else php on PATH.
+
+set -euo pipefail
+
+script_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+lib="$script_dir/lib/testdb.php"
+
+usage() {
+    sed -n '3,20p' "$script_dir/test-db" | sed 's/^# \{0,1\}//' >&2
+}
+
+php=${ORRERY_TEST_PHP:-}
+if [ -z "$php" ]; then
+    php=$(command -v php || true)
+fi
+if [ -z "$php" ] || [ ! -x "$php" ] || [ -d "$php" ]; then
+    echo "bin/test-db: no usable PHP binary (set ORRERY_TEST_PHP or put php on PATH)" >&2
+    exit 64
+fi
+
+case "${1:-}" in
+    up | down | create | drop | status | token | path | validate-name)
+        # testdb.php needs only built-in functions. -n skips the ini files,
+        # so a debugger extension or a disabled function cannot affect it.
+        exec "$php" -n "$lib" "$@"
+        ;;
+    -h | --help)
+        usage
+        exit 0
+        ;;
+    *)
+        usage
+        exit 64
+        ;;
+esac

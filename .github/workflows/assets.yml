@@ -1,0 +1,44 @@
+# Reproducible assets: npm ci, the JavaScript unit tests, the
+# build, and the check that the build reproduces the committed dist/. The Node version comes from
+# .nvmrc, the npm version with it.
+
+name: assets
+
+# Manual only: start it with `gh workflow run assets.yml --ref <branch>`.
+# A push or a pull request does not start it, to save Actions minutes.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: assets-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  assets:
+    name: dist/ is reproducible
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - name: Install
+        run: npm ci --engine-strict
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build and compare
+        run: bin/check-assets

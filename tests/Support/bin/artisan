@@ -1,0 +1,312 @@
+#!/usr/bin/env php
+<?php
+
+/*
+ * The test worker CLI:
+ *
+ *   <php> tests/Support/bin/artisan <command> [arguments...]
+ *
+ * Tests start it through Tests\Support\WorkerProcess, never through
+ * vendor/bin/testbench. So testbench.yaml, the Workbench provider, the
+ * Workbench database and its seeder never load in a worker. Every path comes
+ * from the location of this file, so a matrix copy runs its own code.
+ *
+ * Steps:
+ * 1. tests/bootstrap.php: the startup gate (ORRERY_START_GATE), the Composer
+ *    autoloader, the configuration check and, for MySQL and Postgres, the
+ *    lease proof. The proof needs this process in a process group that the
+ *    run's lease lists, so a worker in its own session or group exits 78.
+ * 2. A Testbench application with only the package provider: no package
+ *    discovery, no testbench.yaml, no workbench/config. It applies the
+ *    TestEnvironment of the ORRERY_TEST_* variables, as
+ *    TestCase::defineEnvironment() does. The log goes to stderr.
+ *    ORRERY_TEST_PROVIDERS (comma-separated) adds test service providers,
+ *    for example Tests\Support\Fixtures\TestCommandsProvider. Each class
+ *    name must start with Justrau\Orrery\Tests\ (else exit 78).
+ *    ORRERY_TEST_FOREIGN_QUEUE=1 binds a foreign `database` connector after
+ *    the package provider: Laravel's own DatabaseQueue, as another package's
+ *    connector would. Any other value is refused (exit 78).
+ * 3. The command allowlist. The command name is resolved as Artisan resolves
+ *    it (abbreviations, aliases and case variants give one canonical name).
+ *    Only queue:work, queue:listen and the orrery:* commands except
+ *    orrery:install run, and the test:* commands when ORRERY_TEST_PROVIDERS
+ *    is set. Every other name, and a name that is unknown or ambiguous, is
+ *    refused before anything runs: the parent test owns the schema, and a
+ *    worker never migrates.
+ * 4. The identity check: the resolved primary and mirror connections, the
+ *    failed-job and batch configuration and the PHP version must match the
+ *    environment. Then it prints the identity line (IdentityRecord::line()).
+ *    The line holds the session id of each connection (MySQL CONNECTION_ID(),
+ *    Postgres pg_backend_pid()) or, for SQLite, this process's PID.
+ * 5. The identity gate (ORRERY_IDENTITY_GATE): the parent asserts the line,
+ *    then it creates the gate file. Nothing more runs before that.
+ * 6. Hook points: with ORRERY_TEST_BARRIER_DIR and
+ *    ORRERY_TEST_HOLD_AT (a comma-separated list of points),
+ *    Hooks::$callback holds at each point: it arrives at "<point>.reached"
+ *    and awaits "<point>.release" (see Tests\Support\Barrier). A hold keeps
+ *    waiting when the parent test process exits, as a real job keeps
+ *    running, until its release or Barrier::HOLD_SECONDS.
+ *    ORRERY_TEST_CLOCK_FILE (Tests\Support\TestClock) shifts the database
+ *    clocks: DatabaseClock::$offsetForTesting reads the parent's file at
+ *    every clock read.
+ * 7. The Artisan command.
+ *
+ * Exit codes: 64 usage or a refused command; 78 the configuration or the
+ * identity is refused; 79 a gate did not open, or the parent exited before it
+ * opened; 80 a hold did not get its release in time; 1 when the command
+ * throws; else the status of the command.
+ */
+
+declare(strict_types=1);
+
+use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Foundation\Bootstrap\LoadConfiguration;
+use Illuminate\Queue\Connectors\DatabaseConnector as LaravelDatabaseConnector;
+use Illuminate\Queue\Events\JobTimedOut;
+use Illuminate\Queue\Events\WorkerStopping;
+use Justrau\Orrery\OrreryServiceProvider;
+use Justrau\Orrery\Runtime\Hooks;
+use Justrau\Orrery\Storage\DatabaseClock;
+use Justrau\Orrery\Tests\Support\Barrier;
+use Justrau\Orrery\Tests\Support\HarnessRefusal;
+use Justrau\Orrery\Tests\Support\TestClock;
+use Justrau\Orrery\Tests\Support\TestEnvironment;
+use Justrau\Orrery\Tests\Support\Tia\ChildRecorder;
+use Justrau\Orrery\Tests\Support\WaitTimeout;
+use Justrau\Orrery\Tests\Support\WorkerProcess;
+use Orchestra\Testbench\Bootstrap\LoadConfiguration as TestbenchLoadConfiguration;
+use Orchestra\Testbench\Foundation\Application as Testbench;
+use Symfony\Component\Console\Input\ArgvInput;
+use Symfony\Component\Console\Output\ConsoleOutput;
+
+// bin/tia record: this worker records the files that it runs for the test
+// class that started it (Tests\Support\Tia\ChildRecorder). Inert unless
+// WorkerProcess handed on ORRERY_TIA_CHILD during a recording.
+if (getenv('ORRERY_TIA_CHILD') !== false) {
+    require_once __DIR__.'/../Tia/ChildRecorder.php';
+    ChildRecorder::startFromEnvironment();
+}
+
+require __DIR__.'/../../bootstrap.php';
+
+// The queue and schedule commands start their subprocesses with this file
+// instead of an application's artisan (queue:listen starts its queue:work
+// children through it), so each subprocess passes the same checks. The
+// console kernel defines the constant when it is missing, so it is defined
+// before the application exists.
+if (! defined('ARTISAN_BINARY')) {
+    define('ARTISAN_BINARY', __FILE__);
+}
+
+$refuse = static function (int $code, string $message): never {
+    fwrite(STDERR, 'orrery worker: '.$message."\n");
+
+    exit($code);
+};
+
+$parent = function_exists('posix_getppid') ? posix_getppid() : null;
+$parentExited = static fn (): bool => $parent !== null && posix_getppid() !== $parent;
+
+$variable = static function (string $name): ?string {
+    $value = getenv($name);
+
+    return is_string($value) && $value !== '' ? $value : null;
+};
+
+// The test service providers of ORRERY_TEST_PROVIDERS (validated below).
+$testProviders = array_values(array_filter(array_map('trim', explode(',', $variable('ORRERY_TEST_PROVIDERS') ?? ''))));
+
+// The commands that a worker may run, by their canonical name.
+$allowed = static fn (string $command): bool => in_array($command, ['queue:work', 'queue:listen'], true)
+    || (str_starts_with($command, 'orrery:') && $command !== 'orrery:install')
+    || ($testProviders !== [] && str_starts_with($command, 'test:'));
+$allowlist = 'A worker runs only queue:work, queue:listen, the orrery:* commands except orrery:install, and the test:* commands of ORRERY_TEST_PROVIDERS: the parent test owns the schema.';
+
+$barrierDirectory = $variable(Barrier::DIRECTORY_VARIABLE);
+$holdAt = $variable(Barrier::HOLD_VARIABLE);
+
+if (($barrierDirectory === null) !== ($holdAt === null)) {
+    $refuse(64, Barrier::DIRECTORY_VARIABLE.' and '.Barrier::HOLD_VARIABLE.' must be set together.');
+}
+
+try {
+    $barrier = $barrierDirectory === null ? null : Barrier::open($barrierDirectory);
+    $points = $holdAt === null ? [] : array_map(Barrier::validatePoint(...), explode(',', $holdAt));
+
+    $env = TestEnvironment::fromEnv();
+
+    foreach ($testProviders as $provider) {
+        if (! str_starts_with($provider, 'Justrau\\Orrery\\Tests\\') || ! class_exists($provider)) {
+            throw new HarnessRefusal("ORRERY_TEST_PROVIDERS names {$provider}, which is not a class under Justrau\\Orrery\\Tests\\.");
+        }
+    }
+
+    if ($env->inMemory()) {
+        throw new HarnessRefusal('An in-memory SQLite database belongs to one process. Run the process tests through bin/test sqlite --sqlite-file, mysql or pgsql.');
+    }
+
+    $app = (new class($env) extends Testbench {
+        public function __construct(private readonly TestEnvironment $environment)
+        {
+            parent::__construct();
+        }
+
+        protected function resolveApplicationResolvingCallback($app): void
+        {
+            parent::resolveApplicationResolvingCallback($app);
+
+            // The plain Testbench loader: it never reads testbench.yaml or
+            // workbench/config, as the Workbench loader does.
+            $app->bind(LoadConfiguration::class, TestbenchLoadConfiguration::class);
+        }
+
+        protected function defineEnvironment($app)
+        {
+            $this->environment->apply($app['config']);
+            $app['config']->set('logging.default', 'stderr');
+        }
+    })->configure(['extra' => ['providers' => [OrreryServiceProvider::class, ...$testProviders], 'dont-discover' => ['*']]])->createApplication();
+
+    // Only the framework, the package and the named test providers: a
+    // discovered or Workbench provider could change the configuration after
+    // it was applied.
+    $foreign = array_values(array_filter(
+        array_keys($app->getLoadedProviders()),
+        static fn (string $provider): bool => ! str_starts_with($provider, 'Illuminate\\') && $provider !== OrreryServiceProvider::class && ! in_array($provider, $testProviders, true),
+    ));
+
+    if ($foreign !== [] || ! $app->providerIsLoaded(OrreryServiceProvider::class)) {
+        throw new HarnessRefusal('The worker application must load only the framework providers and '.OrreryServiceProvider::class.', but it loaded: '.implode(', ', $foreign ?: ['no package provider']));
+    }
+
+    // A foreign `database` connector, bound after the package provider's,
+    // before any queue connection resolves.
+    $foreignQueue = $variable(WorkerProcess::FOREIGN_QUEUE);
+
+    if ($foreignQueue !== null) {
+        if ($foreignQueue !== '1') {
+            throw new HarnessRefusal(WorkerProcess::FOREIGN_QUEUE." must be 1 or unset, not '{$foreignQueue}'.");
+        }
+
+        $manager = $app->make('queue');
+
+        foreach (array_keys((array) $app['config']->get('queue.connections', [])) as $queueConnection) {
+            if ($manager->connected((string) $queueConnection)) {
+                throw new HarnessRefusal("The queue connection [{$queueConnection}] resolved before the foreign connector was bound.");
+            }
+        }
+
+        $manager->addConnector('database', static fn (): LaravelDatabaseConnector => new LaravelDatabaseConnector($app->make('db')));
+    }
+
+    // The command name as Artisan resolves it. The input is bound to the
+    // application's definition first, as Symfony's Application::doRun()
+    // does, so an option value is never taken for the command name.
+    $kernel = $app->make(Kernel::class);
+    $artisan = (fn () => $this->getArtisan())->call($kernel);
+    $probe = new ArgvInput;
+
+    try {
+        $probe->bind($artisan->getDefinition());
+    } catch (Throwable) {
+        // Symfony ignores these errors here too; the command validates its input later.
+    }
+
+    $name = $probe->getFirstArgument();
+
+    if (! is_string($name) || $name === '') {
+        $refuse(64, 'usage: tests/Support/bin/artisan <command> [arguments...]. '.$allowlist);
+    }
+
+    try {
+        $command = $artisan->find($name)->getName();
+    } catch (Throwable $throwable) {
+        $refuse(64, sprintf("'%s' is not exactly one command (%s). %s", $name, strtok($throwable->getMessage(), "\n"), $allowlist));
+    }
+
+    if (! is_string($command) || ! $allowed($command)) {
+        $refuse(64, sprintf("'%s' resolves to %s, which a worker does not run. %s", $name, $command ?? 'a command without a name', $allowlist));
+    }
+
+    // The parent test's clock file: the child reads it at every database clock read.
+    $clockFile = $variable(TestClock::VARIABLE);
+
+    if ($clockFile !== null) {
+        DatabaseClock::$offsetForTesting = TestClock::reader($clockFile);
+    }
+
+    $record = $env->identity($app);
+    $record->assertMatches($env);
+} catch (HarnessRefusal $refusal) {
+    $refuse(78, $refusal->getMessage());
+}
+
+fwrite(STDOUT, $record->line()."\n");
+fflush(STDOUT);
+
+$identityGate = $variable('ORRERY_IDENTITY_GATE');
+
+if ($identityGate !== null) {
+    $deadline = microtime(true) + 30.0;
+
+    while (! file_exists($identityGate)) {
+        if ($parentExited()) {
+            $refuse(79, "the parent process exited before it accepted this worker's identity (gate {$identityGate}).");
+        }
+
+        if (microtime(true) >= $deadline) {
+            $refuse(79, "the identity gate {$identityGate} did not open within 30 seconds.");
+        }
+
+        usleep(10_000);
+        clearstatcache(true, $identityGate);
+    }
+
+    // The subprocesses of this worker do not inherit an open gate.
+    putenv('ORRERY_IDENTITY_GATE');
+    unset($_ENV['ORRERY_IDENTITY_GATE'], $_SERVER['ORRERY_IDENTITY_GATE']);
+}
+
+if ($barrier !== null) {
+    Hooks::$callback = static function (string $point) use ($barrier, $points, $refuse): void {
+        if (! in_array($point, $points, true)) {
+            return;
+        }
+
+        // bin/tia record: a held worker can be killed, so its files are written first.
+        if (class_exists(ChildRecorder::class, false)) {
+            ChildRecorder::flush();
+        }
+
+        $barrier->arrive("{$point}.reached");
+
+        try {
+            $barrier->await("{$point}.release", Barrier::HOLD_SECONDS);
+        } catch (WaitTimeout $timeout) {
+            $refuse(80, $timeout->getMessage());
+        }
+    };
+}
+
+// bin/tia record: a worker that its --timeout kills (SIGKILL) dispatches
+// these events first, so it writes its files before it ends.
+if (class_exists(ChildRecorder::class, false) && ChildRecorder::active()) {
+    $app['events']->listen([WorkerStopping::class, JobTimedOut::class], static fn (): null => ChildRecorder::flush());
+}
+
+$input = new ArgvInput;
+
+// Testbench's console kernel rethrows a command's exception, and PHP exits 0
+// after Laravel's exception handler. So a throwing command ends here with 1,
+// and WorkerProcess::waitForExit() sees the failure.
+try {
+    $status = $kernel->handle($input, new ConsoleOutput);
+} catch (Throwable $throwable) {
+    fwrite(STDERR, sprintf("orrery worker: the command threw %s: %s\n%s\n", $throwable::class, $throwable->getMessage(), $throwable->getTraceAsString()));
+
+    exit(1);
+}
+
+$kernel->terminate($input, $status);
+
+exit($status);

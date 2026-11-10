@@ -1,0 +1,18 @@
+#!/usr/bin/env php
+<?php
+
+/*
+ * The local support matrix. bin/matrix --help shows the
+ * options. The logic is in bin/lib/matrix.php.
+ *
+ * Test mode (the fixture tests in tests/Scripts/MatrixRunnerTest.php only):
+ * with ORRERY_MATRIX_TEST=1, ORRERY_MATRIX_SOURCE names the checkout to take
+ * the snapshot of, ORRERY_MATRIX_OUT the directory for the run directories,
+ * and ORRERY_MATRIX_BIN_TEST a PHP script that replaces each leg's bin/test.
+ */
+
+declare(strict_types=1);
+
+require __DIR__.'/lib/matrix.php';
+
+exit(OrreryMatrix\MatrixCommand::main($argv, dirname(__DIR__), getenv()));

@@ -1,0 +1,30 @@
+# src/Monitoring/
+
+The classes' docblocks hold the full rules; this file lists the invariants.
+
+## Wait times and the measurement
+
+- `WaitTime` measures each database queue: the executable backlog (ready jobs and expired reservations), the oldest executable age, and `wait` = backlog × runtime ÷ 1000 ÷ max(1, live subscribed workers). An empty backlog gives `wait` 0; a backlog with an unknown runtime gives null. A target whose backlog read fails gives rows with `backlog_unknown: true`, never no row. Connections that share one jobs table are measured once.
+- `TickMeasurement`: one `LiveWorkers::list()` read and one `WaitTime::measure()` per tick, shared by `long_wait` and `samples`. The tick never reads the HTTP `MeasurementCache`, so an alert never comes from a cached value.
+- `MeasurementCache` shares one measurement between `/api/workload` requests through the default cache store for `dashboard.measure_cache_seconds` (5; 0 off). Not used on a host SQLite store.
+- `LongWaitPhase` raises `LongWaitDetected` per `orrery.waits`, as the last phase of the tick, so its sends delay no other phase; it runs also after the tick's deadline, with its own share. While it dispatches, its budget is the container instance `LongWaitPhase::BUDGET`, and `SendNotification` sends no channel after it ends. A failed long-wait channel is down for every queue for a backoff that grows after a further failure, kept in `NotificationState` with the cooldowns (a `failover` cache store counts as a store of one process, so they go to the mirror). Unknown rows never alert; the phase then fails with `MeasurementIncomplete`. Each dispatch is watched (`long_wait:dispatch`), so a throwing application listener ends only its own alert.
+- `NativePause` reads Laravel's queue pause from the default cache store (not on a host SQLite file).
+
+## The per-minute samples
+
+- `orrery_samples` holds one row per (`scope`, `series`, `minute`): `scope` `total` (one per covered minute), `queue` (counts, arrivals `pushed`, and the queue state) or `job` (counts per job class). `series` is a digest of the byte-exact names (`SampleCounts::series()`).
+- `SampleCounts` (phase `sample_counts`): the frontier M (`samples_counted_through`) only moves forward. A run counts from min(now − 300, M) up to the current minute, one package transaction per minute, within `samples.count_seconds`. So the last 5 minutes are recounted on every run. Reads are grouped and byte-exact (MySQL `CAST(… AS BINARY)`).
+- `pushed` is nullable without a default: minutes counted before it existed read as unknown, never 0.
+- Retention keeps a finished row that M has not passed while M moved at most `samples.count_wait_minutes` ago. After that it trims and records the minutes as invalid (`samples_invalid`) in the same transaction, so they stay unknown.
+- `SampleCoverage::of()` is the one read rule of every count reader: stored counts before M where a `total` row exists, a scan of the retained mirror rows from M on, and unknown for every invalid, retired, uncovered or no longer retained minute. A covered quiet minute is 0.
+- `orrery:clear-metrics` (`SampleCounts::clear()`) deletes the counts, keeps the queue state, deletes M and adds an invalid interval for the cleared span.
+
+## Stuck signals, incidents and notifications
+
+- `StuckSignals` is a pure evaluator over a row and the config: `reservation_expired`, `outcome_not_observed`, `repeated_releases` (`stuck.release_threshold`), `attempts_not_capped` (`stuck.attempt_threshold`). No signal claims a process death, a crash or an eventual pickup. Worker liveness is not a signal.
+- `StuckIncidents` (phase `stuck_incidents`): one `orrery_incidents` row per (`job_uuid`, `cycle`, `signal`), plus `unknown` rows (not for the reason `connection_removed`, `StuckIncidents::SILENT_REASONS`). Creation walks each signal's index ranges after a persisted cursor; delivery of `StuckJobDetected` (the late phase `stuck_events`, so a slow listener delays no earlier phase; it runs also after the tick's deadline) uses guarded claims with at most 3 attempts, and deletes an incident whose job is gone, moved to another cycle, or left the state of its signal (finished in the same cycle). The first run writes `incidents_since`, so an install raises no event for old `unknown` rows; an active row with a signal raises its incident at once. A signal whose deferred index is missing is skipped and reported as `index_missing`.
+- `StuckNotifications` (phase `stuck_notifications`, just before `long_wait`, so a slow channel delays no earlier phase; it runs also after the tick's deadline, with its own share) sends each incident to the long-wait routes (mail, Slack, SMS), apart from the event, with per-channel state, guarded rounds, backoffs and cooldowns (`orrery_notify_cooldowns`). A channel that only the application's own notification names has no summary path, so it skips the cooldown. A round ends an incident whose job left the state of its signal or that is older than `MAX_AGE_SECONDS`. While every package channel is down, a round waits unspent, unless the application binds its own notification (its via() may name another channel). A failed summary marks its channel down for the rest of the run. Only a round that tries a send counts against the run's rows: a round whose channels are all suppressed or down takes none. Sends run outside any transaction. With `stuck.notify` false, due rounds end, so turning it on again sends nothing old.
+
+## Tag monitoring
+
+`MonitoredTagCache` caches the monitoring version and the monitored tags for 10 s per process. `MonitoringRepair` (phase `monitoring_repair`) fixes tagged rows with an old `monitor_version`.

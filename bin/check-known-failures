@@ -1,0 +1,15 @@
+#!/usr/bin/env php
+<?php
+
+/*
+ * Classifies the failures of one PHPUnit run against tests/known-failures.md,
+ * and checks that every test of the required groups ran.
+ * bin/check-known-failures --help shows the arguments. The logic is in
+ * bin/lib/known-failures.php, which bin/matrix uses too.
+ */
+
+declare(strict_types=1);
+
+require __DIR__.'/lib/known-failures.php';
+
+exit(OrreryMatrix\CheckCommand::main($argv, dirname(__DIR__)));

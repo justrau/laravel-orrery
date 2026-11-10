@@ -1,0 +1,32 @@
+# The package export. tests/Scripts/ExportTest.php checks that
+# `git archive` holds exactly the shipped paths: src/, config/, database/,
+# routes/, resources/, stubs/, dist/, composer.json, LICENSE, NOTICE.md,
+# README.md and CHANGELOG.md. A new top-level path needs a decision there.
+
+# The agent instruction files, at any depth.
+CLAUDE.md export-ignore
+AGENTS.md export-ignore
+
+# Development only.
+/.github export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/.npmrc export-ignore
+/.nvmrc export-ignore
+/bin export-ignore
+/docker export-ignore
+/docs export-ignore
+/tests export-ignore
+/tools export-ignore
+/workbench export-ignore
+/CONTRIBUTING.md export-ignore
+/SECURITY.md export-ignore
+/package.json export-ignore
+/package-lock.json export-ignore
+/phpstan.neon.dist export-ignore
+/phpunit.xml.dist export-ignore
+/testbench.yaml export-ignore
+/vite.config.js export-ignore
+
+# The committed build output.
+/dist/* -diff linguist-generated

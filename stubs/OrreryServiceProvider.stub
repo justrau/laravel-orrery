@@ -1,0 +1,48 @@
+<?php
+
+namespace App\Providers;
+
+use Illuminate\Support\Facades\Gate;
+use Justrau\Orrery\Orrery;
+use Justrau\Orrery\OrreryApplicationServiceProvider;
+
+class OrreryServiceProvider extends OrreryApplicationServiceProvider
+{
+    public function boot(): void
+    {
+        parent::boot();
+
+        // Read the routes from config, not from the env helper: after
+        // config:cache, the env helper returns null here. A null or empty
+        // route turns its channel off. The Slack route is a webhook URL, or
+        // a channel name or id for the Web API (with the bot token in
+        // services.slack.notifications.bot_user_oauth_token).
+        // Define services.slack.notifications.orrery_webhook_url in
+        // config/services.php.
+        // Orrery::routeMailNotificationsTo('admin@example.com');
+        // Orrery::routeSlackNotificationsTo(config('services.slack.notifications.orrery_webhook_url'));
+        // Orrery::routeSmsNotificationsTo('15556667777');
+    }
+
+    /**
+     * viewOrrery opens the dashboard and its read routes. operateOrrery also
+     * allows the actions that change state: pause, continue and terminate,
+     * retry a job or a batch, retry or forget the jobs of failure groups,
+     * and add or remove a monitored tag. The local environment always has
+     * both abilities.
+     */
+    protected function gate(): void
+    {
+        Gate::define('viewOrrery', function ($user = null) {
+            return in_array($user?->email ?? '', [
+                // 'admin@example.com',
+            ]);
+        });
+
+        Gate::define('operateOrrery', function ($user = null) {
+            return in_array($user?->email ?? '', [
+                // 'admin@example.com',
+            ]);
+        });
+    }
+}

@@ -1,0 +1,456 @@
+#!/usr/bin/env php
+<?php
+
+/*
+ * The tick benchmark. It is not part of any test run.
+ *
+ *   bin/benchmark-tick <sqlite|mysql|pgsql> [options]
+ *
+ * It runs tests/Benchmark/TickBenchmark.php through bin/test, so each run gets
+ * the harness database, its lease and its endpoint proof:
+ *
+ * - sqlite: a SQLite file on disk (bin/test sqlite --sqlite-file). Default
+ *   sizes 500,000 and 1,000,000 rows.
+ * - mysql, pgsql: the test containers keep their data in a tmpfs (MySQL
+ *   512 MB, Postgres 1 GiB). A full tmpfs refuses every connection of every
+ *   run on the machine. So EVERY server invocation, also one with --rows or
+ *   --sizes, first reads the bytes that the server uses (a run that seeds
+ *   nothing) and refuses (exit 1) when the probe does not fit in the budget
+ *   below. Then it runs a probe: it seeds a few thousand rows (at most about
+ *   32 MB) and measures the bytes per row of every table (the optional jobs
+ *   index included) and the bytes that the server uses now. The safe size N
+ *   is the rows whose bytes stay below --share of the tmpfs, less the used
+ *   bytes and --reserve-mb (the WAL or redo log), and at most 1,000,000.
+ *   Without --rows or --sizes the sizes are N/2 and N. A requested size above
+ *   N is refused (exit 1) before any seed of the benchmark.
+ * - The capacity options can only make the run smaller: --share at most
+ *   0.6, --tmpfs-mb at most the container's tmpfs, --reserve-mb at least 200.
+ *
+ * Each size runs three ticks, one phase at a time, each phase with its own
+ * deadline: the first tick (it also does the one-time work of the new rows),
+ * a second tick without the optional jobs index, and a third tick with it.
+ * The totals are sums of these isolated phase runs, not a whole tick with one
+ * shared deadline. The report has the status (ran, failed, skipped, overrun),
+ * the latency, the statements, the rows read and written and the peak memory
+ * of each phase. A phase that did not complete fails the run (exit 1), and
+ * the report is still written. Below 1,000,000 rows the report also
+ * extrapolates each phase to 1,000,000 rows: linearly through its two sizes
+ * (a + b * rows) when its rows read grew by more than 20% with the size, or
+ * when no rows-read counter exists (SQLite). A phase whose rows read did not
+ * grow does bounded work per tick (a batch, a cursor), so it keeps the larger
+ * measured latency.
+ *
+ * Options:
+ *   --rows=N          the largest size (the sizes are N/2 and N)
+ *   --sizes=A,B       explicit cumulative sizes
+ *   --payload=BYTES   the payload of each job (200 to 8192, default 700)
+ *   --probe-rows=N    the rows of the server probe (100 to 5000, default
+ *                     5000; fewer when the probe would exceed 32 MB)
+ *   --share=F         the part of the tmpfs to use (at most 0.6, the default)
+ *   --tmpfs-mb=M      the tmpfs size (at most the default: MySQL 512, Postgres 1024)
+ *   --reserve-mb=M    the bytes kept free besides the data (at least 200, the default)
+ *   --base=NAME       the database base name (default orrery_b22_bm)
+ *   --php=BINARY      the PHP binary (default: bin/test's rule)
+ *   --output=FILE     the JSON report (default: a temporary file)
+ *   --dry-run         run the probe (servers) and print the plan, without
+ *                     the benchmark run
+ *
+ * ORRERY_BENCHMARK_FAKE_PROBE=<file> (tests only) replaces the used-bytes run
+ * and the probe run with a probe report from a file (the used bytes before
+ * the probe are its `used_bytes`, else its `server_bytes`). With it, the
+ * script never starts a run: it prints the plan or refuses, and exits.
+ *
+ * The server runs always drop their databases (--drop-database). Exit
+ * codes: 0 success, 64 usage, 1 a refused size, a failed run or an
+ * incomplete measurement.
+ */
+
+declare(strict_types=1);
+
+const TMPFS_MB = ['mysql' => 512, 'pgsql' => 1024];
+const MAX_ROWS = 1_000_000;
+const MAX_SHARE = 0.6;
+const MIN_RESERVE_MB = 200;
+const PROBE_BYTES = 33_554_432;
+
+$root = dirname(__DIR__);
+$args = $argv;
+array_shift($args);
+
+if ($args === [] || in_array($args[0], ['-h', '--help'], true)) {
+    fwrite(STDOUT, usage());
+    exit($args === [] ? 64 : 0);
+}
+
+$engine = array_shift($args);
+
+if (! in_array($engine, ['sqlite', 'mysql', 'pgsql'], true)) {
+    fwrite(STDERR, "bin/benchmark-tick: the engine is sqlite, mysql or pgsql.\n");
+    exit(64);
+}
+
+$options = ['payload' => '700', 'probe-rows' => '5000', 'share' => (string) MAX_SHARE, 'reserve-mb' => (string) MIN_RESERVE_MB, 'base' => 'orrery_b22_bm'];
+$dryRun = false;
+
+foreach ($args as $arg) {
+    if ($arg === '--dry-run') {
+        $dryRun = true;
+
+        continue;
+    }
+
+    if (preg_match('/^--(rows|sizes|payload|probe-rows|share|tmpfs-mb|reserve-mb|base|php|output)=(.+)$/', $arg, $match) !== 1) {
+        fwrite(STDERR, "bin/benchmark-tick: unknown argument {$arg}\n");
+        exit(64);
+    }
+
+    $options[$match[1]] = $match[2];
+}
+
+$usage = static function (string $message): never {
+    fwrite(STDERR, "bin/benchmark-tick: {$message}\n");
+    exit(64);
+};
+
+if (preg_match('/^orrery_b22_bm[a-z0-9_]{0,20}$/', $options['base']) !== 1) {
+    $usage('the base name must start with orrery_b22_bm.');
+}
+
+$integer = static fn (string $value): ?int => preg_match('/^[1-9][0-9]{0,8}$/', $value) === 1 ? (int) $value : null;
+
+$payload = $integer($options['payload']);
+$probeRows = $integer($options['probe-rows']);
+$reserveMb = $integer($options['reserve-mb']);
+$share = preg_match('/^(0|1)?\.[0-9]{1,4}$|^1$/', $options['share']) === 1 ? (float) $options['share'] : null;
+
+if ($payload === null || $payload < 200 || $payload > 8192) {
+    $usage('--payload is a whole number of bytes from 200 to 8192.');
+}
+
+if ($probeRows === null || $probeRows < 100 || $probeRows > 5000) {
+    $usage('--probe-rows is a whole number from 100 to 5000.');
+}
+
+if ($share === null || $share <= 0 || $share > MAX_SHARE) {
+    $usage('--share is a number above 0 and at most 0.6: the benchmark never uses more of the tmpfs.');
+}
+
+if ($reserveMb === null || $reserveMb < MIN_RESERVE_MB) {
+    $usage('--reserve-mb is a whole number of megabytes, at least 200.');
+}
+
+$tmpfsMb = null;
+
+if ($engine !== 'sqlite') {
+    $tmpfsMb = isset($options['tmpfs-mb']) ? $integer($options['tmpfs-mb']) : TMPFS_MB[$engine];
+
+    if ($tmpfsMb === null || $tmpfsMb > TMPFS_MB[$engine]) {
+        $usage('--tmpfs-mb is a whole number of megabytes, at most the container tmpfs ('.TMPFS_MB[$engine].' MB for '.$engine.').');
+    }
+}
+
+$requested = null;
+
+if (isset($options['sizes'])) {
+    $requested = [];
+
+    foreach (explode(',', $options['sizes']) as $size) {
+        $requested[] = $integer($size) ?? $usage('--sizes is a list of whole numbers from 1 to 1,000,000.');
+    }
+} elseif (isset($options['rows'])) {
+    $rows = $integer($options['rows']) ?? $usage('--rows is a whole number from 2 to 1,000,000.');
+    $requested = [intdiv($rows, 2), $rows];
+}
+
+if ($requested !== null && (min($requested) < 1 || max($requested) > MAX_ROWS)) {
+    $usage('each size is from 1 to 1,000,000 rows.');
+}
+
+$output = $options['output'] ?? (sys_get_temp_dir().'/orrery-benchmark-'.$engine.'-'.getmypid().'.json');
+$env = ['ORRERY_BENCHMARK' => '1', 'ORRERY_BENCHMARK_PAYLOAD' => (string) $payload];
+$fakeProbe = getenv('ORRERY_BENCHMARK_FAKE_PROBE');
+$fakeProbe = is_string($fakeProbe) && $fakeProbe !== '' ? $fakeProbe : null;
+
+if ($engine === 'sqlite') {
+    $sizes = $requested ?? [MAX_ROWS / 2, MAX_ROWS];
+} else {
+    // The probe itself stays small: about 2 x payload + 2.6 KB per row, at most 32 MB.
+    $probeRows = min($probeRows, max(100, intdiv(PROBE_BYTES, 2 * $payload + 2600)));
+    $probeBytes = $probeRows * (2 * $payload + 2600);
+    $tmpfs = (float) $tmpfsMb * 1_048_576;
+
+    // Before the probe seeds anything, read the bytes that the server uses now (a run that
+    // seeds nothing). When the probe does not fit in the budget (the share of the tmpfs less
+    // the used bytes and the reserve), refuse: the benchmark could not run in that budget
+    // either, and the probe must not fill a tmpfs that is nearly full.
+    if ($fakeProbe !== null) {
+        $fake = json_decode((string) file_get_contents($fakeProbe), true, 512, JSON_THROW_ON_ERROR);
+        $usedBytes = (int) ($fake['used_bytes'] ?? $fake['server_bytes']);
+    } else {
+        $usedFile = $output.'.usage.json';
+        $status = run($root, $engine, $options, 'test_server_bytes', $env + ['ORRERY_BENCHMARK_OUT' => $usedFile, 'ORRERY_TEST_DATABASE' => $options['base'].'_probe']);
+
+        if ($status !== 0 || ! is_file($usedFile)) {
+            fwrite(STDERR, "bin/benchmark-tick: the used-bytes run failed ({$status}).\n");
+            exit(1);
+        }
+
+        $usedBytes = (int) json_decode((string) file_get_contents($usedFile), true, 512, JSON_THROW_ON_ERROR)['server_bytes'];
+    }
+
+    $probeBudget = $tmpfs * $share - $usedBytes - (float) $reserveMb * 1_048_576;
+
+    if ($probeBudget < $probeBytes) {
+        fwrite(STDERR, sprintf(
+            "bin/benchmark-tick: refused: the probe itself needs about %.1f MB, but the budget is %.1f MB (%.0f MB used on the server, %d MB reserve, %.0f MB tmpfs). Nothing was seeded. Drop unused test databases first.\n",
+            $probeBytes / 1_048_576,
+            $probeBudget / 1_048_576,
+            $usedBytes / 1_048_576,
+            $reserveMb,
+            $tmpfs / 1_048_576,
+        ));
+        exit(1);
+    }
+
+    if ($fakeProbe !== null) {
+        $probe = $fakeProbe;
+    } else {
+        $probe = $output.'.probe.json';
+        $status = run($root, $engine, $options, 'test_bytes_per_row', $env + ['ORRERY_BENCHMARK_OUT' => $probe, 'ORRERY_BENCHMARK_PROBE_ROWS' => (string) $probeRows, 'ORRERY_TEST_DATABASE' => $options['base'].'_probe']);
+
+        if ($status !== 0 || ! is_file($probe)) {
+            fwrite(STDERR, "bin/benchmark-tick: the probe run failed ({$status}).\n");
+            exit(1);
+        }
+    }
+
+    $measured = json_decode((string) file_get_contents($probe), true, 512, JSON_THROW_ON_ERROR);
+    $budget = $tmpfs * $share - (int) $measured['server_bytes'] - (float) $reserveMb * 1_048_576;
+    $safe = (int) min(MAX_ROWS, max(0, floor($budget / max(1, (int) $measured['bytes_per_row']) / 1000) * 1000));
+
+    fwrite(STDOUT, sprintf(
+        "Probe: %d bytes per row (%s), %.0f MB used on the server; budget %.0f MB of the %.0f MB tmpfs: at most %d rows.\n",
+        $measured['bytes_per_row'],
+        json_encode($measured['table_bytes']),
+        $measured['server_bytes'] / 1_048_576,
+        max(0, $budget) / 1_048_576,
+        $tmpfs / 1_048_576,
+        $safe,
+    ));
+
+    if ($requested !== null && max($requested) > $safe) {
+        fwrite(STDERR, sprintf("bin/benchmark-tick: refused: %d rows requested, but the tmpfs has room for at most %d rows. Nothing was seeded for the benchmark.\n", max($requested), $safe));
+        exit(1);
+    }
+
+    if ($requested === null && $safe < 10_000) {
+        fwrite(STDERR, "bin/benchmark-tick: the tmpfs has room for fewer than 10,000 rows. Drop unused test databases first.\n");
+        exit(1);
+    }
+
+    $sizes = $requested ?? [intdiv($safe, 2), $safe];
+}
+
+sort($sizes);
+fwrite(STDOUT, 'Plan: '.$engine.' sizes '.implode(', ', $sizes).".\n");
+
+if ($dryRun || $fakeProbe !== null) {
+    exit(0);
+}
+
+$env['ORRERY_BENCHMARK_SIZES'] = implode(',', $sizes);
+$env['ORRERY_BENCHMARK_OUT'] = $output;
+
+if ($engine !== 'sqlite') {
+    $env['ORRERY_TEST_DATABASE'] = $options['base'];
+}
+
+$status = run($root, $engine, $options, 'test_tick_phases', $env);
+
+if (! is_file($output)) {
+    fwrite(STDERR, "bin/benchmark-tick: the benchmark run wrote no report ({$status}).\n");
+    exit(1);
+}
+
+$report = json_decode((string) file_get_contents($output), true, 512, JSON_THROW_ON_ERROR);
+fwrite(STDOUT, markdown($report));
+fwrite(STDOUT, "\nReport: {$output}\n");
+
+if ($status !== 0) {
+    fwrite(STDERR, "bin/benchmark-tick: the benchmark run failed or a phase measurement is incomplete ({$status}). The report above shows the status of each phase.\n");
+}
+
+exit($status === 0 ? 0 : 1);
+
+/**
+ * Runs one test of the benchmark through bin/test.
+ *
+ * @param  array<string, string>  $options
+ * @param  array<string, string>  $env
+ */
+function run(string $root, string $engine, array $options, string $test, array $env): int
+{
+    $command = [$root.'/bin/test', $engine];
+
+    if ($engine === 'sqlite') {
+        $command[] = '--sqlite-file';
+    } else {
+        $command[] = '--drop-database';
+    }
+
+    if (isset($options['php'])) {
+        $command[] = '--php='.$options['php'];
+    }
+
+    array_push($command, '--', $root.'/tests/Benchmark/TickBenchmark.php', '--filter', $test, '--do-not-cache-result');
+
+    // The child's output goes through this process, so a redirect of this
+    // script to a file keeps every line in order.
+    $process = proc_open($command, [0 => STDIN, 1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, $root, $env + getenv());
+
+    if (! is_resource($process)) {
+        return 1;
+    }
+
+    while (($line = fgets($pipes[1])) !== false) {
+        fwrite(STDOUT, $line);
+    }
+
+    fclose($pipes[1]);
+
+    return proc_close($process);
+}
+
+/**
+ * @param  array<string, mixed>  $report
+ */
+function markdown(array $report): string
+{
+    $out = sprintf("\n## %s (PHP %s, Laravel %s, payload %d bytes)\n", $report['engine'], $report['php'], $report['laravel'], $report['payload_bytes']);
+
+    foreach ($report['sizes'] as $size) {
+        $out .= sprintf("\n### %s rows (seeded in %.1f s; optional index built in %.2f s)\n\n", number_format($size['rows']), $size['seed_seconds'], $size['index_seconds'] ?? 0);
+        $out .= "| Phase | First tick ms | Tick ms | Tick ms with index | Statements | Rows read (first, tick, with index) | Rows written (first, tick) | Peak memory (KB) | Status |\n";
+        $out .= "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |\n";
+
+        foreach ($size['without_index'] as $i => $phase) {
+            $first = $size['first_tick'][$i] ?? [];
+            $indexed = $size['with_index'][$i] ?? [];
+            $out .= sprintf(
+                "| %s (%d) | %.1f | %.1f | %.1f | %d / %d | %s / %s / %s | %s / %s | %d | %s |\n",
+                $phase['phase'],
+                $phase['priority'],
+                $first['ms'] ?? 0,
+                $phase['ms'],
+                $indexed['ms'] ?? 0,
+                $first['statements'] ?? 0,
+                $phase['statements'],
+                $first['rows_read'] ?? 'n/a',
+                $phase['rows_read'] ?? 'n/a',
+                $indexed['rows_read'] ?? 'n/a',
+                $first['rows_written'] ?? 'n/a',
+                $phase['rows_written'] ?? 'n/a',
+                max($first['memory_kb'] ?? 0, $phase['memory_kb'], $indexed['memory_kb'] ?? 0),
+                status(['first' => $first, 'tick' => $phase, 'with index' => $indexed]),
+            );
+        }
+
+        $out .= retentionLine($size);
+    }
+
+    $sizes = $report['sizes'];
+
+    if (count($sizes) >= 2 && end($sizes)['rows'] < MAX_ROWS) {
+        [$small, $large] = [$sizes[count($sizes) - 2], $sizes[count($sizes) - 1]];
+        $out .= sprintf("\n### Extrapolation to %s rows (linear through %s and %s rows)\n\n", number_format(MAX_ROWS), number_format($small['rows']), number_format($large['rows']));
+        $out .= "| Phase | First tick ms | Tick ms | Tick ms with index |\n| --- | ---: | ---: | ---: |\n";
+
+        foreach ($large['without_index'] as $i => $phase) {
+            $out .= sprintf(
+                "| %s | %.0f | %.0f | %.0f |\n",
+                $phase['phase'],
+                extrapolate($small['rows'], $small['first_tick'][$i], $large['rows'], $large['first_tick'][$i]),
+                extrapolate($small['rows'], $small['without_index'][$i], $large['rows'], $phase),
+                extrapolate($small['rows'], $small['with_index'][$i], $large['rows'], $large['with_index'][$i]),
+            );
+        }
+    }
+
+    return $out;
+}
+
+/**
+ * The retention throughput of one size: the deleted rows and the rows per
+ * second of each of the three retention phase runs.
+ *
+ * @param  array<string, mixed>  $size
+ */
+function retentionLine(array $size): string
+{
+    $runs = [];
+
+    foreach (['first_tick' => 'first tick', 'without_index' => 'tick', 'with_index' => 'tick with index'] as $key => $label) {
+        foreach ($size[$key] ?? [] as $phase) {
+            if (($phase['phase'] ?? null) === 'retention' && ($phase['retention_deleted'] ?? null) !== null) {
+                $runs[] = sprintf('%s %s rows in %.1f ms (%s rows/s%s)', $label, number_format($phase['retention_deleted']), $phase['ms'], number_format($phase['retention_rows_per_second'] ?? 0), ($phase['retention_behind'] ?? null) === true ? ', behind' : '');
+            }
+        }
+    }
+
+    return $runs === [] ? '' : "\nRetention: ".implode('; ', $runs).".\n";
+}
+
+/**
+ * "complete" when each of the three runs of a phase ran without a failure,
+ * a skip or an overrun; else the runs that did not complete.
+ *
+ * @param  array<string, array<string, mixed>>  $runs
+ */
+function status(array $runs): string
+{
+    $problems = [];
+
+    foreach ($runs as $label => $run) {
+        if (($run['complete'] ?? false) === true) {
+            continue;
+        }
+
+        $flags = array_keys(array_filter(['failed' => $run['failed'] ?? false, 'skipped' => $run['skipped'] ?? false, 'overrun' => $run['overrun'] ?? false, 'not run' => ! ($run['ran'] ?? false)]));
+        $problems[] = $label.': '.implode(', ', $flags).(($run['error'] ?? null) !== null ? ' ('.$run['error'].')' : '');
+    }
+
+    return $problems === [] ? 'complete' : str_replace('|', '/', implode('; ', $problems));
+}
+
+/**
+ * @param  array{ms: float, rows_read: ?int}  $small
+ * @param  array{ms: float, rows_read: ?int}  $large
+ */
+function extrapolate(int $x1, array $small, int $x2, array $large): float
+{
+    [$y1, $y2] = [(float) $small['ms'], (float) $large['ms']];
+    $grows = $small['rows_read'] === null || $large['rows_read'] === null || $large['rows_read'] > 1.2 * max(1, $small['rows_read']);
+
+    if (! $grows || $x2 <= $x1 || $y2 <= $y1) {
+        return max($y1, $y2);
+    }
+
+    return $y2 + ($y2 - $y1) / ($x2 - $x1) * (MAX_ROWS - $x2);
+}
+
+function usage(): string
+{
+    return <<<'TXT'
+bin/benchmark-tick <sqlite|mysql|pgsql> [--rows=N] [--sizes=A,B] [--payload=BYTES] [--probe-rows=N]
+                   [--share=F] [--tmpfs-mb=M] [--reserve-mb=M] [--base=orrery_b22_bm...] [--php=BINARY]
+                   [--output=FILE] [--dry-run]
+
+Seeds the jobs and mirror tables and runs every orrery:tick phase once per size, one phase at a
+time, without and with the optional jobs index (Spec B §11). SQLite runs 500,000 and 1,000,000
+rows on a file. For MySQL and Postgres, every run first probes the bytes per row and the used
+bytes, and refuses (exit 1) any size above 60% of the container tmpfs less the used bytes and
+200 MB. The capacity options can only lower that limit. Server databases are always dropped.
+An incomplete phase measurement fails the run (exit 1). --dry-run prints the plan only.
+
+TXT;
+}

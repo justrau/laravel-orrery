@@ -1,0 +1,4 @@
+# Exported helper functions whose tests wait for the task that rewrites them.
+# One line per function: <module> <function> <task>.
+# The module path is relative to resources/js. The task removes its line when
+# it adds the tests. This file is empty at the end of the phase.

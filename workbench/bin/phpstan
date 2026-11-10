@@ -1,0 +1,58 @@
+#!/usr/bin/env php
+<?php
+
+/*
+ * The entry point of `composer lint`: `php workbench/bin/phpstan analyse`.
+ *
+ * Larastan boots a Laravel application before PHPStan analyses the package. For a package it
+ * creates the application through Testbench with the testbench.yaml of this repository, so the
+ * Workbench provider registers and runs its checks. That provider refuses to run when a
+ * bootstrap cache path is not the owned file in workbench/storage/bootstrap-cache (see
+ * WorkbenchBootstrapCache). Larastan's bootstrap runs before every bootstrap file of
+ * phpstan.neon.dist, so only a launcher can set the paths first.
+ *
+ * This launcher sets the same process state as workbench/bin/testbench, and then runs PHPStan:
+ *  - the five bootstrap cache paths point at workbench/storage/bootstrap-cache, so Laravel reads
+ *    and writes the manifests there and not in Testbench's shared skeleton;
+ *  - TESTBENCH_WORKING_PATH is the repository;
+ *  - the vendor of Testbench's skeleton is a symbolic link to this checkout's vendor directory, so
+ *    Testbench neither creates nor removes it (WorkbenchSkeleton describes why that matters).
+ * PHPStan runs as a child process with the same PHP binary and arguments, and inherits this
+ * environment (its worker processes too). It cannot run in this process: the PHPStan PHAR loads
+ * its own prefixed copies of Composer packages, and Composer skips a package's autoloaded
+ * function files when this process already loaded the same package from the checkout.
+ */
+
+declare(strict_types=1);
+
+$repository = dirname(__DIR__, 2);
+
+require $repository.'/vendor/autoload.php';
+
+Workbench\App\Support\WorkbenchBootstrapCache::pin();
+
+putenv('TESTBENCH_WORKING_PATH='.$repository);
+$_ENV['TESTBENCH_WORKING_PATH'] = $repository;
+$_SERVER['TESTBENCH_WORKING_PATH'] = $repository;
+
+$skeleton = Orchestra\Testbench\default_skeleton_path();
+
+if (! is_string($skeleton)) {
+    throw new RuntimeException('Cannot find the Testbench skeleton (vendor/orchestra/testbench-core/laravel). Run composer install.');
+}
+
+Workbench\App\Support\WorkbenchSkeleton::ensureVendorLink($skeleton, $repository.'/vendor');
+unset($skeleton);
+
+$phpstan = proc_open(
+    [PHP_BINARY, $repository.'/vendor/bin/phpstan', ...array_slice($_SERVER['argv'], 1)],
+    [STDIN, STDOUT, STDERR],
+    $pipes,
+);
+
+if ($phpstan === false) {
+    fwrite(STDERR, "Cannot start PHPStan.\n");
+    exit(1);
+}
+
+exit(proc_close($phpstan));

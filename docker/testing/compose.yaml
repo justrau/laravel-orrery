@@ -1,0 +1,152 @@
+# Disposable test database servers for laravel-orrery.
+#
+# Only bin/lib/testdb.php (through bin/test-db and bin/test) operates this
+# project. It always passes `--project-name orrery-testing --file <this file>`.
+# Do not start it by hand while a test run holds a lease.
+#
+# Both services keep their data in tmpfs, so a stop or a recreate discards
+# every database, including the orrery_marker endpoint marker. The next
+# `bin/test-db up` then writes a new token.
+#
+# The published ports are bound to 127.0.0.1 only. The port variables exist
+# for the ownership tests (a throwaway listener on a spare port). The defaults
+# are the project ports.
+
+name: orrery-testing
+
+services:
+  mysql:
+    image: mysql:8.4
+    # The data is in a 512 MB tmpfs that lives as long as the container.
+    # Without the first two flags the binary log (kept 30 days by default)
+    # grows with every migration of every test run, and the redo log
+    # preallocates 100 MB.
+    #
+    # The kernel charges the tmpfs pages to the memory limit of the container,
+    # so mysqld and the data share the 1g limit. The other flags make mysqld
+    # smaller: performance_schema allocated more than 100 MiB (measured
+    # 2026-09-24), and no test or script reads it (INFORMATION_SCHEMA.PROCESSLIST
+    # does not need it), the log buffer default is 64 MiB, and the test databases fit
+    # in a 64 MiB buffer pool. Three concurrent full suites (2026-09-24) took
+    # the container to a peak of 921 MiB with the old flags and 560 MiB with
+    # these flags; the tmpfs peak was about 155 MiB both times.
+    command:
+      - "--skip-log-bin"
+      - "--innodb-redo-log-capacity=33554432"
+      - "--performance-schema=OFF"
+      - "--innodb-log-buffer-size=16777216"
+      - "--innodb-buffer-pool-size=67108864"
+    environment:
+      MYSQL_ROOT_PASSWORD: orrery
+    ports:
+      - "127.0.0.1:${ORRERY_TEST_MYSQL_PORT:-33106}:3306"
+    volumes:
+      - type: tmpfs
+        target: /var/lib/mysql
+        tmpfs:
+          size: 536870912
+    mem_limit: 1g
+    healthcheck:
+      # TCP on purpose: the init server of the image listens on the socket
+      # only, so the service is healthy only after the final server starts.
+      test: ["CMD", "mysqladmin", "ping", "--host=127.0.0.1", "--user=root", "--password=orrery", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+      start_interval: 1s
+
+  postgres:
+    image: postgres:18
+    # The data is in a 1 GiB tmpfs: enough for three concurrent full suites,
+    # each with <base> and <base>_mirror, and the WAL. A 512 MB tmpfs filled up
+    # (2026-09-24), and then Postgres refused every connection. The default
+    # max_wal_size (1 GB) lets WAL outgrow the tmpfs between checkpoints.
+    #
+    # The kernel charges the tmpfs pages to the memory limit of the container,
+    # so the 1536m limit covers a full tmpfs and leaves 512 MiB for
+    # shared_buffers (128 MB) and the backends. Three concurrent full suites
+    # (2026-09-24) used at most 413 MiB of the tmpfs, including the WAL, and
+    # 733 MiB of memory. Databases that runs keep (an explicit
+    # ORRERY_TEST_DATABASE without --drop-database) use the rest.
+    #
+    # The settings that only drop crash durability (fsync, synchronous_commit,
+    # full_page_writes) stay at their defaults: the WAL bound, not them, limits
+    # the WAL size, and fsync on tmpfs costs almost nothing.
+    command: ["postgres", "-c", "max_wal_size=128MB"]
+    environment:
+      POSTGRES_PASSWORD: orrery
+    ports:
+      - "127.0.0.1:${ORRERY_TEST_PGSQL_PORT:-54336}:5432"
+    volumes:
+      # Postgres 18 sets PGDATA=/var/lib/postgresql/18/docker and declares
+      # VOLUME /var/lib/postgresql. The tmpfs covers that declared volume,
+      # so Docker creates no anonymous volume and PGDATA is in memory.
+      - type: tmpfs
+        target: /var/lib/postgresql
+        tmpfs:
+          size: 1073741824
+    mem_limit: 1536m
+    healthcheck:
+      # TCP on purpose: the init server of the image listens on the socket
+      # only, so the service is healthy only after the final server starts.
+      test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=postgres", "--dbname=postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+      start_interval: 1s
+
+  # The profile "alt": a second MySQL and a second Postgres
+  # server for the tests of a reachable second target (bin/test <engine> --alt).
+  # `docker compose up` without `--profile alt` does not start them. Each one
+  # copies its default service; pgsql-alt listens on 5433 inside its container,
+  # so its own port differs from the default server's port too.
+  mysql-alt:
+    profiles: ["alt"]
+    image: mysql:8.4
+    command:
+      - "--skip-log-bin"
+      - "--innodb-redo-log-capacity=33554432"
+      - "--performance-schema=OFF"
+      - "--innodb-log-buffer-size=16777216"
+      - "--innodb-buffer-pool-size=67108864"
+    environment:
+      MYSQL_ROOT_PASSWORD: orrery
+    ports:
+      - "127.0.0.1:${ORRERY_TEST_MYSQL_ALT_PORT:-33107}:3306"
+    volumes:
+      - type: tmpfs
+        target: /var/lib/mysql
+        tmpfs:
+          size: 536870912
+    mem_limit: 1g
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "--host=127.0.0.1", "--user=root", "--password=orrery", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+      start_interval: 1s
+
+  pgsql-alt:
+    profiles: ["alt"]
+    image: postgres:18
+    command: ["postgres", "-c", "max_wal_size=128MB", "-c", "port=5433"]
+    environment:
+      POSTGRES_PASSWORD: orrery
+    ports:
+      - "127.0.0.1:${ORRERY_TEST_PGSQL_ALT_PORT:-54337}:5433"
+    volumes:
+      - type: tmpfs
+        target: /var/lib/postgresql
+        tmpfs:
+          size: 1073741824
+    mem_limit: 1536m
+    healthcheck:
+      test: ["CMD", "pg_isready", "--host=127.0.0.1", "--port=5433", "--username=postgres", "--dbname=postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+      start_interval: 1s

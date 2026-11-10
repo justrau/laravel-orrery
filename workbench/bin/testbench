@@ -1,0 +1,57 @@
+#!/usr/bin/env php
+<?php
+
+/*
+ * The supported entry point of the Workbench CLI: `php workbench/bin/testbench <command>`.
+ * The Composer scripts (prepare, build, serve, workbench:worker) use it.
+ *
+ * It sets process state before Testbench starts, and then runs Testbench's own CLI:
+ *  - the five bootstrap cache paths (APP_SERVICES_CACHE, APP_PACKAGES_CACHE, APP_CONFIG_CACHE,
+ *    APP_ROUTES_CACHE, APP_EVENTS_CACHE) point at workbench/storage/bootstrap-cache, whatever
+ *    the environment says. Laravel reads and writes the services and packages manifests before
+ *    the Workbench provider exists, so only this launcher can keep those two inside the
+ *    Workbench. When the skeleton has a .env file, the environment loader also checks whether
+ *    the config cache exists before the testbench.yaml env list loads. The routes and events
+ *    caches are used later. The launcher pins all five in the same way. Child processes, for
+ *    example the web server of `serve`, inherit the pinned values;
+ *  - TESTBENCH_WORKING_PATH is the repository, whatever the current directory is;
+ *  - the vendor of Testbench's skeleton is a symbolic link to this checkout's vendor directory.
+ *    Without it, Testbench creates the link for the run, deletes the skeleton's default package
+ *    manifest (which ordinary package tests use), and at the end removes the link with an
+ *    application that writes the owned manifests again. Launchers make the link under one lock,
+ *    and refuse a directory or a file at that path. WorkbenchSkeleton names the Testbench source
+ *    lines.
+ *
+ * A direct `vendor/bin/testbench` call skips this boundary. Laravel then reads and writes the
+ * manifests at the inherited paths (or at the skeleton defaults), and the Workbench provider
+ * refuses to go on. WorkbenchBootstrapCache describes each path and the refusal.
+ *
+ * The boundary is against inherited environment values, and it trusts the checkout. The
+ * refusal resolves the parent directory of each cache file, not the file itself. So a symbolic
+ * link at workbench/storage, at workbench/storage/bootstrap-cache, or as one cache file in that
+ * directory is not refused, and Laravel follows it (WorkbenchBootstrapCache::isOwned()).
+ */
+
+declare(strict_types=1);
+
+$repository = dirname(__DIR__, 2);
+
+require $repository.'/vendor/autoload.php';
+
+Workbench\App\Support\WorkbenchBootstrapCache::pin();
+
+putenv('TESTBENCH_WORKING_PATH='.$repository);
+$_ENV['TESTBENCH_WORKING_PATH'] = $repository;
+$_SERVER['TESTBENCH_WORKING_PATH'] = $repository;
+
+// The skeleton path and the vendor path that Testbench's Commander uses (Console/Commander.php:135-136).
+$skeleton = Orchestra\Testbench\default_skeleton_path();
+
+if (! is_string($skeleton)) {
+    throw new RuntimeException('Cannot find the Testbench skeleton (vendor/orchestra/testbench-core/laravel). Run composer install.');
+}
+
+Workbench\App\Support\WorkbenchSkeleton::ensureVendorLink($skeleton, $repository.'/vendor');
+unset($skeleton);
+
+require $repository.'/vendor/bin/testbench';

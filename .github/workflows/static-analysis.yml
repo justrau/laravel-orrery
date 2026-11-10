@@ -1,0 +1,58 @@
+# PHPStan and php -l on PHP 8.3.
+#
+# PHPStan runs on the latest Laravel 13 resolution only. The lowest leg
+# (the Laravel 12.40 floor) is checked with composer lint at the phase end
+# gate, not in this workflow.
+
+name: static analysis
+
+# Manual only: start it with `gh workflow run static-analysis.yml --ref <branch>`.
+# A push or a pull request does not start it, to save Actions minutes.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: static-analysis-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyse:
+    name: PHPStan and php -l (PHP 8.3, latest Laravel 13)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          coverage: none
+          tools: composer:v2
+
+      - name: Resolve the latest Laravel 13
+        run: |
+          set -euo pipefail
+          composer require --dev "orchestra/testbench:^11.0" --no-update --no-interaction
+          composer update --no-interaction --no-progress
+          for package in laravel/framework orchestra/testbench phpunit/phpunit phpstan/phpstan; do
+            composer show "$package" | grep -E '^(name|versions)'
+          done
+
+      - name: php -l
+        run: |
+          set -euo pipefail
+          {
+            find config database routes src tests workbench bin/lib -name '*.php' -print0
+            printf '%s\0' bin/matrix bin/check-known-failures
+          } | xargs -0 -n 1 php -l
+
+      - name: PHPStan
+        run: composer lint

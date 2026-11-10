@@ -1,0 +1,49 @@
+# Tests that the known-failure check never excuses: the
+# bootstrap, the engine identity and the isolation and ownership controls. A
+# failure of any test listed here fails the leg, even when
+# tests/known-failures.md has a row for it.
+#
+# One entry per line: a PHPUnit group name, or a fully qualified test class.
+# Lines that start with # and empty lines are ignored. A class is listed
+# even when one of the groups below covers it, so the rule survives a
+# changed group attribute. Every class that has no group is listed.
+
+# Groups
+harness
+process-control
+scripts
+docker
+workbench
+
+# Harness identity, lease proof, mirror outage and reset hook (group harness)
+Justrau\Orrery\Tests\Feature\HarnessIdentityTest
+
+# Worker processes, barriers and the hook point (groups process and process-control)
+Justrau\Orrery\Tests\Feature\ProcessHarnessTest
+
+# Package isolation: a mirror outage never changes the host outcome
+Justrau\Orrery\Tests\Feature\Isolation\FailureListenerIsolationTest
+Justrau\Orrery\Tests\Feature\Isolation\TickIsolationTest
+
+# Test database registry, bin/test and the bootstrap refusal (groups scripts and docker)
+Justrau\Orrery\Tests\Scripts\TestDbLogicTest
+Justrau\Orrery\Tests\Scripts\HarnessBootstrapTest
+Justrau\Orrery\Tests\Scripts\DockerOptInTest
+Justrau\Orrery\Tests\Scripts\TestDbDockerTest
+Justrau\Orrery\Tests\Scripts\WorkerInterruptDockerTest
+
+# Workbench isolation, path guard, bootstrap cache and launcher (group workbench)
+Justrau\Orrery\Tests\Feature\WorkbenchBootstrapCacheTest
+Justrau\Orrery\Tests\Feature\WorkbenchBuildTest
+Justrau\Orrery\Tests\Feature\WorkbenchCliHelperTest
+Justrau\Orrery\Tests\Feature\WorkbenchOwnershipTest
+Justrau\Orrery\Tests\Feature\WorkbenchPathGuardTest
+Justrau\Orrery\Tests\Feature\WorkbenchSeederTest
+Justrau\Orrery\Tests\Feature\WorkbenchSkeletonConcurrencyTest
+
+# Workbench controls without a group (they run in composer test)
+Justrau\Orrery\Tests\Feature\WorkbenchBootstrapCacheRefusalTest
+Justrau\Orrery\Tests\Feature\WorkbenchDatabaseTest
+Justrau\Orrery\Tests\Feature\WorkbenchIsolationTest
+Justrau\Orrery\Tests\Feature\WorkbenchLauncherTest
+Justrau\Orrery\Tests\Feature\WorkbenchSkeletonTest

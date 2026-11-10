@@ -1,0 +1,165 @@
+# The support matrix, one leg per job.
+#
+# CI has its own provisioning contract, because its service containers are
+# disposable per job:
+# - The job's database name is orrery_ci_<run id>_<job index>. It is validated
+#   by the name rule of bin/lib/testdb.php.
+# - The job creates that database, its _mirror twin and the orrery_marker
+#   endpoint marker with a new token, with the clients inside the MySQL 8.4
+#   and Postgres 18 service containers.
+# - bin/matrix --ci then runs the leg in this checkout. It runs Composer with
+#   the leg's resolution (COMPOSER_NO_BLOCKING=1 only for the Composer calls
+#   of a lowest leg), and every PHPUnit run through
+#   `bin/test <engine> --no-provision` with that name and token. The docker
+#   group does not run here, because it needs the local orrery-testing project.
+# - Every run uses the strict schema mode (bin/test --schema=fresh): each test
+#   migrates and rolls back. bin/matrix --ci never runs the reuse mode.
+# - The PHP 8.4 x Laravel 12 latest leg has four variants (mirror and table
+#   prefix). One job for all of them takes too long, so each variant is its
+#   own job (bin/matrix --variants). Each job runs everything that its
+#   variant ran before, and the scripts and workbench groups as every leg
+#   does.
+# - timeout-minutes is sized for the current suite under --ci, which always
+#   starts fresh: 240 for the variant jobs and the lowest legs, 180 for the
+#   other legs. Every limit stays under GitHub's 6-hour job limit.
+
+name: tests
+
+# Manual only: start it with `gh workflow run tests.yml --ref <branch>`.
+# A push or a pull request does not start it, to save Actions minutes.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  leg:
+    name: PHP ${{ matrix.php }}, Laravel ${{ matrix.laravel }}, ${{ matrix.dependencies }}${{ matrix.variant && format(', {0}', matrix.variant) || '' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ matrix.timeout }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # variant: empty runs every variant of the leg (only same/none, except
+        # on PHP 8.4 x Laravel 12); a label runs that variant alone.
+        # variant_key: the variant in the artifact name ('/' is not allowed).
+        include:
+          - {php: '8.3', laravel: '12', dependencies: latest, variant: '', variant_key: '', timeout: 180}
+          - {php: '8.3', laravel: '13', dependencies: latest, variant: '', variant_key: '', timeout: 180}
+          - {php: '8.4', laravel: '12', dependencies: latest, variant: same/none, variant_key: -same-none, timeout: 240}
+          - {php: '8.4', laravel: '12', dependencies: latest, variant: separate/none, variant_key: -separate-none, timeout: 240}
+          - {php: '8.4', laravel: '12', dependencies: latest, variant: same/prefix, variant_key: -same-prefix, timeout: 240}
+          - {php: '8.4', laravel: '12', dependencies: latest, variant: separate/prefix, variant_key: -separate-prefix, timeout: 240}
+          - {php: '8.4', laravel: '13', dependencies: latest, variant: '', variant_key: '', timeout: 180}
+          - {php: '8.5', laravel: '12', dependencies: latest, variant: '', variant_key: '', timeout: 180}
+          - {php: '8.5', laravel: '13', dependencies: latest, variant: '', variant_key: '', timeout: 180}
+          - {php: '8.3', laravel: '12', dependencies: lowest, variant: '', variant_key: '', timeout: 240}
+          - {php: '8.3', laravel: '13', dependencies: lowest, variant: '', variant_key: '', timeout: 240}
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: orrery
+        ports:
+          - 33106:3306
+        options: >-
+          --health-cmd "mysqladmin ping --host=127.0.0.1 --user=root --password=orrery --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+          --health-start-period 30s
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: orrery
+        ports:
+          - 54336:5432
+        options: >-
+          --health-cmd "pg_isready --host=127.0.0.1 --username=postgres --dbname=postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+          --health-start-period 30s
+
+    env:
+      PHP_VERSION: ${{ matrix.php }}
+      LARAVEL_MAJOR: ${{ matrix.laravel }}
+      DEPENDENCIES: ${{ matrix.dependencies }}
+      VARIANT: ${{ matrix.variant }}
+      # job-index is unique among the jobs of this run, also after the split
+      # of the variant leg.
+      ORRERY_TEST_DATABASE: orrery_ci_${{ github.run_id }}_${{ strategy.job-index }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, pdo_mysql, pdo_pgsql, pdo_sqlite, pcntl, posix
+          coverage: none
+          tools: composer:v2
+
+      - name: Provision the databases and the endpoint markers
+        env:
+          MYSQL_CONTAINER: ${{ job.services.mysql.id }}
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          base=$ORRERY_TEST_DATABASE
+          php -n bin/lib/testdb.php validate-name "$base"
+          token=$(php -n -r 'echo bin2hex(random_bytes(16));')
+
+          docker exec --env MYSQL_PWD=orrery "$MYSQL_CONTAINER" mysql --user=root --execute "
+            CREATE DATABASE \`${base}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            CREATE DATABASE \`${base}_mirror\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            CREATE DATABASE orrery_marker;
+            CREATE TABLE orrery_marker.marker (token VARCHAR(64) NOT NULL PRIMARY KEY);
+            INSERT INTO orrery_marker.marker (token) VALUES ('${token}');"
+
+          docker exec "$POSTGRES_CONTAINER" psql --username=postgres --dbname=postgres --no-psqlrc --set=ON_ERROR_STOP=1 \
+            --command="CREATE DATABASE \"${base}\"" \
+            --command="CREATE DATABASE \"${base}_mirror\"" \
+            --command="CREATE DATABASE orrery_marker" \
+            --command="COMMENT ON DATABASE orrery_marker IS '${token}'" \
+            --command='\connect orrery_marker' \
+            --command="CREATE TABLE marker (token varchar(64) NOT NULL PRIMARY KEY)" \
+            --command="INSERT INTO marker (token) VALUES ('${token}')"
+
+          echo "ORRERY_TEST_TOKEN=${token}" >>"$GITHUB_ENV"
+
+      - name: Run the leg
+        run: |
+          set -euo pipefail
+          if [ "$DEPENDENCIES" = lowest ]; then
+            selection=--no-latest
+          else
+            selection=--no-lowest
+          fi
+          variants=()
+          if [ -n "$VARIANT" ]; then
+            variants=("--variants=${VARIANT}")
+          fi
+          bin/matrix --ci --run-id=ci \
+            "--php=${PHP_VERSION}" "--laravel=${LARAVEL_MAJOR}" "$selection" ${variants[@]+"${variants[@]}"} \
+            "--php-binary=${PHP_VERSION}=$(command -v php)" \
+            "--composer=$(command -v composer)"
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: matrix-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}${{ matrix.variant_key }}
+          path: .matrix/ci/
+          if-no-files-found: warn

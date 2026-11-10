@@ -1,0 +1,15 @@
+{
+    "name": "orrery-browser-tools",
+    "private": true,
+    "description": "Browser checks of the Orrery dashboard (bin/verify-install). Not part of the package build and never shipped.",
+    "type": "module",
+    "engines": {
+        "node": ">=24"
+    },
+    "scripts": {
+        "smoke": "node smoke.mjs"
+    },
+    "dependencies": {
+        "playwright-core": "1.64.1"
+    }
+}

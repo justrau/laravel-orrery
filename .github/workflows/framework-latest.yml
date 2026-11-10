@@ -1,0 +1,74 @@
+# The latest Laravel 12.x and 13.x on SQLite:
+# bin/matrix --ci runs the latest leg of each major, so a new framework
+# release that changes bulk(), the transactions manager or the queue hooks
+# fails here before a user sees it.
+#
+# - Each job runs one latest leg on PHP 8.4 with --db=sqlite and the variant
+#   same/none (one mirror, no table prefix): the suite and
+#   the required groups on in-memory SQLite and on a SQLite file, then the
+#   scripts and workbench groups. No server engine, so no service containers
+#   and no provisioning.
+# - timeout-minutes is sized for the current SQLite suite under --ci, which
+#   always starts fresh, and stays under GitHub's 6-hour job limit.
+# - The full support matrix is tests.yml.
+
+name: framework-latest
+
+# Manual only (the owner's rule: no schedule, to save Actions minutes):
+# start it with `gh workflow run framework-latest.yml --ref <branch>`.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: framework-latest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  leg:
+    name: PHP ${{ matrix.php }}, latest Laravel ${{ matrix.laravel }}, SQLite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {php: '8.4', laravel: '12'}
+          - {php: '8.4', laravel: '13'}
+
+    env:
+      PHP_VERSION: ${{ matrix.php }}
+      LARAVEL_MAJOR: ${{ matrix.laravel }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, pdo_sqlite, pcntl, posix
+          coverage: none
+          tools: composer:v2
+
+      - name: Run the latest leg on SQLite
+        run: |
+          set -euo pipefail
+          bin/matrix --ci --run-id=ci \
+            "--php=${PHP_VERSION}" "--laravel=${LARAVEL_MAJOR}" --no-lowest --db=sqlite --variants=same/none \
+            "--php-binary=${PHP_VERSION}=$(command -v php)" \
+            "--composer=$(command -v composer)"
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: framework-latest-php${{ matrix.php }}-laravel${{ matrix.laravel }}
+          path: .matrix/ci/
+          if-no-files-found: warn
