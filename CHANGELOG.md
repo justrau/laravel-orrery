@@ -8,8 +8,8 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 ### Added
 
-- **Long-wait recovery.** A long wait is now an incident with a start and an end: it ends after 3 consecutive known ticks below the threshold, so a queue that moves around its limit sends one start and one recovery. The new event `LongWaitRecovered` (with the duration and the channels of the start message) fires once per incident; the new notification `LongWaitRecovered` goes only to the channels that got the start message (`notifications.long_wait.recovered`, default `true`). Bind `Contracts\LongWaitRecoveredNotification` to send your own.
-- **Failure-spike notices.** `notifications.failure_spike.per_minute` (default `null`, off) sends one notice for a minute whose failed jobs on all queues reach that number, with the count and the three largest failure groups; then each channel waits `notifications.failure_spike.cooldown` minutes (default 30).
+- **Long-wait recovery.** A long wait is now an incident with a start and an end: it ends after 3 consecutive known minutes below the threshold, so a queue that moves around its limit sends one start and one recovery. The new event `LongWaitRecovered` (with the duration and the channels of the start message) fires once per incident; the new notification `LongWaitRecovered` goes only to the channels that got the start message, and a channel that is down is tried again for 10 minutes (`notifications.long_wait.recovered`, default `true`). Bind `Contracts\LongWaitRecoveredNotification` to send your own.
+- **Failure-spike notices.** `notifications.failure_spike.per_minute` (default `null`, off) sends one notice for a minute whose failed jobs on all queues reach that number, with the count (at least) and the three largest failure groups; then each channel waits `notifications.failure_spike.cooldown` minutes (default 30).
 
 ### Changed
 

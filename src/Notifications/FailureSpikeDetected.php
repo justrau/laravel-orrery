@@ -7,6 +7,8 @@ namespace Justrau\Orrery\Notifications;
  * samples) reached `notifications.failure_spike.per_minute`. The texts name
  * the count, the minute (UTC) and the largest failure groups of that
  * minute by job class and exception class, never a message or a payload.
+ * Every count is a lower bound ("at least"): the minute may still be open,
+ * and a late failure counts in a later recount.
  */
 class FailureSpikeDetected extends RoutedNotification
 {
@@ -20,7 +22,7 @@ class FailureSpikeDetected extends RoutedNotification
     public function smsText(): string
     {
         return StuckJobDetected::gsm(sprintf(
-            '%s: %s jobs failed in the minute of %s UTC.',
+            '%s: at least %s jobs failed in the minute of %s UTC.',
             mb_substr(StuckJobDetected::cut((string) config('orrery.name')), 0, 20),
             $this->count,
             gmdate('Y-m-d H:i', $this->minute),
@@ -35,14 +37,14 @@ class FailureSpikeDetected extends RoutedNotification
     protected function summary(): string
     {
         $groups = array_map(static fn (array $group): string => sprintf(
-            '%s x %s (%s)',
+            'at least %s x %s (%s)',
             $group['count'],
             StuckJobDetected::cut($group['name']),
             StuckJobDetected::cut($group['exception_class'] ?? 'unknown exception'),
         ), $this->groups);
 
         return sprintf(
-            '[%s] %s jobs failed in the minute of %s UTC.%s',
+            '[%s] At least %s jobs failed in the minute of %s UTC.%s',
             StuckJobDetected::cut((string) config('orrery.name')),
             $this->count,
             gmdate('Y-m-d H:i', $this->minute),

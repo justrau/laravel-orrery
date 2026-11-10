@@ -22,18 +22,19 @@ Orrery::routeSmsNotificationsTo('15556667777');
 A long wait is an incident with a start and an end, kept in the package tables:
 
 - It starts at the first tick at which the queue reaches its threshold. While it lasts, each tick that still reaches the threshold sends the long-wait notification again, limited by the cooldown above.
-- It ends after 3 consecutive ticks at which the queue is known and neither its oldest job nor its estimated time to clear reaches the threshold. A tick at which the queue could not be measured keeps the incident open and starts the count again. So a queue that moves around its limit sends one start and one recovery.
-- When its queue connection is removed from the configuration, the incident ends without an event.
+- It ends after 3 consecutive minutes in which the queue is known and neither its oldest job nor its estimated time to clear reaches the threshold. Each minute counts once, also when several servers or a manual `orrery:tick` run in it. A tick at which the queue could not be measured, or is not measured at all, keeps the incident open and starts the count again. So a queue that moves around its limit sends one start and one recovery.
+- When its queue connection is removed from the configuration, or the queue is no longer measured for an hour after its last long wait, the incident ends without an event. A long wait after such an hour starts a new incident.
 
-At the end, `orrery:tick` dispatches `Justrau\Orrery\Events\LongWaitRecovered`, with the connection, the queue, the duration in seconds (`seconds`), the start (`startedAt`) and the channels that got the start message (`channels`). The event fires once per incident, also when no channel got the start message. The package then sends the notification `LongWaitRecovered` only to those channels. Set `notifications.long_wait.recovered` to `false` to keep the event and send no message. To send your own message, bind `Justrau\Orrery\Contracts\LongWaitRecoveredNotification` to your notification class, as for `LongWaitDetectedNotification`; it is built with `connection`, `queue` and `seconds`.
+At the end, `orrery:tick` dispatches `Justrau\Orrery\Events\LongWaitRecovered`, with the connection, the queue, the duration in seconds from the first to the last tick over the threshold (`seconds`), the start (`startedAt`) and the channels that got the start message (`channels`). The event fires once per incident, also when no channel got the start message. The package then sends the notification `LongWaitRecovered` only to those channels. A channel that is down, fails, or is not reached before the tick's share ends is tried again on the next ticks for 10 minutes; after that it is dropped, and the health events record `long_wait:recovery_dropped`. Set `notifications.long_wait.recovered` to `false` to keep the event and send no message. To send your own message, bind `Justrau\Orrery\Contracts\LongWaitRecoveredNotification` to your notification class, as for `LongWaitDetectedNotification`; it is built with `connection`, `queue` and `seconds`.
 
 ## Failure spikes
 
 Set `notifications.failure_spike.per_minute` to send a notice when the failed jobs of one minute, on all queues together, reach that number. It is off by default.
 
 - Each tick checks the minutes of the last 5 minutes whose counts are known. A minute whose count is unknown sends nothing.
-- Each minute sends at most one notice. After a notice, each channel waits `notifications.failure_spike.cooldown` minutes.
+- Each minute sends at most one notice. After a notice, each channel waits `notifications.failure_spike.cooldown` minutes. When no channel got the notice and a channel was not waiting for its cooldown (it was down or failed), a later tick tries the minute again while it is in the last 5 minutes.
 - The notice names the count, the minute (UTC) and the three largest failure groups of that minute, by job class and exception class. It holds no message text and no payload.
+- Every count in the notice is "at least": the minute may still be open, and a failure that the package sees late is counted when the minute is counted again.
 - It goes to the long-wait routes, with the same down states for failing channels.
 
 There is no stored log of the notices: the health events record only failed sends.

@@ -11,8 +11,8 @@ use Justrau\Orrery\Contracts\LongWaitRecoveredNotification;
  * dispatches it once per incident, also when no channel got the start
  * message.
  *
- * - `seconds`: the duration of the incident, from its first alerting tick
- *   to its end, whole seconds;
+ * - `seconds`: the duration of the incident, from its first to its last
+ *   alerting tick, whole seconds;
  * - `startedAt`: the epoch of the first alerting tick;
  * - `channels`: the channels whose start message was delivered; the
  *   package notification goes only to these.

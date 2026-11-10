@@ -8,6 +8,8 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Str;
 use Justrau\Orrery\Failures\GroupKey;
+use Justrau\Orrery\Listeners\NotificationState;
+use Justrau\Orrery\Listeners\SendNotification;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Monitoring\FailureSpikes;
 use Justrau\Orrery\Monitoring\Phases\LongWaitPhase;
@@ -32,7 +34,8 @@ final class FailureSpikeTest extends TestCase
         parent::defineEnvironment($app);
 
         $app['config']->set('cache.default', 'array');
-        $app['config']->set('orrery.notifications.failure_spike.per_minute', 3);
+        // A string, as an environment value gives it.
+        $app['config']->set('orrery.notifications.failure_spike.per_minute', '3');
     }
 
     protected function setUp(): void
@@ -52,7 +55,8 @@ final class FailureSpikeTest extends TestCase
     }
 
     /**
-     * Rejects: a threshold compared with > (a minute at the threshold would
+     * Rejects: a threshold or cooldown read only from an integer (an
+     * environment value is a string), a threshold compared with > (a minute at the threshold would
      * not alert), an alert for a minute below it, a second notice for the
      * same minute, a notice without its count, minute or largest groups
      * (largest first, at most three), and a spike check outside the
@@ -61,9 +65,11 @@ final class FailureSpikeTest extends TestCase
     public function test_a_minute_at_the_threshold_alerts_once_and_one_below_does_not(): void
     {
         // Without a cooldown, so only the threshold and the claimed minute hold notices back.
-        $this->app['config']->set('orrery.notifications.failure_spike.cooldown', 0);
+        $this->app['config']->set('orrery.notifications.failure_spike.cooldown', '0');
         $at = self::M - 180;
-        $this->failures($at + 1, 'App\\Jobs\\Sync', 'Boom', 2);
+        $this->failures($at + 1, 'App\\Jobs\\Sync', 'Boom', 1);
+        // A failure whose job waits again: the count has it, so the groups do too.
+        $this->failures($at + 3, 'App\\Jobs\\Sync', 'Boom', 1, 'pending');
         $this->failures($at + 2, 'App\\Jobs\\Mail', 'Timeout', 1);
         $this->failures(self::M - 120 + 5, 'App\\Jobs\\Sync', 'Boom', 2);
         $this->countSamples();
@@ -112,6 +118,26 @@ final class FailureSpikeTest extends TestCase
     }
 
     /**
+     * Rejects: a claimed minute kept when no channel got the notice because
+     * its channel was down: the spike would never be told.
+     */
+    public function test_a_notice_that_reached_no_channel_is_tried_again(): void
+    {
+        NotificationState::current()->put(SendNotification::downKey('mail'), SendNotification::DOWN_BACKOFF[1]);
+        $this->failures(self::M - 120, 'App\\Jobs\\Sync', 'Boom', 3);
+        $this->countSamples();
+
+        $this->spikes()->run(Clock::now());
+        Notification::assertNothingSent();
+        self::assertSame(0, $this->mirror()->table('orrery_settings')->where('key', FailureSpikes::MINUTE_PREFIX.(self::M - 120))->count(), 'the claim is released');
+
+        // After the down backoff, while the minute is still in the window.
+        $this->at(self::M + 10 + SendNotification::DOWN_BACKOFF[1]);
+        $this->spikes()->run(Clock::now());
+        Notification::assertSentOnDemandTimes(FailureSpikeDetected::class, 1);
+    }
+
+    /**
      * Rejects: an unknown minute read as a count (the failures of a minute
      * that was not counted would alert from the mirror rows, or never).
      */
@@ -144,7 +170,7 @@ final class FailureSpikeTest extends TestCase
 
     /**
      * Rejects: a notice text without the count, the minute or the groups,
-     * or one that carries a message.
+     * or counts that do not say "at least" (the minute can still be open).
      */
     public function test_the_notice_names_the_count_the_minute_and_the_groups(): void
     {
@@ -152,8 +178,8 @@ final class FailureSpikeTest extends TestCase
         $mail = $notice->toMail(new \Illuminate\Notifications\AnonymousNotifiable);
 
         self::assertSame('Orrery: Failure Spike Detected', $mail->subject);
-        self::assertStringContainsString('57 jobs failed in the minute of 2026-09-21 14:14 UTC. Largest groups: 40 x App\\Jobs\\Sync (RuntimeException).', html_entity_decode((string) $mail->introLines[0], ENT_QUOTES | ENT_HTML5));
-        self::assertSame('Orrery: 57 jobs failed in the minute of 2026-09-21 14:14 UTC.', $notice->smsText());
+        self::assertStringContainsString('At least 57 jobs failed in the minute of 2026-09-21 14:14 UTC. Largest groups: at least 40 x App\\Jobs\\Sync (RuntimeException).', html_entity_decode((string) $mail->introLines[0], ENT_QUOTES | ENT_HTML5));
+        self::assertSame('Orrery: at least 57 jobs failed in the minute of 2026-09-21 14:14 UTC.', $notice->smsText());
     }
 
     private function spikes(): FailureSpikes
@@ -171,7 +197,7 @@ final class FailureSpikeTest extends TestCase
         Carbon::setTestNow(Carbon::createFromTimestamp($at, 'UTC'));
     }
 
-    private function failures(int $failedAt, string $name, string $message, int $count): void
+    private function failures(int $failedAt, string $name, string $message, int $count, string $status = 'failed'): void
     {
         for ($i = 0; $i < $count; $i++) {
             $this->mirror()->table('orrery_jobs')->insert([
@@ -179,7 +205,7 @@ final class FailureSpikeTest extends TestCase
                 'connection' => 'database',
                 'queue' => 'default',
                 'name' => $name,
-                'status' => 'failed',
+                'status' => $status,
                 'payload' => '{}',
                 'payload_bytes' => 2,
                 'pushed_at' => Clock::toDecimal((float) $failedAt - 30),

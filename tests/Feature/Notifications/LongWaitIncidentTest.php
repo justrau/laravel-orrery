@@ -11,10 +11,13 @@ use Illuminate\Support\Carbon;
 use Justrau\Orrery\Contracts\LongWaitDetectedNotification;
 use Justrau\Orrery\Contracts\LongWaitRecoveredNotification;
 use Justrau\Orrery\Events\LongWaitRecovered;
+use Justrau\Orrery\Listeners\SendNotification;
+use Justrau\Orrery\Listeners\SendRecoveredNotification;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Monitoring\LongWaitIncidents;
 use Justrau\Orrery\Monitoring\Phases\LongWaitPhase;
 use Justrau\Orrery\Notifications\LongWaitRecovered as LongWaitRecoveredMessage;
+use Justrau\Orrery\Runtime\Degradation;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\Support\Fixtures\Notifications\ChannelNotification;
 use Justrau\Orrery\Tests\Support\Fixtures\Notifications\RecoveredChannelNotification;
@@ -72,8 +75,8 @@ final class LongWaitIncidentTest extends TestCase
     /**
      * Rejects: a recovery sent to every channel of via() (also the one whose
      * start failed), a recovery on the first quiet tick or after two, a
-     * second recovery of one incident, and a duration that is not measured
-     * from the first alerting tick.
+     * second recovery of one incident, and a duration other than the last
+     * alerting tick minus the first.
      */
     public function test_the_recovery_fires_once_and_only_on_the_channels_that_got_the_start(): void
     {
@@ -93,21 +96,23 @@ final class LongWaitIncidentTest extends TestCase
         $this->tickAt(self::START);
         self::assertSame(['orrery-good:start'], $this->sent->getArrayCopy());
         self::assertSame(['orrery-good'], $this->incident('database', 'default')['channels'] ?? null);
+        // Still over the limit 30 s later, inside the flaky channel's down backoff.
+        $this->tickAt(self::START + 30);
 
         $this->drain('default');
-        $this->tickAt(self::START + 60);
         $this->tickAt(self::START + 120);
-        self::assertSame([], $this->recovered->getArrayCopy(), 'two quiet ticks keep the incident open');
+        $this->tickAt(self::START + 180);
+        self::assertSame([], $this->recovered->getArrayCopy(), 'two quiet minutes keep the incident open');
         self::assertNotNull($this->incident('database', 'default'));
 
-        $this->tickAt(self::START + 180);
+        $this->tickAt(self::START + 240);
         self::assertSame(['orrery-good:start', 'orrery-good:recovered'], $this->sent->getArrayCopy(), 'the flaky channel got no start, so no recovery');
         self::assertCount(1, $this->recovered);
-        self::assertSame(['database', 'default', 180, ['orrery-good']], [$this->recovered[0]->connection, $this->recovered[0]->queue, $this->recovered[0]->seconds, $this->recovered[0]->channels]);
+        self::assertSame(['database', 'default', 30, ['orrery-good']], [$this->recovered[0]->connection, $this->recovered[0]->queue, $this->recovered[0]->seconds, $this->recovered[0]->channels]);
         self::assertNull($this->incident('database', 'default'));
 
-        $this->tickAt(self::START + 240);
         $this->tickAt(self::START + 300);
+        $this->tickAt(self::START + 360);
         self::assertCount(1, $this->recovered, 'recovered exactly once');
         self::assertCount(2, $this->sent);
     }
@@ -136,8 +141,8 @@ final class LongWaitIncidentTest extends TestCase
     /**
      * Rejects: an incident that ends at the first quiet tick, or a quiet
      * count that an alerting tick does not reset (the queue that flaps
-     * would end its incident after three quiet ticks in all and start a new
-     * one).
+     * would end its incident after three quiet minutes in all and start a
+     * new one).
      */
     public function test_a_queue_flapping_around_its_limit_sends_one_start_and_one_recovery(): void
     {
@@ -145,22 +150,193 @@ final class LongWaitIncidentTest extends TestCase
         $this->useChannels(['orrery-good']);
         $at = self::START;
 
-        // Over, under, under, over, under, under, over: never three quiet ticks in a row.
-        foreach ([true, false, false, true, false, false, true] as $over) {
+        // One tick a minute: over, under, under, over, under, under. Never three quiet minutes in a row.
+        foreach ([true, false, false, true, false, false] as $over) {
             $over ? $this->waitingJob('default', $at - 100) : $this->drain('default');
             $this->tickAt($at);
-            $at += 20;
+            $at += 60;
         }
 
         self::assertSame([], $this->recovered->getArrayCopy());
-        $this->drain('default');
-
-        foreach ([0, 1, 2] as $tick) {
-            $this->tickAt($at + 20 * $tick);
-        }
+        $this->tickAt($at);
 
         self::assertSame(['orrery-good:start', 'orrery-good:recovered'], $this->sent->getArrayCopy());
         self::assertCount(1, $this->recovered);
+    }
+
+    /**
+     * Rejects: a quiet count per tick instead of per minute: several
+     * servers, or a manual tick, would end the incident within one minute.
+     */
+    public function test_several_ticks_in_one_minute_count_one_quiet_minute(): void
+    {
+        $this->useChannels([]);
+        $this->waitingJob('default', self::START - 100);
+        $this->tickAt(self::START);
+        $this->drain('default');
+
+        // Three ticks in one minute, then one in the next: two quiet minutes.
+        foreach ([60, 70, 80, 120] as $offset) {
+            $this->tickAt(self::START + $offset);
+        }
+
+        self::assertSame([], $this->recovered->getArrayCopy());
+        self::assertSame(2, $this->incident('database', 'default')['quiet'] ?? null);
+
+        $this->tickAt(self::START + 180);
+        self::assertCount(1, $this->recovered);
+    }
+
+    /**
+     * Rejects: an unknown row that keeps the quiet count, so quiet minutes
+     * on both sides of it add up; or one that ends the incident.
+     */
+    public function test_an_unknown_row_starts_the_quiet_count_again(): void
+    {
+        $incidents = $this->app->make(LongWaitIncidents::class);
+        $incidents->advance([$this->row(over: true)], self::START);
+
+        self::assertSame([], $incidents->advance([$this->row(over: false)], self::START + 60));
+        self::assertSame([], $incidents->advance([$this->row(over: false, unknown: true)], self::START + 120));
+        self::assertSame([], $incidents->advance([$this->row(over: false)], self::START + 180));
+        self::assertSame([], $incidents->advance([$this->row(over: false)], self::START + 240));
+        self::assertNotNull($this->incident('database', 'default'), 'two known quiet minutes after the unknown one');
+
+        $ended = $incidents->advance([$this->row(over: false)], self::START + 300);
+        self::assertCount(1, $ended, 'the third known quiet minute ends it');
+    }
+
+    /**
+     * Rejects: a missing row that keeps the quiet count (it is unknown, not quiet).
+     */
+    public function test_a_missing_row_starts_the_quiet_count_again(): void
+    {
+        $incidents = $this->app->make(LongWaitIncidents::class);
+        $incidents->advance([$this->row(over: true)], self::START);
+        $incidents->advance([$this->row(over: false)], self::START + 60);
+        $incidents->advance([$this->row(over: false)], self::START + 120);
+        $incidents->advance([], self::START + 180);
+
+        self::assertSame(0, $this->incident('database', 'default')['quiet'] ?? null);
+        self::assertSame([], $incidents->advance([$this->row(over: false)], self::START + 240));
+    }
+
+    /**
+     * Rejects: a stale incident (not seen for longer than the measured
+     * window) that stays open for ever, or a new long wait that continues it
+     * with its old start and channels.
+     */
+    public function test_a_stale_incident_ends_silently_and_a_new_alert_starts_a_new_one(): void
+    {
+        $stale = ['connection' => 'database', 'queue' => 'gone-quiet', 'started_at' => self::START - 9000.0, 'channels' => ['mail'], 'quiet' => 0, 'quiet_minute' => null, 'last_seen' => self::START - LongWaitIncidents::STALE_SECONDS - 1.0];
+        $old = ['connection' => 'database', 'queue' => 'default', 'started_at' => self::START - 9000.0, 'channels' => ['mail'], 'quiet' => 1, 'quiet_minute' => null, 'last_seen' => self::START - LongWaitIncidents::STALE_SECONDS - 1.0];
+        $this->mirror()->table('orrery_settings')->insert([
+            ['key' => LongWaitIncidents::key('database', 'gone-quiet'), 'value' => (string) json_encode($stale)],
+            ['key' => LongWaitIncidents::key('database', 'default'), 'value' => (string) json_encode($old)],
+        ]);
+        $this->useChannels([]);
+        $this->waitingJob('default', self::START - 100);
+
+        $this->tickAt(self::START);
+
+        self::assertNull($this->incident('database', 'gone-quiet'));
+        $fresh = $this->incident('database', 'default');
+        self::assertSame([(float) self::START, [], 0], [(float) ($fresh['started_at'] ?? 0), $fresh['channels'] ?? null, $fresh['quiet'] ?? null]);
+        self::assertSame([], $this->recovered->getArrayCopy());
+    }
+
+    /**
+     * Rejects: an unguarded update of the incident row, which would drop a
+     * change that another process made between the read and the write.
+     */
+    public function test_a_concurrent_change_is_merged_not_overwritten(): void
+    {
+        $incidents = $this->app->make(LongWaitIncidents::class);
+        $incidents->advance([$this->row(over: true)], self::START);
+        $key = LongWaitIncidents::key('database', 'default');
+        $mirror = $this->mirror();
+        $done = false;
+        \Illuminate\Container\Container::getInstance()->make(\Justrau\Orrery\Storage\PackageSession::class)->mirror()->beforeExecuting(function (string $sql) use (&$done, $mirror, $key): void {
+            if ($done || ! str_starts_with(strtolower(ltrim($sql)), 'update')) {
+                return;
+            }
+
+            // Another process adds its channel first.
+            $done = true;
+            $record = (array) json_decode((string) $mirror->table('orrery_settings')->where('key', $key)->value('value'), true);
+            $record['channels'] = ['orrery-other'];
+            $mirror->table('orrery_settings')->where('key', $key)->update(['value' => json_encode($record)]);
+        });
+
+        $incidents->delivered('database', 'default', ['orrery-good']);
+
+        self::assertSame(['orrery-other', 'orrery-good'], $this->incident('database', 'default')['channels'] ?? null);
+    }
+
+    /**
+     * Rejects: a recovery lost to a channel that failed at that moment; or
+     * a channel tried again after it got the message.
+     */
+    public function test_a_channel_that_fails_the_recovery_gets_it_on_a_later_tick(): void
+    {
+        $calls = new ArrayObject;
+        $this->channel('orrery-good', static function () use ($calls): void {
+            // The start works; the first recovery fails.
+            $calls[] = 1;
+
+            if (count($calls) === 2) {
+                throw new RuntimeException('The channel is down.');
+            }
+        });
+        $this->useChannels(['orrery-good']);
+        $this->waitingJob('default', self::START - 100);
+        $this->tickAt(self::START);
+        $this->drain('default');
+
+        foreach ([60, 120, 180] as $offset) {
+            $this->tickAt(self::START + $offset);
+        }
+
+        self::assertSame(['orrery-good:start'], $this->sent->getArrayCopy(), 'the recovery failed');
+        self::assertCount(1, $this->recovered);
+
+        // After the channel's down backoff.
+        $this->tickAt(self::START + 180 + SendNotification::DOWN_BACKOFF[1]);
+        self::assertSame(['orrery-good:start', 'orrery-good:recovered'], $this->sent->getArrayCopy());
+
+        $this->tickAt(self::START + 600);
+        self::assertCount(2, $this->sent, 'sent once');
+        self::assertSame(0, $this->mirror()->table('orrery_settings')->where('key', 'like', LongWaitIncidents::RECOVERY_PREFIX.'%')->count());
+    }
+
+    /**
+     * Rejects: a pending recovery kept for ever, or dropped without a health error.
+     */
+    public function test_a_recovery_that_never_gets_through_is_dropped_with_a_health_error(): void
+    {
+        $calls = new ArrayObject;
+        $this->channel('orrery-good', static function () use ($calls): void {
+            $calls[] = 1;
+
+            if (count($calls) > 1) {
+                throw new RuntimeException('The channel is down.');
+            }
+        });
+        $this->useChannels(['orrery-good']);
+        $this->waitingJob('default', self::START - 100);
+        $this->tickAt(self::START);
+        $this->drain('default');
+
+        foreach (range(60, 180 + SendRecoveredNotification::RETRY_SECONDS, 60) as $offset) {
+            $this->tickAt(self::START + $offset);
+        }
+
+        self::assertSame(1, $this->mirror()->table('orrery_settings')->where('key', 'like', LongWaitIncidents::RECOVERY_PREFIX.'%')->count(), 'kept while its time lasts');
+
+        $this->tickAt(self::START + 240 + SendRecoveredNotification::RETRY_SECONDS);
+        self::assertSame(0, $this->mirror()->table('orrery_settings')->where('key', 'like', LongWaitIncidents::RECOVERY_PREFIX.'%')->count());
+        self::assertArrayHasKey(SendRecoveredNotification::DROPPED_OPERATION, Degradation::record()['errors'] ?? []);
+        self::assertSame(['orrery-good:start'], $this->sent->getArrayCopy());
     }
 
     /**
@@ -205,6 +381,7 @@ final class LongWaitIncidentTest extends TestCase
 
         self::assertNull($this->incident('gone', 'default'));
         self::assertNotNull($this->incident('database', 'not-measured'), 'a missing row keeps the incident open');
+        self::assertSame(0, $this->incident('database', 'not-measured')['quiet'] ?? null, 'and starts its quiet count again');
         self::assertSame([], $this->recovered->getArrayCopy());
     }
 
@@ -221,6 +398,16 @@ final class LongWaitIncidentTest extends TestCase
         self::assertSame('success', $mail->level);
         self::assertSame('Orrery: Long Wait Recovered', $mail->subject);
         self::assertStringContainsString('"emails" queue on the "database" connection waits within its limit again, after a long wait of 420 seconds.', html_entity_decode((string) $mail->introLines[0], ENT_QUOTES | ENT_HTML5));
+    }
+
+    /**
+     * A measured row of database:default (threshold 60).
+     *
+     * @return array{connection: string, queue: string, oldest_age: ?float, wait: ?int, threshold: int, backlog_unknown: bool}
+     */
+    private function row(bool $over, bool $unknown = false): array
+    {
+        return ['connection' => 'database', 'queue' => 'default', 'oldest_age' => $unknown ? null : ($over ? 90.0 : 5.0), 'wait' => $unknown ? null : 0, 'threshold' => 60, 'backlog_unknown' => $unknown];
     }
 
     private function tickAt(int $at): void

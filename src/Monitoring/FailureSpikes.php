@@ -22,9 +22,16 @@ use Justrau\Orrery\Storage\PackageSession;
  * (MINUTE_PREFIX) is claimed with an insert-or-ignore, and the rows of the
  * minutes before the window are deleted. Then the notification
  * (FailureSpikeDetected: the count, the minute and the TOP_GROUPS largest
- * failure groups of the minute's failed rows) goes to the long-wait
- * routes through SendNotification::deliver(), with a per-channel cooldown
- * of `notifications.failure_spike.cooldown` minutes (30) after a delivery.
+ * failure groups of the minute's rows by failed_at, every status as the
+ * count has it) goes to the long-wait routes through
+ * SendNotification::deliver(), with a per-channel cooldown of
+ * `notifications.failure_spike.cooldown` minutes (30) after a delivery.
+ * When no channel got it and one was not held by its cooldown, the claim
+ * is released (guarded by its value), so a later tick tries again.
+ *
+ * The count is a lower bound: the current minute is still open, and a
+ * failure observed late is counted in a later recount. The notice says
+ * "at least".
  */
 final class FailureSpikes
 {
@@ -74,14 +81,18 @@ final class FailureSpikes
                 continue;
             }
 
-            $cooldown = $this->cooldownMinutes() * 60;
-            (new SendNotification)->deliver(
+            $outcomes = (new SendNotification)->deliver(
                 NotificationState::current(),
                 new FailureSpikeDetected($count, $minute, $this->groups($minute)),
                 null,
                 static fn (string $channel): string => self::cooldownKey($channel),
-                $cooldown,
+                $this->cooldownMinutes() * 60,
             );
+
+            // No channel got it, and one was not held by its cooldown (down, failed, out of the budget): a later tick tries the minute again.
+            if (SendNotification::delivered($outcomes) === [] && array_filter($outcomes, static fn (string $outcome): bool => $outcome !== SendNotification::COOLDOWN) !== []) {
+                $mirror->table('orrery_settings')->where('key', self::MINUTE_PREFIX.$minute)->where('value', (string) $count)->delete();
+            }
         }
     }
 
@@ -96,7 +107,7 @@ final class FailureSpikes
     {
         $mirror = $this->mirror();
         $top = $mirror->table('orrery_jobs')
-            ->where('status', 'failed')
+            ->whereIn('status', Throughput::STATUSES)
             ->where('failed_at', '>=', Clock::toDecimal((float) $minute))
             ->where('failed_at', '<', Clock::toDecimal((float) ($minute + SampleCounts::MINUTE)))
             ->groupBy('failure_key')
@@ -138,14 +149,14 @@ final class FailureSpikes
     {
         $value = Container::getInstance()->make('config')->get('orrery.notifications.failure_spike.per_minute');
 
-        return is_int($value) && $value >= 1 ? $value : null;
+        return is_numeric($value) && (int) $value >= 1 ? (int) $value : null;
     }
 
     private function cooldownMinutes(): int
     {
         $value = Container::getInstance()->make('config')->get('orrery.notifications.failure_spike.cooldown', self::DEFAULT_COOLDOWN_MINUTES);
 
-        return is_int($value) && $value >= 0 ? $value : self::DEFAULT_COOLDOWN_MINUTES;
+        return is_numeric($value) ? max(0, (int) $value) : self::DEFAULT_COOLDOWN_MINUTES;
     }
 
     private function mirror(): Connection

@@ -67,6 +67,20 @@ class SendNotification
     /** How long a failure counts for the next one's longer backoff. */
     public const STREAK_SECONDS = 3600;
 
+    /** The outcomes of a channel in deliver(). */
+    public const DELIVERED = 'delivered';
+
+    public const COOLDOWN = 'cooldown';
+
+    public const DOWN = 'down';
+
+    public const MISSING = 'missing';
+
+    public const FAILED = 'failed';
+
+    /** Not tried: the long-wait phase's budget ended first. */
+    public const BUDGET = 'budget';
+
     public function handle(LongWaitDetected $event): void
     {
         $state = NotificationState::current();
@@ -83,13 +97,13 @@ class SendNotification
                 return;
             }
 
-            $delivered = $this->deliver(
+            $delivered = self::delivered($this->deliver(
                 $state,
                 $notification,
                 null,
                 static fn (string $channel): string => self::cooldownKey($event->connection, $event->queue, $channel),
                 self::COOLDOWN_SECONDS,
-            );
+            ));
 
             if ($delivered !== []) {
                 // Watched: the incident record of LongWaitPhase learns which channels got the start message.
@@ -107,11 +121,13 @@ class SendNotification
      * $only when it is a list), each on its own as the class comment says:
      * the budget, the down states, the missing drivers, one watched send
      * per channel, and a cooldown of $cooldownSeconds per channel after a
-     * delivery when $cooldownKey names one. The channels that delivered.
+     * delivery when $cooldownKey names one. The outcome of each channel
+     * that it considered (DELIVERED, COOLDOWN, DOWN, MISSING, FAILED, or
+     * BUDGET for the channels after the budget ended).
      *
      * @param  list<string>|null  $only
      * @param  (Closure(string): string)|null  $cooldownKey
-     * @return list<string>
+     * @return array<string, string>
      */
     public function deliver(NotificationState $state, Notification $notification, ?array $only, ?Closure $cooldownKey, int $cooldownSeconds): array
     {
@@ -123,23 +139,34 @@ class SendNotification
         $budget = $container->bound(LongWaitPhase::BUDGET) ? $container->make(LongWaitPhase::BUDGET) : null;
         $routes = $this->routes();
         $channels = $notification->via($this->notifiable($routes));
-        $delivered = [];
+        $outcomes = [];
 
         foreach ((array) $channels as $channel) {
-            if (! is_string($channel) || $channel === '' || ($only !== null && ! in_array($channel, $only, true))) {
+            if (! is_string($channel) || $channel === '' || ($only !== null && ! in_array($channel, $only, true)) || isset($outcomes[$channel])) {
                 continue;
             }
 
             if ($budget instanceof TickBudget && $budget->exhausted()) {
-                break;
+                $outcomes[$channel] = self::BUDGET;
+
+                continue;
             }
 
-            if ($this->sendChannel($state, $notification, $channel, $routes[$channel] ?? null, $cooldownKey === null ? null : $cooldownKey($channel), $cooldownSeconds)) {
-                $delivered[] = $channel;
-            }
+            $outcomes[$channel] = $this->sendChannel($state, $notification, $channel, $routes[$channel] ?? null, $cooldownKey === null ? null : $cooldownKey($channel), $cooldownSeconds);
         }
 
-        return $delivered;
+        return $outcomes;
+    }
+
+    /**
+     * The delivered channels of deliver()'s outcomes.
+     *
+     * @param  array<string, string>  $outcomes
+     * @return list<string>
+     */
+    public static function delivered(array $outcomes): array
+    {
+        return array_map('strval', array_keys(array_filter($outcomes, static fn (string $outcome): bool => $outcome === self::DELIVERED)));
     }
 
     public static function lockKey(string $connection, string $queue): string
@@ -162,16 +189,20 @@ class SendNotification
         return 'orrery:notification:streak:'.sha1($channel);
     }
 
-    private function sendChannel(NotificationState $state, Notification $notification, string $channel, mixed $route, ?string $cooldown, int $cooldownSeconds): bool
+    private function sendChannel(NotificationState $state, Notification $notification, string $channel, mixed $route, ?string $cooldown, int $cooldownSeconds): string
     {
-        if (($cooldown !== null && $state->has($cooldown)) || $state->has(self::downKey($channel))) {
-            return false;
+        if ($cooldown !== null && $state->has($cooldown)) {
+            return self::COOLDOWN;
+        }
+
+        if ($state->has(self::downKey($channel))) {
+            return self::DOWN;
         }
 
         if (! $this->channelAvailable($channel)) {
             $this->warnMissing($state, $channel);
 
-            return false;
+            return self::MISSING;
         }
 
         $deliveries = NotificationDeliveries::current();
@@ -194,7 +225,7 @@ class SendNotification
                 $state->forget(self::streakKey($channel));
             }
 
-            return true;
+            return self::DELIVERED;
         }
 
         // Watched: a state store that fails now (the mirror in an outage) ends only this record.
@@ -204,7 +235,7 @@ class SendNotification
             $state->put($streak, self::STREAK_SECONDS);
         });
 
-        return false;
+        return self::FAILED;
     }
 
     /**

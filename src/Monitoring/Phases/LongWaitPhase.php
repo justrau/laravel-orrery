@@ -8,6 +8,7 @@ use Justrau\Orrery\Storage\PackageSession;
 use Illuminate\Contracts\Events\Dispatcher;
 use Justrau\Orrery\Events\LongWaitDetected;
 use Justrau\Orrery\Events\LongWaitRecovered;
+use Justrau\Orrery\Listeners\SendRecoveredNotification;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Maintenance\RunsPastDeadline;
 use Justrau\Orrery\Monitoring\FailureSpikes;
@@ -44,7 +45,9 @@ use Justrau\Orrery\Storage\Clock;
  * LongWaitIncidents::OPERATION; when that fails, the alerts still go out
  * and no incident changes). After the start alerts, each incident that
  * ended is deleted, guarded, and LongWaitRecovered is dispatched for it
- * once (watched, RECOVERED_OPERATION). An incident left when the budget
+ * once (watched, RECOVERED_OPERATION), with the duration last_seen −
+ * started_at. Before them, the pending recoveries are sent again
+ * (SendRecoveredNotification::retry()). An incident left when the budget
  * ran out ends on a later tick. Then the failure-spike check
  * (FailureSpikes, watched, SPIKE_OPERATION) runs in the same share.
  *
@@ -128,6 +131,11 @@ final class LongWaitPhase implements RunsPastDeadline
                 Watcher::instance()->attempt(self::DISPATCH_OPERATION, fn () => $this->events->dispatch(new LongWaitDetected($row['connection'], $row['queue'], $seconds)));
             }
 
+            // The recoveries that some channels did not get yet, before the new ones.
+            if (! $budget->exhausted()) {
+                Watcher::instance()->attempt(self::RECOVERED_OPERATION, static fn () => Container::getInstance()->make(SendRecoveredNotification::class)->retry($now));
+            }
+
             foreach ($ended as $incident) {
                 if ($budget->exhausted()) {
                     break;
@@ -140,7 +148,7 @@ final class LongWaitPhase implements RunsPastDeadline
                     continue;
                 }
 
-                $event = new LongWaitRecovered($record['connection'], $record['queue'], max(0, (int) floor($now - $record['started_at'])), $record['started_at'], $record['channels']);
+                $event = new LongWaitRecovered($record['connection'], $record['queue'], max(0, (int) floor($record['last_seen'] - $record['started_at'])), $record['started_at'], $record['channels']);
                 Watcher::instance()->attempt(self::RECOVERED_OPERATION, fn () => $this->events->dispatch($event));
             }
 
