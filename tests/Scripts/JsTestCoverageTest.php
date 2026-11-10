@@ -15,7 +15,8 @@ use SplFileInfo;
  * The JavaScript unit tests.
  *
  * Every exported function of the SPA's pure helper modules
- * (resources/js/support/*.js, resources/js/shell/data.js and
+ * (resources/js/support/*.js, resources/js/shell/data.js,
+ * resources/js/shell/store.js and
  * every resources/js/screens/<screen>/*.js, so a new screen directory is
  * covered without a change here) is imported from its
  * own module and called in the test file of that module under tests/js/. A
@@ -96,8 +97,8 @@ final class JsTestCoverageTest extends TestCase
     }
 
     /**
-     * Rejects: a module list that misses a helper module (so its functions
-     * escape the check), a fixed list of screen directories that misses a
+     * Rejects: a module list that misses a helper module or the shell store
+     * (so its functions escape the check), a fixed list of screen directories that misses a
      * new one, a parser that finds no exported function, and a relative
      * import without .js.
      */
@@ -113,7 +114,7 @@ final class JsTestCoverageTest extends TestCase
         foreach (['support/lists.js', 'support/bulk.js', 'support/redirects.js', 'support/wording.js'] as $foundation) {
             self::assertContains($foundation, $modules, 'the D8 foundation modules');
         }
-        self::assertNotContains('shell/store.js', $modules, 'the store holds Vue state, not pure helpers');
+        self::assertContains('shell/store.js', $modules, 'the shell store');
 
         // Every module of every screen directory, found without the module list's glob.
         $screens = self::root().'/resources/js/screens';
@@ -292,7 +293,7 @@ final class JsTestCoverageTest extends TestCase
         $js = self::root().'/resources/js/';
         $files = array_merge(
             glob($js.'support/*.js') ?: [],
-            [$js.'shell/data.js'],
+            [$js.'shell/data.js', $js.'shell/store.js'],
             glob($js.'screens/*/*.js') ?: [],
         );
 
@@ -306,6 +307,10 @@ final class JsTestCoverageTest extends TestCase
     {
         if ($module === 'shell/data.js') {
             return 'shell-data.test.js';
+        }
+
+        if ($module === 'shell/store.js') {
+            return 'shell-store.test.js';
         }
 
         return basename($module, '.js').'.test.js';
