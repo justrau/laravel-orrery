@@ -1,5 +1,5 @@
 // Tests of resources/js/shell/poll.js: the single-flight rule of Poll.vue and
-// the request timeouts of the shared axios instance.
+// the request timeouts of the shared HTTP client.
 
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -65,7 +65,7 @@ test('requestTimeout gives reads and the freeze POST 30 s, and other writes none
     assert.equal(READ_TIMEOUT_MS, 30000);
     assert.equal(requestTimeout({method: 'get', url: '/orrery/api/workload', timeout: 0}), 30000);
     assert.equal(requestTimeout({method: 'GET', url: '/orrery/api/workload'}), 30000);
-    assert.equal(requestTimeout({url: '/orrery/api/workload'}), 30000, 'axios reads without a method are GETs');
+    assert.equal(requestTimeout({url: '/orrery/api/workload'}), 30000, 'reads without a method are GETs');
     assert.equal(requestTimeout({method: 'head', url: '/x'}), 30000);
     assert.equal(requestTimeout({method: 'post', url: '/orrery/api/bulk/freeze'}), 30000);
     assert.equal(requestTimeout({method: 'post', url: '/orrery/api/bulk/freeze?x=1'}), 30000);

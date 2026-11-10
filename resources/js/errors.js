@@ -1,7 +1,8 @@
 /**
- * The global handling of failed API requests: one axios interceptor shows a
- * message for every failed request, and then rejects, so that each screen
- * can clear its own loading state in its catch.
+ * The global handling of failed API requests: one interceptor of the shared
+ * HTTP client (support/http.js) shows a message for every failed request,
+ * and then rejects, so that each screen can clear its own loading state in
+ * its catch.
  *
  * A request that handles a status itself names it in its config, for example
  * `{ handles: [404] }` for a detail screen that shows its own not-found state.
@@ -113,7 +114,7 @@ export function enterTerminal(kind) {
     return true;
 }
 
-/** The abort signal that the shared axios instance gives each read. */
+/** The abort signal that the shared HTTP client gives each read. */
 export function readSignal() {
     if (!reads) reads = new AbortController();
 
@@ -143,9 +144,9 @@ export const BACKGROUND_FAILURES = ['timeout', 'network', 'aborted'];
 /**
  * The kind of a failure without an HTTP answer: 'timeout' (the request's
  * timeout passed), 'aborted' (the browser aborted the request), 'network'
- * (no answer), or null when the server answered. Axios gives both a timeout
- * and an abort the code ECONNABORTED (ETIMEDOUT with clarifyTimeoutError);
- * only the timeout's message names the timeout.
+ * (no answer), or null when the server answered. support/http.js gives a
+ * timeout the code ETIMEDOUT. The code ECONNABORTED (axios' form, for both a
+ * timeout and an abort) is a timeout only when its message names one.
  */
 export function failureKind(error) {
     if (error && error.response) return null;
@@ -278,7 +279,7 @@ function combinedSignal(own) {
 }
 
 /**
- * Installs the interceptors on the given axios instance. `root` returns the
+ * Installs the interceptors on the given client (support/http.js). `root` returns the
  * mounted root component, whose `alert` the layout renders.
  *
  * - Each read gets the abort signal of readSignal(); a read that brings its

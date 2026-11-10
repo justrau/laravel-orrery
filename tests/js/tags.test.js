@@ -1,6 +1,6 @@
 // Tests of resources/js/screens/tags/tags.js: the rules of the Tags screen
 // (with the Stop
-// monitoring sheet). `npm test` runs them with TZ=UTC and LANG=en_US.UTF-8.
+// monitoring sheet). `pnpm test` runs them with TZ=UTC and LANG=en_US.UTF-8.
 
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
@@ -154,7 +154,7 @@ test('writeFailure() words only the failures that the write handles itself', () 
     }
 
     assert.equal(writeFailure('monitor', {code: 'ECONNABORTED', message: 'Request aborted'}), null);
-    // A request that the screen cancelled (axios CanceledError) is aborted, never "no answer".
+    // A request that the screen cancelled (a CanceledError of support/http.js) is aborted, never "no answer".
     assert.equal(writeFailure('monitor', {code: 'ERR_CANCELED', message: 'canceled', __CANCEL__: true}), null);
 });
 

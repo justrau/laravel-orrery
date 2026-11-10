@@ -23,7 +23,7 @@ export const BACKGROUND_HANDLES = [ANY_ERROR_STATUS, ...BACKGROUND_FAILURES];
  */
 export const LIVE_HANDLES = BACKGROUND_HANDLES;
 
-/** Reads of the shared axios instance time out after this long. */
+/** Reads of the shared HTTP client time out after this long. */
 export const READ_TIMEOUT_MS = 30000;
 
 /**
@@ -138,7 +138,7 @@ export function createLiveRefresher(run) {
 }
 
 /**
- * The timeout (ms) of an axios request config: READ_TIMEOUT_MS for a read
+ * The timeout (ms) of a request config (support/http.js): READ_TIMEOUT_MS for a read
  * (errors.js isReadRequest(): a safe method, or a POST of READ_POSTS),
  * unless the request sets its own. Other
  * writes keep no timeout (0): their outcome would be unknown, and the

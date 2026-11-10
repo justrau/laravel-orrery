@@ -730,7 +730,7 @@ export function freezeInput({reuse = false, action, source, selectionKey = null,
 }
 
 /**
- * The API client of a bulk run: the shared axios instance with the
+ * The API client of a bulk run: the shared HTTP client with the
  * dashboard's base path (window.Orrery.basePath) before every URL, because
  * the sheet posts '/api/bulk/…'.
  */

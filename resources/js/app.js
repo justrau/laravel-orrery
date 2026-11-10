@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { createApp } from 'vue';
 import { createRouter, createWebHistory } from 'vue-router';
 import '../css/tokens.css';
@@ -11,15 +10,10 @@ import ToolbarControls from './shell/ToolbarControls.vue';
 import { resetToolbar } from './shell/store';
 import { requestTimeout } from './shell/poll.js';
 import { installErrorHandling } from './errors';
+import { createHttp } from './support/http.js';
 import { installTagGuard } from './screens/tags/tag-links.js';
 
 let token = document.head.querySelector("meta[name='csrf-token']");
-
-axios.defaults.headers.common['X-Requested-With'] = 'XMLHttpRequest';
-
-if (token) {
-    axios.defaults.headers.common['X-CSRF-TOKEN'] = token.content;
-}
 
 // The runtime-only build of Vue: App.vue is compiled at build
 // time, so the browser never compiles a template and the page needs no
@@ -27,7 +21,9 @@ if (token) {
 // toggle, which errors.js, AlertHost and the list screens reach as $root.
 const app = createApp(App);
 
-const http = axios.create();
+// Every request sends X-Requested-With: XMLHttpRequest (support/http.js), and
+// the CSRF token of the page when it has one.
+const http = createHttp({ headers: token ? { 'X-CSRF-TOKEN': token.content } : {} });
 
 // Reads time out after 30 s (shell/poll.js), so a poll never waits forever and
 // the next one can start. Writes keep no timeout: their outcome would be unknown.

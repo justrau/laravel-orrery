@@ -199,7 +199,7 @@ export const WRITE_HANDLES = Object.freeze([422, 500, 502, 503, 504, 'timeout', 
  */
 export function writeFailure(action, error) {
     const response = error && error.response ? error.response : null;
-    // A request that the screen cancelled (axios CanceledError) is aborted: failureKind() reads it as no answer.
+    // A request that the screen cancelled (a CanceledError of support/http.js) is aborted: failureKind() reads it as no answer.
     const cancelled = !!error && (error.__CANCEL__ === true || error.code === 'ERR_CANCELED');
     const key = response ? response.status : cancelled ? 'aborted' : failureKind(error);
 
