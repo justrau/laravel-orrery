@@ -42,7 +42,8 @@
         "psr-4": {
             "Justrau\\Orrery\\Tests\\": "tests/",
             "Workbench\\App\\": "workbench/app/",
-            "Workbench\\Database\\Seeders\\": "workbench/database/seeders/"
+            "Workbench\\Database\\Seeders\\": "workbench/database/seeders/",
+            "App\\": "workbench/showcase/app/"
         }
     },
     "extra": {
@@ -75,6 +76,25 @@
             "Composer\\Config::disableProcessTimeout",
             "@php workbench/bin/testbench workbench:slow --ansi",
             "@php workbench/bin/testbench queue:work database --queue=slow --max-time=600 --ansi"
+        ],
+        "workbench:showcase:build": [
+            "Composer\\Config::disableProcessTimeout",
+            "@putenv WORKBENCH_SHOWCASE=1",
+            "@php workbench/bin/testbench workbench:drop-database --ansi",
+            "@php workbench/bin/testbench workbench:create-sqlite-db --ansi",
+            "@php workbench/bin/testbench cache:clear --ansi",
+            "@php workbench/bin/testbench migrate:fresh --force --seed --seeder=Workbench\\\\Database\\\\Seeders\\\\ShowcaseSeeder --ansi"
+        ],
+        "workbench:showcase": [
+            "Composer\\Config::disableProcessTimeout",
+            "@putenv WORKBENCH_SHOWCASE=1",
+            "@workbench:showcase:build",
+            "@php workbench/bin/testbench serve --ansi"
+        ],
+        "workbench:showcase-workers": [
+            "Composer\\Config::disableProcessTimeout",
+            "@putenv WORKBENCH_SHOWCASE=1",
+            "@php workbench/bin/testbench workbench:showcase-workers --ansi"
         ],
         "workbench:check": "@php workbench/check.php",
         "test": "@php vendor/bin/phpunit",

@@ -9,12 +9,15 @@ use RuntimeException;
 use Workbench\App\Console\DispatchSlowJobCommand;
 use Workbench\App\Console\DropDatabaseCommand;
 use Workbench\App\Console\OwnershipProbeCommand;
+use Workbench\App\Console\ShowcaseWorkerCommand;
+use Workbench\App\Console\ShowcaseWorkersCommand;
 use Workbench\App\Http\Middleware\ContentSecurityPolicy;
 use Workbench\App\Support\ProcessEnvironment;
 use Workbench\App\Support\WorkbenchAuth;
 use Workbench\App\Support\WorkbenchBootstrapCache;
 use Workbench\App\Support\WorkbenchConfiguration;
 use Workbench\App\Support\WorkbenchDatabase;
+use Workbench\App\Support\WorkbenchShowcase;
 
 /**
  * The application provider of the Workbench app. Only testbench.yaml loads it.
@@ -30,6 +33,9 @@ class WorkbenchServiceProvider extends OrreryApplicationServiceProvider
 
     /** Whether the strict-auth mode is on (WorkbenchAuth), read once in register(). */
     private bool $strict = false;
+
+    /** Whether the showcase mode is on (WorkbenchShowcase), read once in register(). */
+    private bool $showcase = false;
 
     public function register(): void
     {
@@ -53,7 +59,13 @@ class WorkbenchServiceProvider extends OrreryApplicationServiceProvider
         // mode: local, or production in the strict-auth mode, whose build passes --force.
         // An unknown WORKBENCH_AUTH value throws here, before any command runs.
         $this->strict = WorkbenchAuth::strict();
-        $environment = WorkbenchAuth::environment($this->strict);
+        $this->showcase = WorkbenchShowcase::enabled();
+
+        if ($this->strict && $this->showcase) {
+            throw new RuntimeException(sprintf('The Workbench runs %s or %s, not both.', WorkbenchAuth::VARIABLE.'='.WorkbenchAuth::STRICT, WorkbenchShowcase::VARIABLE.'='.WorkbenchShowcase::ON));
+        }
+
+        $environment = $this->showcase ? WorkbenchShowcase::ENVIRONMENT : WorkbenchAuth::environment($this->strict);
         $app->detectEnvironment(static fn (): string => $environment);
         $app->make('config')->set('app.env', $environment);
 
@@ -84,6 +96,10 @@ class WorkbenchServiceProvider extends OrreryApplicationServiceProvider
         WorkbenchConfiguration::displayTimezone($app->make('config'), ProcessEnvironment::get(WorkbenchConfiguration::DISPLAY_TIMEZONE_VARIABLE));
         WorkbenchAuth::apply($app->make('config'), $this->strict);
 
+        if ($this->showcase) {
+            WorkbenchShowcase::apply($app->make('config'));
+        }
+
         // The dashboard runs under the enforced Content Security Policy of the README,
         // so every browser check of the Workbench proves it. The package's boot() reads
         // orrery.middleware after every register().
@@ -104,6 +120,8 @@ class WorkbenchServiceProvider extends OrreryApplicationServiceProvider
                 DispatchSlowJobCommand::class,
                 DropDatabaseCommand::class,
                 OwnershipProbeCommand::class,
+                ShowcaseWorkerCommand::class,
+                ShowcaseWorkersCommand::class,
             ]);
         }
     }
@@ -163,6 +181,12 @@ class WorkbenchServiceProvider extends OrreryApplicationServiceProvider
      */
     protected function gate(): void
     {
+        if ($this->showcase) {
+            WorkbenchShowcase::defineGates();
+
+            return;
+        }
+
         WorkbenchAuth::defineGates($this->strict);
     }
 }
