@@ -71,7 +71,11 @@ These actions change your queue tables, so they need `operateOrrery`. Each one r
 
 - **Run a delayed job now.** "Run now…" on the detail of a delayed job makes it available at once, by the clock of your workers (PHP's, not the database's). Its attempts and releases stay as they are. The history shows a `run now` entry.
 
-**Audit.** Each delete, clear and run-now dispatches the event `Justrau\Orrery\Events\OperatorActionPerformed` (the action, its target, the actor, the time, the result and the counts) and writes one `info` line to your log. Orrery keeps no activity log of its own: listen to the event to store one.
+## Batches
+
+"Cancel batch…" on a batch that is neither finished nor cancelled marks it cancelled and finished, as Laravel's `$batch->cancel()` does. Jobs that check the batch (the `SkipIfBatchCancelled` middleware or `batch()->cancelled()`) skip their work. Other jobs still run, and running jobs finish. Laravel's `BatchCanceled` event is not dispatched: it needs a `Batch` object, and Orrery never unserializes a batch's options. Only Laravel's database batch repository is supported.
+
+**Audit.** Each delete, clear, run-now and batch cancel dispatches the event `Justrau\Orrery\Events\OperatorActionPerformed` (the action, its target, the actor, the time, the result and the counts) and writes one `info` line to your log. Orrery keeps no activity log of its own: listen to the event to store one.
 
 ## Deploys and restarts
 

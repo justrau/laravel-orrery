@@ -15,6 +15,12 @@ import {
     batchTitle,
     bulkPanelMounted,
     bulkStorageKey,
+    CANCEL_TEXT,
+    cancelFailure,
+    cancelOutcome,
+    cancelSheet,
+    cancelUrl,
+    cancelVisible,
     contentShown,
     countParts,
     countText,
@@ -376,4 +382,42 @@ test('shortTime names the zone of a row whose offset differs from now', () => {
     } finally {
         delete globalThis.Orrery;
     }
+});
+
+// Rejects: a Cancel offered to a viewer, on a finished or a cancelled batch, or without a batch.
+test('cancelVisible offers Cancel on an open batch only', () => {
+    const open = {id: 'b-1', name: 'Invoices', pending_jobs: 3, failed_jobs: 0, cancelled_at: null, finished_at: null};
+    assert.equal(cancelVisible(true, open), true);
+    assert.equal(cancelVisible(true, {...open, pending_jobs: 1, failed_jobs: 1}), true, 'open with failures');
+    assert.equal(cancelVisible(false, open), false);
+    assert.equal(cancelVisible(true, {...open, finished_at: 1000}), false);
+    assert.equal(cancelVisible(true, {...open, cancelled_at: 1000, finished_at: 1000}), false);
+    assert.equal(cancelVisible(true, null), false);
+});
+
+// Rejects: a sheet without the spec's text (which jobs skip, which still run), a selection that is not the batch
+// id of the page read, and a cancel path that does not encode the id.
+test('cancelSheet freezes the batch id and says what a cancel does', () => {
+    const sheet = cancelSheet({id: 'b-1/x', name: 'Invoices'});
+    assert.equal(sheet.title, 'Cancel this batch?');
+    assert.ok(sheet.message.includes(CANCEL_TEXT));
+    assert.match(CANCEL_TEXT, /^Jobs that check the batch \(the SkipIfBatchCancelled middleware or `batch\(\)->cancelled\(\)`\) skip their work\. Other jobs still run\. Running jobs finish\. The batch is marked finished\.$/);
+    assert.match(sheet.message, /^Invoices · /);
+    assert.equal(sheet.tone, 'danger');
+    assert.deepEqual(sheet.selection, {action: 'cancel', id: 'b-1/x'});
+    assert.equal(cancelUrl('b-1/x'), '/api/batches/b-1%2Fx/cancel');
+    assert.match(cancelSheet({id: 'b-2', name: null}).message, /^Unnamed batch · /);
+});
+
+// Rejects: a refusal shown as success or as an unknown outcome, an answer without its result shown as success, and
+// a 403 that the screen words itself (the global alert does).
+test('cancelOutcome and cancelFailure word every answer', () => {
+    assert.equal(cancelOutcome({id: 'b-1', result: 'cancelled', cancelled_at: 1000}).tone, 'success');
+    assert.equal(cancelOutcome({}).title, 'Outcome unknown');
+    assert.equal(cancelFailure({response: {status: 409, data: {error: 'already_cancelled'}}}).title, 'Not cancelled');
+    assert.match(cancelFailure({response: {status: 409, data: {error: 'already_finished'}}}).detail, /finished/);
+    assert.match(cancelFailure({response: {status: 404, data: {error: 'not_found'}}}).detail, /^Not found/);
+    assert.equal(cancelFailure({response: {status: 403, data: {error: 'forbidden_action'}}}), null);
+    assert.equal(cancelFailure({response: {status: 503, data: {error: 'write_failed'}}}).title, 'Outcome unknown');
+    assert.equal(cancelFailure({}).title, 'Outcome unknown');
 });

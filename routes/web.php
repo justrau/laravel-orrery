@@ -47,6 +47,7 @@ Route::prefix('api')->group(function (): void {
     // The batches, read data-only.
     Route::get('/batches', 'BatchesController@index');
     Route::get('/batches/{id}', 'BatchesController@show');
+    Route::post('/batches/{id}/cancel', 'BatchesController@cancel');
 
     Route::get('/throughput', 'ThroughputController@index');
     Route::get('/markers', 'MarkersController@index');

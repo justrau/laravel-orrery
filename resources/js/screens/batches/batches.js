@@ -541,3 +541,61 @@ export function readFailure(error, {detail = false} = {}) {
  * that are still kept, which can differ from Laravel's counts above.
  */
 export const MEMBERS_CAPTION = "Orrery's records that are still kept; the counts above are Laravel's.";
+
+// ---------------------------------------------------------------------------
+// Cancel a batch
+// ---------------------------------------------------------------------------
+
+/** The text of the cancel sheet: what a cancel does and does not do. */
+export const CANCEL_TEXT = 'Jobs that check the batch (the SkipIfBatchCancelled middleware or `batch()->cancelled()`) skip their work. Other jobs still run. Running jobs finish. The batch is marked finished.';
+
+/** Whether "Cancel batch…" shows: with the operate ability, on a batch that is neither finished nor cancelled. */
+export function cancelVisible(canOperate, batch) {
+    if (canOperate !== true || !batch || typeof batch.id !== 'string') return false;
+
+    const state = batchState(batch);
+
+    return state !== 'finished' && state !== 'cancelled';
+}
+
+/** The cancel sheet of a batch: its name and id, the frozen id that the write posts. */
+export function cancelSheet(batch) {
+    const title = batchTitle(batch);
+
+    return {
+        title: 'Cancel this batch?',
+        message: `${title.unnamed ? title.text : `${title.text} · ${shortBatchId(batch.id)}`}. ${CANCEL_TEXT} This cannot be undone.`,
+        confirmLabel: 'Cancel batch',
+        tone: 'danger',
+        selection: {action: 'cancel', id: batch.id},
+    };
+}
+
+/** `POST /api/batches/{id}/cancel` of the frozen id. */
+export function cancelUrl(id) {
+    return `/api/batches/${encodeURIComponent(id)}/cancel`;
+}
+
+/** The answer of a cancel (200), as a notice `{tone, title, detail}`. */
+export function cancelOutcome(data) {
+    if (data && data.result === 'cancelled') {
+        return {tone: 'success', title: 'Batch cancelled', detail: 'Jobs that check the batch skip their work; other jobs still run.'};
+    }
+
+    return {tone: 'warning', title: 'Outcome unknown', detail: codeText('write_failed')};
+}
+
+/**
+ * A cancel that did not answer 200: a refusal (409 with its code, or 404)
+ * changed nothing; a 403 is left to the global alert (null); any other
+ * failure has an unknown outcome.
+ */
+export function cancelFailure(error) {
+    const status = error && error.response ? error.response.status : null;
+    const body = error && error.response && error.response.data && typeof error.response.data === 'object' ? error.response.data : {};
+
+    if (status === 403) return null;
+    if ((status === 409 || status === 404) && typeof body.error === 'string') return {tone: 'danger', title: 'Not cancelled', detail: codeText(body.error)};
+
+    return {tone: 'warning', title: 'Outcome unknown', detail: codeText('write_failed')};
+}

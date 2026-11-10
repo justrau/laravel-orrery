@@ -11,6 +11,7 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 - **Delete a waiting job.** "Delete…" on the detail of a pending job (`POST /orrery/api/jobs/{uuid}/delete`) deletes it from its queue before a worker takes it. The sheet says when the job's batch then never finishes, and when a chain is dropped.
 - **Clear a queue from the dashboard.** "Clear waiting jobs…" on the Queues screen counts the waiting jobs first (`POST /orrery/api/queues/{connection}/{queue}/waiting`), then clears them (`…/clear`) within 15 seconds per request. It shares its code with `orrery:clear`.
 - **Run a delayed job now.** "Run now…" on the detail of a delayed job (`POST /orrery/api/jobs/{uuid}/run-now`) makes it available at once, by the workers' clock, and adds a `run_now` history entry.
+- **Cancel a batch.** "Cancel batch…" on an open batch (`POST /orrery/api/batches/{id}/cancel`) marks it cancelled and finished, as `$batch->cancel()` does. Laravel's `BatchCanceled` event is not dispatched.
 - **The event `OperatorActionPerformed`** and one `info` log line for each of these actions, with the actor. There is no stored activity log.
 
 ### Changed

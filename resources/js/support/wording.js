@@ -161,6 +161,9 @@ export const CODES = Object.freeze({
     unsupported_repository: 'Batches are unknown: the application stores them in a way that Orrery does not read (only Laravel\'s database batch repository is read).',
     batches_sqlite_reads_not_allowed: "Batches are unknown: Orrery may not read the application's SQLite file on its own. It reads it only in WAL mode, with a busy_timeout above 0, without EXCLUSIVE locking, and with orrery.sqlite_automatic_access on.",
     batches_unknown: 'Batches are unknown: the server did not say why.',
+    already_cancelled: 'This batch was already cancelled: nothing changed.',
+    already_finished: 'This batch has already finished: nothing changed.',
+    batch_state_unknown: 'The state of this batch could not be read, so it was not cancelled. Try again.',
 });
 
 const MISSING = '—';

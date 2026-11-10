@@ -788,6 +788,20 @@ final class AuthorizationTest extends TestCase
                     'the response does not report a run-now: '.$response->getContent(),
                 ),
             ),
+            'POST orrery/api/batches/{id}/cancel' => $this->write(
+                fn (): string => $api.'/batches/'.self::CANCEL_BATCH.'/cancel',
+                [],
+                fn () => $this->arrangeCancel(),
+                fn (): string => self::CANCEL_BATCH,
+                fn (mixed $before): ?string => $this->problem(
+                    $this->app['db']->connection(TestEnvironment::PRIMARY)->table('job_batches')->where('id', $before)->value('cancelled_at') !== null,
+                    'the batch was not cancelled',
+                ),
+                fn (TestResponse $response): ?string => $this->problem(
+                    $response->json('result') === 'cancelled',
+                    'the response does not report a cancel: '.$response->getContent(),
+                ),
+            ),
             'POST orrery/api/queues/{connection}/{queue}/waiting' => $this->operatorRead(
                 fn (): string => $api.'/queues/database/'.self::CLEAR_QUEUE.'/waiting',
                 fn (): array => [],
@@ -926,6 +940,19 @@ final class AuthorizationTest extends TestCase
 
     /** The queue of the clear and count fixtures. */
     private const CLEAR_QUEUE = 'authz-clear';
+
+    /** The batch of the cancel fixture: open again before every case. */
+    private const CANCEL_BATCH = 'c4c4c4c4-c4c4-4c4c-8c4c-c4c4c4c4c4c4';
+
+    private function arrangeCancel(): void
+    {
+        $table = $this->app['db']->connection(TestEnvironment::PRIMARY)->table('job_batches');
+        $table->where('id', self::CANCEL_BATCH)->delete();
+        $table->insert([
+            'id' => self::CANCEL_BATCH, 'name' => 'authorization cancel', 'total_jobs' => 1, 'pending_jobs' => 1, 'failed_jobs' => 0,
+            'failed_job_ids' => '[]', 'options' => null, 'created_at' => time(), 'cancelled_at' => null, 'finished_at' => null,
+        ]);
+    }
 
     /** The queue of the run-now fixture. */
     private const LATER_QUEUE = 'authz-later';
