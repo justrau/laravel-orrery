@@ -25,9 +25,12 @@
 
 name: tests
 
-# Manual only: start it with `gh workflow run tests.yml --ref <branch>`.
-# A push or a pull request does not start it, to save Actions minutes.
+# Nightly on main, and by hand with `gh workflow run tests.yml --ref <branch>`.
+# The nightly run skips every leg when main has no commit from the last 24
+# hours (the job recent). A push or a pull request runs quick.yml instead.
 on:
+  schedule:
+    - cron: '23 2 * * *'
   workflow_dispatch:
 
 permissions:
@@ -38,7 +41,36 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  recent:
+    name: main has a commit from the last 24 hours
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.check.outputs.run }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Check the last commit
+        id: check
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != schedule ] || [ -n "$(git log --since='24 hours ago' --format=%H -1)" ]; then
+            echo "run=true" >>"$GITHUB_OUTPUT"
+          else
+            echo "No commit in the last 24 hours: the nightly matrix skips."
+            echo "run=false" >>"$GITHUB_OUTPUT"
+          fi
+
   leg:
+    needs: recent
+    if: needs.recent.outputs.run == 'true'
     name: PHP ${{ matrix.php }}, Laravel ${{ matrix.laravel }}, ${{ matrix.dependencies }}${{ matrix.variant && format(', {0}', matrix.variant) || '' }}
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ matrix.timeout }}
