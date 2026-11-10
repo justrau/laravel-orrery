@@ -47,13 +47,18 @@ final class GroupKey
      * @var array<string, string>
      */
     private const PATTERNS = [
+        "/Duplicate entry '.*?' for key/" => 'Duplicate entry {value} for key',
         '/\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:[.,]\d+)?)?(?:Z|[+-]\d{2}(?::?\d{2})?)?)?/' => '{datetime}',
         '/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i' => '{uuid}',
-        '/\b[0-7][0-9a-hjkmnp-tv-z]{25}\b/i' => '{ulid}',
-        '/[0-9a-f]{16,}/i' => '{hex}',
+        '/\b(?=[0-9]*[a-hjkmnp-tv-z])[0-7][0-9a-hjkmnp-tv-z]{25}\b/i' => '{ulid}',
         '/[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)+/i' => '{email}',
-        '/\d{4,}/' => '{n}',
     ];
+
+    /** The digit runs of 4 or more: after the hexadecimal runs (replace()). */
+    private const DIGITS = '/\d{4,}/';
+
+    /** The SQLSTATE parts that normalise() keeps verbatim (one capturing group). */
+    private const KEPT = '/(SQLSTATE\[[0-9A-Z]{5}\](?:: [^:]{1,64}: -?\d{1,6}| \[-?\d{1,6}\])?)/';
 
     private const JSON = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR;
 
@@ -99,14 +104,21 @@ final class GroupKey
      *
      * 1. The text from the first " (Connection: " on is cut, as a
      *    QueryException appends the connection, the SQL and its bindings.
-     * 2. In this order: ISO-8601 datetimes (a date, with an optional time
-     *    and zone) become {datetime}; UUIDs {uuid}; ULIDs at word boundaries
-     *    {ulid}; hexadecimal runs of 16 or more characters {hex}; email
-     *    addresses {email}; digit runs of 4 or more {n}.
+     * 2. The SQLSTATE parts (KEPT: "SQLSTATE[23000]", with the driver's
+     *    ": <text>: <error number>" or " [<error number>]" after it) stay
+     *    verbatim, so different database errors keep apart. If that split
+     *    fails, the whole line is normalised.
+     * 3. In the rest, in this order: the quoted value of MySQL's
+     *    "Duplicate entry '…' for key" becomes {value} (so duplicate-key
+     *    failures group per key); ISO-8601 datetimes (a date, with an
+     *    optional time and zone) {datetime}; UUIDs {uuid}; ULIDs with at
+     *    least one letter, at word boundaries, {ulid}; email addresses
+     *    {email}; hexadecimal runs of 16 or more characters {hex}, or {n}
+     *    when they hold digits only; digit runs of 4 or more {n}.
      *
      * The patterns are ASCII and byte-wise, so a line that is not valid
      * UTF-8 is normalised as well. If a pattern fails (the PCRE backtrack
-     * limit), the line from the step before stays.
+     * limit), the text from the step before stays.
      */
     public static function normalise(?string $line): ?string
     {
@@ -120,11 +132,38 @@ final class GroupKey
             $line = substr($line, 0, $cut);
         }
 
-        foreach (self::PATTERNS as $pattern => $replacement) {
-            $line = preg_replace($pattern, $replacement, $line) ?? $line;
+        $parts = preg_split(self::KEPT, $line, -1, PREG_SPLIT_DELIM_CAPTURE);
+
+        if ($parts === false) {
+            return self::replace($line);
         }
 
-        return $line;
+        // With one capturing group, the odd parts are the kept SQLSTATE parts.
+        $normalised = '';
+
+        foreach ($parts as $index => $part) {
+            $normalised .= $index % 2 === 1 ? $part : self::replace($part);
+        }
+
+        return $normalised;
+    }
+
+    /**
+     * The replacements of normalise() step 3 on one part of a line.
+     */
+    private static function replace(string $text): string
+    {
+        foreach (self::PATTERNS as $pattern => $replacement) {
+            $text = preg_replace($pattern, $replacement, $text) ?? $text;
+        }
+
+        $text = preg_replace_callback(
+            '/[0-9a-f]{16,}/i',
+            static fn (array $match): string => ctype_digit($match[0]) ? '{n}' : '{hex}',
+            $text,
+        ) ?? $text;
+
+        return preg_replace(self::DIGITS, '{n}', $text) ?? $text;
     }
 
     /**

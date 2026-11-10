@@ -120,19 +120,69 @@ final class GroupKeyTest extends TestCase
 
     /**
      * Rejects: no cut at " (Connection: ", so the SQL and its bindings
-     * split QueryExceptions; or a cut at "(Connection:" without the space.
+     * split QueryExceptions; a cut at "(Connection:" without the space; or
+     * a duplicate-entry value that stays, so each duplicate value makes a
+     * group of its own.
      */
     public function test_query_exceptions_with_other_bindings_merge(): void
     {
-        $first = 'SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry (Connection: mysql, SQL: insert into `items` (`sku`) values (ab-1))';
-        $second = 'SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry (Connection: mysql, SQL: insert into `items` (`sku`) values (zz-9))';
+        $first = "SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'ab-1' for key 'items.items_sku_unique' (Connection: mysql, SQL: insert into `items` (`sku`) values (ab-1))";
+        $second = "SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'zz-99@example.com 2026' for key 'items.items_sku_unique' (Connection: mysql, SQL: insert into `items` (`sku`) values (zz-9))";
 
         self::assertSame(self::key('Illuminate\\Database\\QueryException', $first, 'n'), self::key('Illuminate\\Database\\QueryException', $second, 'n'));
         self::assertSame(
-            '["v2","c","SQLSTATE[{n}]: Integrity constraint violation: {n} Duplicate entry","n"]',
+            '["v2","c","SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry {value} for key \'items.items_sku_unique\'","n"]',
             GroupKey::canonical('c', $first, 'n'),
         );
         self::assertSame('["v2","c","Lost (Connection:mysql)","n"]', GroupKey::canonical('c', 'Lost (Connection:mysql)', 'n'));
+    }
+
+    /**
+     * Rejects: a duplicate-entry rule that also replaces the key name, so
+     * the failures of different unique keys merge.
+     */
+    public function test_duplicate_entries_group_per_key(): void
+    {
+        self::assertNotSame(
+            self::key('c', "SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'a' for key 'users.users_email_unique'", 'n'),
+            self::key('c', "SQLSTATE[23000]: Integrity constraint violation: 1062 Duplicate entry 'a' for key 'users.users_name_unique'", 'n'),
+        );
+    }
+
+    /**
+     * Rejects: SQLSTATE codes and driver error numbers replaced by {n}, so
+     * an integrity violation and a deadlock with the same text merge; or a
+     * kept part that also keeps the ids after it.
+     */
+    public function test_sqlstate_codes_and_driver_error_numbers_stay(): void
+    {
+        self::assertSame(
+            '["v2","c","SQLSTATE[40001]: Serialization failure: 1213 Deadlock found for order {n}","n"]',
+            GroupKey::canonical('c', 'SQLSTATE[40001]: Serialization failure: 1213 Deadlock found for order 123456', 'n'),
+        );
+        self::assertSame(
+            '["v2","c","SQLSTATE[HY000] [2002] Connection refused after {n} ms","n"]',
+            GroupKey::canonical('c', 'SQLSTATE[HY000] [2002] Connection refused after 30000 ms', 'n'),
+        );
+        self::assertSame(
+            '["v2","c","SQLSTATE[23505]: Unique violation: 7 ERROR: duplicate key","n"]',
+            GroupKey::canonical('c', 'SQLSTATE[23505]: Unique violation: 7 ERROR: duplicate key', 'n'),
+        );
+        self::assertNotSame(
+            self::key('c', 'SQLSTATE[23000]: Integrity constraint violation: 1062 x', 'n'),
+            self::key('c', 'SQLSTATE[40001]: Integrity constraint violation: 1213 x', 'n'),
+        );
+    }
+
+    /**
+     * Rejects: a hex rule before the email rule (the local part of an email
+     * would become {hex}), or a pure 16+-digit number shown as {hex}.
+     */
+    public function test_emails_win_over_hex_and_long_numbers_are_numbers(): void
+    {
+        self::assertSame('["v2","c","To {email}","n"]', GroupKey::canonical('c', 'To deadbeefdeadbeefdead@example.com', 'n'));
+        self::assertSame('["v2","c","Card {n} declined","n"]', GroupKey::canonical('c', 'Card 4111111111111111 declined', 'n'));
+        self::assertSame('["v2","c","Id {n}","n"]', GroupKey::canonical('c', 'Id 12345678901234567890123456', 'n'));
     }
 
     /**
