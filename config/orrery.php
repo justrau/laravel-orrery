@@ -158,6 +158,25 @@ return [
         '*' => 60,
     ],
 
+    // More alerts on the long-wait routes (mail, Slack, SMS).
+    'notifications' => [
+        // A long-wait incident ends after a few consecutive known ticks
+        // below the threshold. The event LongWaitRecovered always fires;
+        // with `recovered` true the package also sends a recovery message
+        // to the channels that got the incident's start message.
+        'long_wait' => [
+            'recovered' => true,
+        ],
+
+        // A minute whose failed jobs (all queues) reach `per_minute` sends one
+        // notice, with the count and the largest failure groups. null turns
+        // it off. After a notice, each channel waits `cooldown` minutes.
+        'failure_spike' => [
+            'per_minute' => null,
+            'cooldown' => 30,
+        ],
+    ],
+
     // Retention, in minutes. orrery:tick deletes a finished
     // mirror row when its finished_at is older than the retention of its
     // state: `completed`, `silenced` (a silenced completed job), `failed` or

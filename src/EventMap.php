@@ -15,6 +15,10 @@ trait EventMap
             Listeners\SendNotification::class,
         ],
 
+        Events\LongWaitRecovered::class => [
+            Listeners\SendRecoveredNotification::class,
+        ],
+
         \Illuminate\Queue\Events\JobFailed::class => [
             Listeners\MarshalFailedEvent::class,
         ],

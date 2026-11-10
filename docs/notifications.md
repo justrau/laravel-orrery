@@ -17,6 +17,27 @@ Orrery::routeSmsNotificationsTo('15556667777');
 - One long-wait notification per queue and channel at most every 5 minutes. The cooldown lives in the default cache store; when that store keeps its entries for one process only (`array`, `null`), is a `failover` store, or is down, it lives in the package tables. A channel that fails is skipped for every queue for a short backoff, which grows after a further failure.
 - Set `mail.mailers.smtp.timeout` to 5–10 seconds: a hanging mail server holds the tick phase until the mailer gives up. The legacy Slack webhook times out after 5 s; the Web API channel takes its HTTP client's default of 30 s.
 
+## Long-wait incidents and recovery
+
+A long wait is an incident with a start and an end, kept in the package tables:
+
+- It starts at the first tick at which the queue reaches its threshold. While it lasts, each tick that still reaches the threshold sends the long-wait notification again, limited by the cooldown above.
+- It ends after 3 consecutive ticks at which the queue is known and neither its oldest job nor its estimated time to clear reaches the threshold. A tick at which the queue could not be measured keeps the incident open and starts the count again. So a queue that moves around its limit sends one start and one recovery.
+- When its queue connection is removed from the configuration, the incident ends without an event.
+
+At the end, `orrery:tick` dispatches `Justrau\Orrery\Events\LongWaitRecovered`, with the connection, the queue, the duration in seconds (`seconds`), the start (`startedAt`) and the channels that got the start message (`channels`). The event fires once per incident, also when no channel got the start message. The package then sends the notification `LongWaitRecovered` only to those channels. Set `notifications.long_wait.recovered` to `false` to keep the event and send no message. To send your own message, bind `Justrau\Orrery\Contracts\LongWaitRecoveredNotification` to your notification class, as for `LongWaitDetectedNotification`; it is built with `connection`, `queue` and `seconds`.
+
+## Failure spikes
+
+Set `notifications.failure_spike.per_minute` to send a notice when the failed jobs of one minute, on all queues together, reach that number. It is off by default.
+
+- Each tick checks the minutes of the last 5 minutes whose counts are known. A minute whose count is unknown sends nothing.
+- Each minute sends at most one notice. After a notice, each channel waits `notifications.failure_spike.cooldown` minutes.
+- The notice names the count, the minute (UTC) and the three largest failure groups of that minute, by job class and exception class. It holds no message text and no payload.
+- It goes to the long-wait routes, with the same down states for failing channels.
+
+There is no stored log of the notices: the health events record only failed sends.
+
 ## Stuck jobs
 
 The Stuck tab and the job detail show the jobs that look stuck, each with the facts behind its signal:

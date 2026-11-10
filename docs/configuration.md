@@ -31,6 +31,9 @@
 | `schedule` | `true` (`ORRERY_SCHEDULE`) | The package schedules `orrery:tick`. `false` schedules nothing. |
 | `swap_connector` | `true` | The queue connector swap (see [What the numbers mean](dashboard.md#what-the-numbers-mean)). |
 | `waits` | `['*' => 60]` | The long-wait thresholds in seconds, keyed `connection:queue`. `*` applies to every other queue. `0` turns an alert off. |
+| `notifications.long_wait.recovered` | `true` | Send a recovery message when a long-wait incident ends, to the channels that got its start message. The event `LongWaitRecovered` fires also with `false`. |
+| `notifications.failure_spike.per_minute` | `null` | The failed jobs of one minute (all queues) that send a failure-spike notice. `null` turns it off. |
+| `notifications.failure_spike.cooldown` | `30` | Minutes that each channel waits after a failure-spike notice. |
 | `trim.completed`, `trim.silenced` | `60`, `60` | Minutes to keep a completed job, and a silenced completed job. |
 | `trim.failed`, `trim.unknown` | `10080`, `10080` | Minutes to keep a failed job in the mirror, and a job with the status `unknown`. |
 | `trim.monitored` | `10080` | Minutes to keep a job with a monitored tag, when this is longer than its state's retention. |

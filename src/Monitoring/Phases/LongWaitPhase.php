@@ -7,12 +7,16 @@ use Justrau\Orrery\Storage\HostFiles;
 use Justrau\Orrery\Storage\PackageSession;
 use Illuminate\Contracts\Events\Dispatcher;
 use Justrau\Orrery\Events\LongWaitDetected;
+use Justrau\Orrery\Events\LongWaitRecovered;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Maintenance\RunsPastDeadline;
+use Justrau\Orrery\Monitoring\FailureSpikes;
+use Justrau\Orrery\Monitoring\LongWaitIncidents;
 use Justrau\Orrery\Monitoring\MeasurementIncomplete;
 use Justrau\Orrery\Monitoring\TickMeasurement;
 use Justrau\Orrery\Monitoring\WaitTime;
 use Justrau\Orrery\Runtime\Watcher;
+use Justrau\Orrery\Storage\Clock;
 
 /**
  * The long-wait check of tick. It dispatches LongWaitDetected
@@ -35,6 +39,15 @@ use Justrau\Orrery\Runtime\Watcher;
  * While it dispatches, its budget is the container instance BUDGET, so
  * SendNotification sends no channel after the budget ended.
  *
+ * The incident record (LongWaitIncidents): before the dispatches, the
+ * phase applies the rows to the stored incidents (watched,
+ * LongWaitIncidents::OPERATION; when that fails, the alerts still go out
+ * and no incident changes). After the start alerts, each incident that
+ * ended is deleted, guarded, and LongWaitRecovered is dispatched for it
+ * once (watched, RECOVERED_OPERATION). An incident left when the budget
+ * ran out ends on a later tick. Then the failure-spike check
+ * (FailureSpikes, watched, SPIKE_OPERATION) runs in the same share.
+ *
  * Unknown rows never alert. After the readable rows, the
  * phase throws MeasurementIncomplete with the connections of the unknown
  * rows, so the tick records the phase as failed; also when the budget ran
@@ -44,6 +57,12 @@ final class LongWaitPhase implements RunsPastDeadline
 {
     /** The watched operation of one dispatch of LongWaitDetected. */
     public const DISPATCH_OPERATION = 'long_wait:dispatch';
+
+    /** The watched operation of one dispatch of LongWaitRecovered. */
+    public const RECOVERED_OPERATION = 'long_wait:recovered';
+
+    /** The watched operation of the failure-spike check. */
+    public const SPIKE_OPERATION = 'long_wait:failure_spike';
 
     /**
      * The container key of the phase's budget while it dispatches: the
@@ -57,6 +76,8 @@ final class LongWaitPhase implements RunsPastDeadline
     public function __construct(
         private readonly TickMeasurement $measurement,
         private readonly Dispatcher $events,
+        private readonly LongWaitIncidents $incidents,
+        private readonly FailureSpikes $spikes,
     ) {
     }
 
@@ -92,6 +113,8 @@ final class LongWaitPhase implements RunsPastDeadline
             }
         }
 
+        $now = Clock::now();
+        $ended = Watcher::instance()->run(LongWaitIncidents::OPERATION, fn (): array => $this->incidents->advance($rows, $now), []);
         $container->instance(self::BUDGET, $budget);
 
         try {
@@ -103,6 +126,26 @@ final class LongWaitPhase implements RunsPastDeadline
                 $seconds = max($row['wait'] ?? 0, (int) floor($row['oldest_age'] ?? 0.0));
                 // Watched: an application listener that throws ends only its own alert.
                 Watcher::instance()->attempt(self::DISPATCH_OPERATION, fn () => $this->events->dispatch(new LongWaitDetected($row['connection'], $row['queue'], $seconds)));
+            }
+
+            foreach ($ended as $incident) {
+                if ($budget->exhausted()) {
+                    break;
+                }
+
+                $record = $incident['record'];
+
+                // The guarded delete first: a recovery is dispatched once, by the run that deleted the incident.
+                if (Watcher::instance()->run(LongWaitIncidents::OPERATION, fn (): bool => $this->incidents->close($incident['key'], $incident['stored']), false) !== true) {
+                    continue;
+                }
+
+                $event = new LongWaitRecovered($record['connection'], $record['queue'], max(0, (int) floor($now - $record['started_at'])), $record['started_at'], $record['channels']);
+                Watcher::instance()->attempt(self::RECOVERED_OPERATION, fn () => $this->events->dispatch($event));
+            }
+
+            if (! $budget->exhausted()) {
+                Watcher::instance()->attempt(self::SPIKE_OPERATION, fn () => $this->spikes->run($now));
             }
         } finally {
             $container->forgetInstance(self::BUDGET);
