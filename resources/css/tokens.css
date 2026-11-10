@@ -3,24 +3,11 @@
  * with get_tokens (format css). The success
  * tint and text (the Completed chip and the live labels) come from the same
  * export of a later design round. The values are the export's
- * values. Only the font stacks add fallbacks after the named
- * family. The shell and the screens use these properties, and so do the
- * element defaults of base.css.
- *
- * Inter is bundled: the latin subset of the variable font (weights 100–900)
- * is inlined into the stylesheet at build time (vite.config.js), so the page
- * loads no external font. Characters outside the subset fall back to the
- * system font through the unicode-range.
+ * values, except the font stacks: the sans stack is the system font (the
+ * native Mac look of the design), and the mono stack adds fallbacks after
+ * its named family. The page bundles and loads no font. The shell and the
+ * screens use these properties, and so do the element defaults of base.css.
  */
-@font-face {
-    font-family: 'Inter Variable';
-    font-style: normal;
-    font-display: swap;
-    font-weight: 100 900;
-    src: url('../../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2') format('woff2-variations');
-    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
-}
-
 :root {
     --color-bg: #FFFFFF;
     --color-sidebar: #F3F3F5;
@@ -42,7 +29,7 @@
     --color-on-accent: #FFFFFF;
     --color-success-tint: #EAF8EE;
     --color-success-text: #1E7A36;
-    --font-sans: 'Inter Variable', Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+    --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
     --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
     --text-caption: 12px;
     --text-table: 13px;

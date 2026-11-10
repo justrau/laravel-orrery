@@ -8,7 +8,7 @@
 
     <title>{{ config('orrery.name', 'Orrery') }}</title>
 
-    <!-- Style sheets and the application: inlined from dist/, with the bundled Inter font -->
+    <!-- Style sheets and the application: inlined from dist/ -->
     {!! Justrau\Orrery\Orrery::css() !!}
     {!! Justrau\Orrery\Orrery::js() !!}
 </head>

@@ -21,7 +21,7 @@ use Symfony\Component\HttpFoundation\Response;
 final class ContentSecurityPolicy
 {
     /** The policy; `{nonce}` is the nonce of the request. docs/security.md shows the same text. */
-    public const POLICY = "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; img-src 'self' data:; font-src data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+    public const POLICY = "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
     public function handle(Request $request, Closure $next): Response
     {
