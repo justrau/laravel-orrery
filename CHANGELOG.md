@@ -6,6 +6,10 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 ## [Unreleased]
 
+### Changed
+
+- **A byte budget for the observations that wait for a commit.** Besides the count cap, the observations held for the commit of an application transaction now have a byte budget: the smaller of 32 MB and an eighth of `memory_limit`, estimated from the payload sizes (a bulk push counts all its payloads). An observation past either limit is dropped and counted in `unverified`, with its reason (`deferral.count_cap` or `deferral.byte_budget`) as the health window's last error. An observation frees its decoded payload copy as soon as its write ran. A dropped push stays invisible until its reservation creates the row; [Known limits](docs/known-limits.md) says so.
+
 ## [0.1.0] - 2026-11-10
 
 The first release: a Horizon-style dashboard for the `database` queue driver of Laravel. Orrery is a watcher only. It never starts, supervises or scales queue workers; you run `queue:work` under systemd, supervisord, Forge or another process manager. Your `jobs`, `failed_jobs` and `job_batches` tables stay authoritative, and Orrery keeps its own `orrery_*` mirror tables next to them.
