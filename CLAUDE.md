@@ -26,6 +26,8 @@ Claude Code loads a nested `CLAUDE.md` when it reads files in that folder. Read 
 | `bin/CLAUDE.md` | `bin/test`, `bin/test-db`, the heavy-run slot, the ownership contract, `bin/matrix`, `bin/tia`, `bin/check-assets`. |
 | `workbench/CLAUDE.md` | The Workbench (details in `workbench/fixtures.md`). |
 
+The user docs are in `docs/` (index `docs/README.md`); `README.md` is the short overview. `bin/verify-install` runs the install commands of the README's "Installation", and reads the CSP middleware from `docs/security.md` and the removal from `docs/upgrading.md`: keep those sections parseable. `docs/` is not in the export.
+
 Design docs are in `docs/architecture/`: `overview.md` (the architecture for a new reader) and `lifecycle-rules.md` (every rule of `Lifecycle\Rules`). Both describe the current code. The specs and plans are in `.internal/specs/` and `.internal/plans/` (the maintainers' notes, not in the repository); the current spec for the API and UI is `.internal/specs/2026-11-08-d8-ui-api-end-state.md`.
 
 ## Hard rules

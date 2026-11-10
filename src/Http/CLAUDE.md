@@ -38,4 +38,4 @@ The controllers' docblocks hold the contract of each endpoint, and this file hol
 
 ## The page
 
-`Orrery::css()` and `Orrery::js()` inline `dist/` into `resources/views/layout.blade.php` and add `nonce="…"` when `Vite::cspNonce()` returns one. The README documents the Content Security Policy.
+`Orrery::css()` and `Orrery::js()` inline `dist/` into `resources/views/layout.blade.php` and add `nonce="…"` when `Vite::cspNonce()` returns one. `docs/security.md` documents the Content Security Policy.

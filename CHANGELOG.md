@@ -17,7 +17,7 @@ The first release: a Horizon-style dashboard for the `database` queue driver of 
 - Tested databases: SQLite (the versions of PHP 8.3 to 8.5), MySQL 8.4 and Postgres 18. MariaDB has code paths but is not tested yet.
 - The `database` queue driver only. Retry and forget need the failed-job driver `database-uuids` (Laravel's default) or `null`; every other failed-job driver is read-only.
 
-**Known limits.** The README section "Known limits" lists them. In short: only the `database` queue driver; Laravel's own `queue:retry`, `queue:forget` and `queue:flush` bypass the ledger and the fence; the throughput counts are observations, not exact event counts; without the optional `jobs` index the queue measurement scans the whole `jobs` table; and there is no dark mode yet.
+**Known limits.** [docs/known-limits.md](docs/known-limits.md) lists them. In short: only the `database` queue driver; Laravel's own `queue:retry`, `queue:forget` and `queue:flush` bypass the ledger and the fence; the throughput counts are observations, not exact event counts; without the optional `jobs` index the queue measurement scans the whole `jobs` table; and there is no dark mode yet.
 
 ### Added
 

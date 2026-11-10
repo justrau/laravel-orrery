@@ -8,8 +8,8 @@ use Illuminate\Support\Facades\Vite;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
- * The enforced Content Security Policy of the dashboard, as the
- * README's example middleware sets it: a new nonce per request through
+ * The enforced Content Security Policy of the dashboard, as the example
+ * middleware of docs/security.md sets it: a new nonce per request through
  * Laravel's Vite::useCspNonce(), which Orrery::css() and Orrery::js() put on
  * their inlined elements, and the policy with that nonce. No 'unsafe-inline'
  * and no 'unsafe-eval'; the bundled font is a data: URL; no frame may embed
@@ -20,7 +20,7 @@ use Symfony\Component\HttpFoundation\Response;
  */
 final class ContentSecurityPolicy
 {
-    /** The policy; `{nonce}` is the nonce of the request. The README shows the same text. */
+    /** The policy; `{nonce}` is the nonce of the request. docs/security.md shows the same text. */
     public const POLICY = "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; img-src 'self' data:; font-src data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
     public function handle(Request $request, Closure $next): Response

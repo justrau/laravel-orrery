@@ -137,7 +137,7 @@ return [
 
     // The package schedules orrery:tick (every minute), onOneServer() and
     // withoutOverlapping(). Set it to false to schedule it yourself, for
-    // example on one dedicated server (README, "The scheduler").
+    // example on one dedicated server (docs/installation.md, "The scheduler").
     'schedule' => env('ORRERY_SCHEDULE', true),
 
     // The connector swap: the `database` queue connector

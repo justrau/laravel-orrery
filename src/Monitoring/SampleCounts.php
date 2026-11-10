@@ -84,7 +84,7 @@ use Throwable;
  * d seconds early: for d below RECOUNT_SECONDS the recount of the next runs
  * corrects the minutes, and the retention floor (M - 300) still holds their
  * rows; a larger skew can publish a minute before its last rows arrive (an
- * undercount that the recount no longer reaches). The README asks for
+ * undercount that the recount no longer reaches). docs/dashboard.md asks for
  * synchronised clocks (NTP). The database clock is not used, because a
  * minute's rows carry the workers' clocks, not the database's.
  *

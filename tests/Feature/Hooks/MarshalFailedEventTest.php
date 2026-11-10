@@ -15,8 +15,8 @@ use Justrau\Orrery\Tests\Support\FreshSchema;
 use RuntimeException;
 
 /**
- * The package's own JobFailed event (MarshalFailedEvent, README "What it
- * is"): the application listens to it, so it is no package observation.
+ * The package's own JobFailed event (MarshalFailedEvent, README "Status and
+ * stability"): the application listens to it, so it is no package observation.
  */
 #[FreshSchema]
 final class MarshalFailedEventTest extends HooksTestCase

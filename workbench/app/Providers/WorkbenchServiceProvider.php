@@ -84,7 +84,7 @@ class WorkbenchServiceProvider extends OrreryApplicationServiceProvider
         WorkbenchConfiguration::displayTimezone($app->make('config'), ProcessEnvironment::get(WorkbenchConfiguration::DISPLAY_TIMEZONE_VARIABLE));
         WorkbenchAuth::apply($app->make('config'), $this->strict);
 
-        // The dashboard runs under the enforced Content Security Policy of the README,
+        // The dashboard runs under the enforced Content Security Policy of docs/security.md,
         // so every browser check of the Workbench proves it. The package's boot() reads
         // orrery.middleware after every register().
         $config = $app->make('config');

@@ -106,7 +106,7 @@ final class WorkerLivenessTest extends TestCase
      * own queue names first, so a long job on a connection with a long
      * retry_after (`database-long`, queue `long`) is not expired after the
      * shorter retry_after of another connection on that table. Each
-     * connection's own retry_after decides, as the README says. Would still
+     * connection's own retry_after decides, as docs/installation.md says. Would still
      * pass: a rule that groups only connections on the same table and queue.
      */
     public function test_each_queue_connection_has_its_own_retry_after(): void
