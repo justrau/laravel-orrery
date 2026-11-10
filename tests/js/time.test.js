@@ -1,4 +1,4 @@
-// Tests of resources/js/support/time.js. `npm test` runs them with TZ=UTC
+// Tests of resources/js/support/time.js. `pnpm test` runs them with TZ=UTC
 // and LANG=en_US.UTF-8, so local times and grouping are stable.
 
 import {test} from 'node:test';

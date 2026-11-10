@@ -11,7 +11,7 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * bin/check-assets in a temporary git checkout, with a fake node and a fake
- * npm first on PATH. The fake npm records its calls, and its `run build`
+ * pnpm first on PATH. The fake pnpm records its calls, and its `run build`
  * writes dist/app.js (ORRERY_FAKE_BUILD) and, with ORRERY_FAKE_EXTRA, one more
  * file in dist/. The real build is checked by running bin/check-assets itself.
  *
@@ -39,7 +39,8 @@ final class AssetsCheckTest extends TestCase
         chmod($this->repo.'/bin/check-assets', 0755);
         file_put_contents($this->repo.'/.nvmrc', "24\n");
         file_put_contents($this->repo.'/package.json', "{\"engines\": {\"node\": \"^24.0.0\"}}\n");
-        file_put_contents($this->repo.'/package-lock.json', "{\"lockfileVersion\": 3}\n");
+        file_put_contents($this->repo.'/pnpm-lock.yaml', "lockfileVersion: '9.0'\n");
+        file_put_contents($this->repo.'/pnpm-workspace.yaml', "minimumReleaseAge: 10080\n");
         file_put_contents($this->repo.'/dist/app.js', "built\n");
         file_put_contents($this->repo.'/dist/app.css', "css\n");
         $this->git(['init', '--quiet']);
@@ -47,12 +48,12 @@ final class AssetsCheckTest extends TestCase
         $this->commit('fixture');
 
         file_put_contents($this->tools.'/node', "#!/bin/sh\necho \"v\${ORRERY_FAKE_NODE:-24.20.0}\"\n");
-        file_put_contents($this->tools.'/npm', <<<'SH'
+        file_put_contents($this->tools.'/pnpm', <<<'SH'
             #!/bin/sh
-            echo "$*" >>"$ORRERY_FAKE_NPM_LOG"
+            echo "$*" >>"$ORRERY_FAKE_PNPM_LOG"
             case "$1" in
-                --version) echo 11.19.0 ;;
-                ci) exit "${ORRERY_FAKE_NPM_CI_EXIT:-0}" ;;
+                --version) echo 11.11.0 ;;
+                install) exit "${ORRERY_FAKE_PNPM_INSTALL_EXIT:-0}" ;;
                 run)
                     if [ -n "${ORRERY_FAKE_BUILD_BYTES:-}" ]; then
                         head -c "$ORRERY_FAKE_BUILD_BYTES" /dev/zero | tr '\0' a >dist/app.js
@@ -70,7 +71,7 @@ final class AssetsCheckTest extends TestCase
 
             SH);
         chmod($this->tools.'/node', 0755);
-        chmod($this->tools.'/npm', 0755);
+        chmod($this->tools.'/pnpm', 0755);
     }
 
     protected function tearDown(): void
@@ -84,9 +85,9 @@ final class AssetsCheckTest extends TestCase
         $run = $this->checkAssets();
 
         self::assertSame(0, $run['exit'], $run['stdout'].$run['stderr']);
-        self::assertStringContainsString('bin/check-assets: node 24.20.0, npm 11.19.0', $run['stdout']);
+        self::assertStringContainsString('bin/check-assets: node 24.20.0, pnpm 11.11.0', $run['stdout']);
         self::assertStringContainsString('the build reproduces the committed dist/', $run['stdout']);
-        self::assertSame(['--version', 'ci --engine-strict --no-audit --no-fund', 'run build'], $this->npmCalls());
+        self::assertSame(['--version', 'install --frozen-lockfile --engine-strict', 'run build'], $this->pnpmCalls());
     }
 
     /**
@@ -329,27 +330,42 @@ final class AssetsCheckTest extends TestCase
 
         self::assertSame(1, $run['exit'], $run['stdout']);
         self::assertStringContainsString('has uncommitted changes before the build', $run['stderr']);
-        self::assertSame([], $this->npmCalls(), 'npm ran before the refusal');
+        self::assertSame([], $this->pnpmCalls(), 'pnpm ran before the refusal');
     }
 
     public function test_a_lock_file_that_is_not_committed_is_refused(): void
     {
-        $this->git(['rm', '--cached', '--quiet', 'package-lock.json']);
+        $this->git(['rm', '--cached', '--quiet', 'pnpm-lock.yaml']);
         $this->commit('drop the lock');
 
         $run = $this->checkAssets();
 
         self::assertSame(1, $run['exit'], $run['stdout']);
-        self::assertStringContainsString('package-lock.json is not committed', $run['stderr']);
+        self::assertStringContainsString('pnpm-lock.yaml is not committed', $run['stderr']);
     }
 
-    public function test_a_failed_npm_ci_fails_before_the_build(): void
+    /**
+     * Rejects: a check that ignores a changed pnpm-workspace.yaml (the
+     * minimum release age and the install scripts live there).
+     */
+    public function test_an_uncommitted_workspace_file_is_refused(): void
     {
-        $run = $this->checkAssets(['ORRERY_FAKE_NPM_CI_EXIT' => '1']);
+        file_put_contents($this->repo.'/pnpm-workspace.yaml', "minimumReleaseAge: 0\n");
+
+        $run = $this->checkAssets();
 
         self::assertSame(1, $run['exit'], $run['stdout']);
-        self::assertStringContainsString('npm ci failed: package-lock.json does not match package.json', $run['stderr']);
-        self::assertNotContains('run build', $this->npmCalls());
+        self::assertStringContainsString('has uncommitted changes before the build', $run['stderr']);
+        self::assertSame([], $this->pnpmCalls());
+    }
+
+    public function test_a_failed_pnpm_install_fails_before_the_build(): void
+    {
+        $run = $this->checkAssets(['ORRERY_FAKE_PNPM_INSTALL_EXIT' => '1']);
+
+        self::assertSame(1, $run['exit'], $run['stdout']);
+        self::assertStringContainsString('pnpm install failed: pnpm-lock.yaml does not match package.json', $run['stderr']);
+        self::assertNotContains('run build', $this->pnpmCalls());
     }
 
     public function test_another_node_major_than_nvmrc_is_refused(): void
@@ -358,18 +374,29 @@ final class AssetsCheckTest extends TestCase
 
         self::assertSame(1, $run['exit'], $run['stdout']);
         self::assertStringContainsString('node 26.5.0 is not Node 24 (.nvmrc)', $run['stderr']);
-        self::assertSame([], $this->npmCalls());
+        self::assertSame([], $this->pnpmCalls());
     }
 
-    public function test_the_repository_declares_the_same_node_major_in_nvmrc_and_engines(): void
+    /**
+     * Rejects: a Node major in engines other than .nvmrc's, a pnpm range in
+     * engines that the pinned packageManager does not start at, and a
+     * workspace file without the minimum release age of 7 days.
+     */
+    public function test_the_repository_declares_node_pnpm_and_the_release_age(): void
     {
         $nvmrc = trim((string) file_get_contents(self::repoRoot().'/.nvmrc'));
-        $engines = json_decode((string) file_get_contents(self::repoRoot().'/package.json'), true)['engines'];
+        $package = json_decode((string) file_get_contents(self::repoRoot().'/package.json'), true);
+        $engines = $package['engines'];
 
         self::assertMatchesRegularExpression('/^\d+$/', $nvmrc);
         self::assertSame('^'.$nvmrc.'.0.0', $engines['node']);
-        self::assertArrayHasKey('npm', $engines);
-        self::assertSame($engines, json_decode((string) file_get_contents(self::repoRoot().'/package-lock.json'), true)['packages']['']['engines']);
+        self::assertSame(1, preg_match('/^pnpm@(\d+\.\d+\.\d+)$/', $package['packageManager'] ?? '', $pinned), 'package.json pins no pnpm version in packageManager.');
+        self::assertSame('^'.$pinned[1], $engines['pnpm']);
+        self::assertFileDoesNotExist(self::repoRoot().'/package-lock.json');
+
+        $workspace = (string) file_get_contents(self::repoRoot().'/pnpm-workspace.yaml');
+        self::assertMatchesRegularExpression('/^minimumReleaseAge: 10080$/m', $workspace);
+        self::assertMatchesRegularExpression('/^ignoreScripts: true$/m', $workspace);
     }
 
     /**
@@ -380,7 +407,7 @@ final class AssetsCheckTest extends TestCase
     {
         $run = $this->runProcess([$this->repo.'/bin/check-assets'], $this->scriptEnv(array_merge([
             'PATH' => $this->tools.':'.getenv('PATH'),
-            'ORRERY_FAKE_NPM_LOG' => $this->tools.'/npm.log',
+            'ORRERY_FAKE_PNPM_LOG' => $this->tools.'/pnpm.log',
         ], $env)), 60.0);
 
         return ['exit' => $run['exit'], 'stdout' => $run['stdout'], 'stderr' => $run['stderr']];
@@ -389,9 +416,9 @@ final class AssetsCheckTest extends TestCase
     /**
      * @return list<string>
      */
-    private function npmCalls(): array
+    private function pnpmCalls(): array
     {
-        return is_file($this->tools.'/npm.log') ? (file($this->tools.'/npm.log', FILE_IGNORE_NEW_LINES) ?: []) : [];
+        return is_file($this->tools.'/pnpm.log') ? (file($this->tools.'/pnpm.log', FILE_IGNORE_NEW_LINES) ?: []) : [];
     }
 
     /**

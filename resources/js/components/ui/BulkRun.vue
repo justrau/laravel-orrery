@@ -147,7 +147,7 @@
         },
 
         computed: {
-            /** The `client` prop, else the shared axios instance with the dashboard's base path. */
+            /** The `client` prop, else the shared HTTP client with the dashboard's base path. */
             http() {
                 return this.client || basePathClient(this.$http, typeof window !== 'undefined' && window.Orrery ? window.Orrery.basePath : '');
             },

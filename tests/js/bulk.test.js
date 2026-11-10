@@ -216,7 +216,7 @@ test('sourceSummary words the source of a run', () => {
     assert.equal(FREEZE_NOTE, 'Failures that happen after this moment are not included.');
 });
 
-/** An axios error with an HTTP answer. */
+/** A client error (support/http.js) with an HTTP answer. */
 function httpError(status, data) {
     return {response: {status, data}, config: {method: 'post'}};
 }

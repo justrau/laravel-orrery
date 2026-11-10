@@ -1,6 +1,6 @@
 // Tests of resources/js/screens/batches/batches.js: the rules of the
 // Batches screen.
-// `npm test` runs them with TZ=UTC and LANG=en_US.UTF-8.
+// `pnpm test` runs them with TZ=UTC and LANG=en_US.UTF-8.
 
 import {test} from 'node:test';
 import assert from 'node:assert/strict';

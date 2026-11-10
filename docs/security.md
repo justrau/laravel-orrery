@@ -26,7 +26,7 @@
 
 ## Content Security Policy
 
-The dashboard runs under a strict policy: no `unsafe-inline`, no `unsafe-eval`. Its CSS and JavaScript are inlined into the page, and each inlined element carries the nonce of Laravel's `Vite::cspNonce()` when your middleware sets one. The bundled Inter font is a `data:` URL, and the page loads no external font or script. The package sets no policy itself: add a middleware to `orrery.middleware`, for example:
+The dashboard runs under a strict policy: no `unsafe-inline`, no `unsafe-eval`. Its CSS and JavaScript are inlined into the page, and each inlined element carries the nonce of Laravel's `Vite::cspNonce()` when your middleware sets one. The dashboard uses the system font, and the page loads no font and no external script. The package sets no policy itself: add a middleware to `orrery.middleware`, for example:
 
 ```php
 namespace App\Http\Middleware;
@@ -38,7 +38,7 @@ use Symfony\Component\HttpFoundation\Response;
 
 final class OrreryContentSecurityPolicy
 {
-    private const POLICY = "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; img-src 'self' data:; font-src data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
+    private const POLICY = "default-src 'none'; script-src 'nonce-{nonce}'; style-src 'nonce-{nonce}'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'";
 
     public function handle(Request $request, Closure $next): Response
     {

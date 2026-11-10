@@ -87,7 +87,7 @@ test('authFailure tells the session-expired, access-lost and refused-action case
     assert.equal(authFailure(answer(403, 'head', {message: 'no'})), ACCESS_LOST);
     assert.equal(authFailure(answer(403, 'post', {message: 'This action is unauthorized.'})), FORBIDDEN_ACTION);
     assert.equal(authFailure(answer(403, 'patch', null)), FORBIDDEN_ACTION);
-    assert.equal(authFailure(answer(403, undefined, {error: 'something_else'})), ACCESS_LOST, 'axios defaults to GET');
+    assert.equal(authFailure(answer(403, undefined, {error: 'something_else'})), ACCESS_LOST, 'a request without a method is a GET');
 
     assert.equal(authFailure(answer(500, 'get')), null);
     assert.equal(authFailure({code: 'ERR_NETWORK', config: {}}), null);
@@ -125,10 +125,10 @@ test('isReadRequest names the safe methods and the read-only POSTs', () => {
     assert.ok(!isReadRequest({method: 'post', url: '/orrery/api/bulk/run'}), 'a bulk run page writes');
     assert.ok(!isReadRequest({method: 'post', url: '/orrery/api/jobs/00000000-0000-4000-8000-000000000001/retry'}));
     assert.ok(!isReadRequest({method: 'delete', url: '/orrery/api/tags/monitored/x'}));
-    assert.ok(isReadRequest(null), 'axios defaults to GET');
+    assert.ok(isReadRequest(null), 'a request without a method is a GET');
 });
 
-/** A fake axios instance: the interceptors that installErrorHandling registers. */
+/** A fake client (support/http.js): the interceptors that installErrorHandling registers. */
 function fakeHttp() {
     const http = {request: null, rejected: null};
 

@@ -1,0 +1,6 @@
+# The browser tools are a pnpm project of their own (without this file, pnpm
+# would treat the repository root as their workspace root).
+# minimumReleaseAge: install no version published less than 7 days ago
+# (in minutes). ignoreScripts: run no install script of a dependency.
+minimumReleaseAge: 10080
+ignoreScripts: true

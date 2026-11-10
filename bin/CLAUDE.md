@@ -20,7 +20,7 @@ bin/tia -- --stop-on-failure         # arguments after -- go to PHPUnit (not --f
 - **Full fallback** (with the reason) when the map cannot prove a selection: a changed PHP file that no class ran, a deleted file that a class ran, `composer.json`, `phpunit.xml(.dist)`, `tests/bootstrap.php`, `testbench.yaml`, `tests/Support/Tia/`, an unclassified file, another PHP minor, other vendor packages, another variant, or a map more than 500 commits behind (`--max-commits`). Record again when it says the map is stale.
 - **Record only in the main checkout, with no untracked files** (`git status`). The map lists untracked files too. A worktree does not have them, so it would see them as deleted and fall back to the full scope. Ignore a stray local file in `.git/info/exclude`.
 - **In a worktree, copy the main checkout's `composer.lock` before `composer install`.** Other vendor versions also make it fall back.
-- It never runs `npm test`, `bin/check-assets` or the group `docker`; it prints a notice for them.
+- It never runs `pnpm test`, `bin/check-assets` or the group `docker`; it prints a notice for them.
 - **Limits.** It does not see: a `src/` change that breaks a `scripts` or `workbench` class; a file read through a path that no string literal names; `php -n` children; a child that starts after the next class began; skip paths on an engine other than the recorded one.
 
 ## bin/test
@@ -72,8 +72,8 @@ Schema modes: in-memory SQLite is always fresh. The file and server runs are fre
 
 Builds the working checkout and compares the result with the committed `dist/`. It proves the committed sources only when `resources/js/`, `resources/css/` and the Vite configuration have no uncommitted changes (check with `git status`).
 
-- Needs Node 24 (`.nvmrc`) and npm `^11.10.0`; older npm 11 releases are too old.
-- Refuses to start when `dist/`, `package.json` or `package-lock.json` has uncommitted changes. Runs `npm ci --engine-strict` (replaces `node_modules/`) and `npm run build`.
+- Needs Node 24 (`.nvmrc`) and the pnpm of `packageManager` in `package.json` (`engines` holds both).
+- Refuses to start when `dist/`, `package.json`, `pnpm-lock.yaml` or `pnpm-workspace.yaml` has uncommitted changes. Runs `pnpm install --frozen-lockfile --engine-strict` and `pnpm run build`.
 - Fails on eval forms in `dist/app.js` and when `dist/app.js` passes `bundle_budget_bytes`.
 - On a mismatch, commit the rebuilt `dist/` in its own commit, or fix the build.
 

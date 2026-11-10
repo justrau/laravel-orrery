@@ -1,5 +1,5 @@
 // Tests of resources/js/support/lists.js: the client rules of the list
-// engine. `npm test` runs them with TZ=UTC and
+// engine. `pnpm test` runs them with TZ=UTC and
 // LANG=en_US.UTF-8, so the grouping of counts is stable.
 
 import {test} from 'node:test';

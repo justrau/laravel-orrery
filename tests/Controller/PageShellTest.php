@@ -9,7 +9,7 @@ use Justrau\Orrery\Tests\ControllerTest;
 /**
  * The dashboard page: the app identity in window.Orrery,
  * which the sidebar shows, and the page shell without the dark stylesheet
- * and without the external font.
+ * and without a font of its own.
  */
 final class PageShellTest extends ControllerTest
 {
@@ -77,7 +77,8 @@ final class PageShellTest extends ControllerTest
      * Rejects: the Bootstrap stylesheet (dist/styles.css, `data-scheme="light"`)
      * still inlined, a dark stylesheet, and an external font or stylesheet
      * of any host (a `<link>`, an `@import`, a `url()` that is not a `data:`
-     * URL, a script or image by URL, a `FontFace` load).
+     * URL, a script or image by URL, a `FontFace` load), and a font of its
+     * own (an `@font-face`: the page uses the system font).
      * Still passes: Bootstrap rules copied into app.css (LegacyGoneTest
      * guards the sources).
      */
@@ -99,7 +100,7 @@ final class PageShellTest extends ControllerTest
         preg_match_all('/url\(\s*([\'"]?)([^\'")\s]*)/i', $style[1], $urls);
         $external = array_values(array_filter($urls[2], static fn (string $url): bool => ! str_starts_with($url, 'data:') && ! str_starts_with($url, '#')));
         $this->assertSame([], $external, 'the stylesheet loads a url() that is not inline');
-        $this->assertGreaterThan(0, count($urls[2]), 'the bundled font is no inline url() any more: the check reads nothing');
+        $this->assertSame(0, preg_match('/@font-face\b/i', $style[1]), 'the stylesheet declares a font: the page uses the system font');
         $this->assertSame(0, preg_match('/<(?:script|img|iframe)\b[^>]*\bsrc\s*=/i', $html), 'the page loads a script or an image by URL');
         $this->assertSame(0, preg_match('/\bnew\s+FontFace\s*\(/', $html), 'the script loads a font');
     }

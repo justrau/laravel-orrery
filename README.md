@@ -75,4 +75,4 @@ The [documentation index](docs/README.md) also links the architecture docs for c
 
 ## License
 
-Orrery is open-source software under the MIT License. See [LICENSE](LICENSE). Parts of the code come from Laravel Horizon, and the dashboard bundles the Inter font and npm packages: [NOTICE.md](NOTICE.md) lists them, and `dist/THIRD_PARTY_NOTICES.txt` holds the licenses of the bundled npm packages.
+Orrery is open-source software under the MIT License. See [LICENSE](LICENSE). Parts of the code come from Laravel Horizon, and the dashboard bundles npm packages: [NOTICE.md](NOTICE.md) lists them, and `dist/THIRD_PARTY_NOTICES.txt` holds the licenses of the bundled npm packages.

@@ -15,7 +15,7 @@
              * The poll's work: a function that returns a promise. The next poll
              * starts only after this promise settles, however long it takes, so
              * requests never overlap (shell/poll.js). Every GET of the shared
-             * axios instance times out after 30 s, so every poll settles.
+             * HTTP client times out after 30 s, so every poll settles.
              */
             request: {
                 type: Function,

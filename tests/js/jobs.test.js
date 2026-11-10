@@ -1,6 +1,6 @@
 // Tests of resources/js/screens/jobs/jobs.js: the rules of the Jobs list
 // screen.
-// `npm test` runs them with TZ=UTC and LANG=en_US.UTF-8.
+// `pnpm test` runs them with TZ=UTC and LANG=en_US.UTF-8.
 
 import {test} from 'node:test';
 import assert from 'node:assert/strict';

@@ -11,10 +11,11 @@ use PHPUnit\Framework\TestCase;
  * Every write of the dashboard needs `X-Requested-With: XMLHttpRequest`
  * (Http\Middleware\Authenticate, else 403 `header_missing`). The PHP tests
  * get the header from `TestCase::setUp()`, so none of them sees a SPA that
- * stops sending it. This scan reads the built dist/app.js: it sets the
- * header on axios' defaults before it creates the instance that the screens
- * use (`$http`), because `axios.create()` copies the defaults only when it
- * runs.
+ * stops sending it. This scan reads the built dist/app.js: the HTTP client
+ * of the screens (`resources/js/support/http.js`, the `$http` of app.js)
+ * sets the header on the headers of every request, after the headers of the
+ * request config, just before it calls fetch(). tests/js/http.test.js
+ * checks the client's behaviour.
  *
  * The test reads files only (group scripts: `composer test:all` runs it).
  */
@@ -23,23 +24,22 @@ final class RequestedWithHeaderTest extends TestCase
 {
     /**
      * Rejects: a build that no longer sets the header (a removed line in
-     * resources/js/app.js), one that sets another value, and one that sets
-     * it only after `axios.create()`, so the instance of the screens never
-     * sends it.
-     * Still passes: a screen that posts through a request config that
-     * removes the header again: the scan reads the default only.
+     * resources/js/support/http.js), one that sets another value, one that
+     * sets it in a second place too (an old default left over), and a
+     * client that no longer calls fetch().
+     * Still passes: a header line in code that no request runs, and one
+     * that a request config can overwrite; tests/js/http.test.js rejects
+     * both for the client itself.
      */
     public function test_the_built_spa_sends_the_header_on_every_request(): void
     {
         $bundle = (string) file_get_contents(dirname(__DIR__, 2).'/dist/app.js');
         self::assertNotSame('', $bundle, 'dist/app.js is missing or empty.');
 
-        $found = preg_match('/([A-Za-z_$][\w$]*)\.defaults\.headers\.common\[(["\'])X-Requested-With\2\]\s*=\s*(["\'])XMLHttpRequest\3/', $bundle, $match, PREG_OFFSET_CAPTURE);
-        self::assertSame(1, $found, 'dist/app.js does not set X-Requested-With: XMLHttpRequest on the axios defaults.');
+        $found = preg_match_all('/[\w$\]\)]\[([`"\'])X-Requested-With\1\]\s*=\s*([`"\'])([^`"\']*)\2/', $bundle, $matches);
+        self::assertSame(1, $found, 'dist/app.js does not set X-Requested-With on the headers of a request exactly once.');
+        self::assertSame('XMLHttpRequest', $matches[3][0], 'dist/app.js sets X-Requested-With to another value.');
 
-        $axios = $match[1][0];
-        $create = strpos($bundle, $axios.'.create(');
-        self::assertNotFalse($create, 'dist/app.js does not create the axios instance from the same axios.');
-        self::assertGreaterThan($match[0][1], $create, 'dist/app.js creates the axios instance before it sets the header, so the instance does not send it.');
+        self::assertSame(1, preg_match('/\bfetch\(/', $bundle), 'dist/app.js does not call fetch(): the HTTP client is gone.');
     }
 }

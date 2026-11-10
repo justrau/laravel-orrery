@@ -1,4 +1,4 @@
-// Tests of resources/js/screens/classes/classes.js (the Job classes view). `npm test` runs in UTC.
+// Tests of resources/js/screens/classes/classes.js (the Job classes view). `pnpm test` runs in UTC.
 
 import {test} from 'node:test';
 import assert from 'node:assert/strict';

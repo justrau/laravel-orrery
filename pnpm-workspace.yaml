@@ -1,0 +1,6 @@
+# pnpm settings of the build (pnpm 11 reads its settings here, not from .npmrc).
+# minimumReleaseAge: install no version published less than 7 days ago
+# (in minutes). ignoreScripts: run no install script of a dependency.
+# tools/browser has its own pnpm-workspace.yaml: it is a project of its own.
+minimumReleaseAge: 10080
+ignoreScripts: true
