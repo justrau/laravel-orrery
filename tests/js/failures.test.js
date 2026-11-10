@@ -1,4 +1,4 @@
-// Tests of resources/js/screens/failed/failures.js. `npm test` runs in UTC.
+// Tests of resources/js/screens/failed/failures.js. `pnpm test` runs in UTC.
 
 import {test} from 'node:test';
 import assert from 'node:assert/strict';

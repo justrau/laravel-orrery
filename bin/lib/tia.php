@@ -988,7 +988,7 @@ final class Selector
     public const FULL = ['composer.json', 'phpunit.xml', 'phpunit.xml.dist', 'tests/bootstrap.php', 'testbench.yaml'];
 
     /** Path prefixes and files that select the group scripts. */
-    public const SCRIPTS = ['bin/', 'docker/', 'tools/', 'tests/Scripts/', 'tests/Benchmark/', '.github/', '.gitignore', '.npmrc', '.nvmrc', 'phpstan.neon.dist', 'package.json', 'package-lock.json', 'vite.config.js', 'tests/known-failures.md', 'tests/unconditional.txt'];
+    public const SCRIPTS = ['bin/', 'docker/', 'tools/', 'tests/Scripts/', 'tests/Benchmark/', '.github/', '.gitignore', '.npmrc', '.nvmrc', 'phpstan.neon.dist', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'vite.config.js', 'tests/known-failures.md', 'tests/unconditional.txt'];
 
     /**
      * The groups whose classes start PHPUnit or Workbench children that load
@@ -1120,11 +1120,11 @@ final class Selector
             }
 
             if (str_starts_with($path, 'resources/js/') || str_starts_with($path, 'tests/js/')) {
-                $selection->notice("{$path} changed: also run npm test (and npm run build, then commit dist/).");
+                $selection->notice("{$path} changed: also run pnpm test (and pnpm run build, then commit dist/).");
             }
 
             if (str_starts_with($path, 'resources/css/')) {
-                $selection->notice("{$path} changed: also run npm run build and bin/check-assets.");
+                $selection->notice("{$path} changed: also run pnpm run build and bin/check-assets.");
             }
 
             // Every change: the classes whose files name this path (not the

@@ -22,7 +22,8 @@ AGENTS.md export-ignore
 /CONTRIBUTING.md export-ignore
 /SECURITY.md export-ignore
 /package.json export-ignore
-/package-lock.json export-ignore
+/pnpm-lock.yaml export-ignore
+/pnpm-workspace.yaml export-ignore
 /phpstan.neon.dist export-ignore
 /phpunit.xml.dist export-ignore
 /testbench.yaml export-ignore

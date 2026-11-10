@@ -351,7 +351,7 @@ PHP;
 
         $js = Selector::select($map, [], $this->tree($map, ['resources/js/app.js' => "x\n"]));
         self::assertNull($js->fallback);
-        self::assertStringContainsString('npm test', implode("\n", $js->notices));
+        self::assertStringContainsString('pnpm test', implode("\n", $js->notices));
     }
 
     /**

@@ -48,14 +48,14 @@ Every change keeps these.
 
 ```bash
 composer install                     # composer.lock is gitignored; in a worktree, copy the main checkout's composer.lock first, so bin/tia's map matches the vendor versions
-npm ci                               # frontend work only (package-lock.json is committed)
+pnpm install                         # frontend work only (pnpm-lock.yaml is committed; pnpm-workspace.yaml sets the minimum release age)
 bin/tia                              # the inner loop: only the test classes the change can affect
 composer test -- --filter test_name  # one test; composer test -- tests/Feature/X.php for one file
 vendor/bin/phpunit --group <scripts|workbench> <file>  # a file of an excluded group (composer test runs none of it)
 bin/test <sqlite|mysql|pgsql> [--sqlite-file] -- <files>   # tests on an engine (see bin/CLAUDE.md)
 composer lint                        # PHPStan level 8 with Larastan (through workbench/bin/phpstan)
-npm test                             # JavaScript unit tests
-npm run build                        # Vite build to dist/ (committed)
+pnpm test                            # JavaScript unit tests
+pnpm run build                       # Vite build to dist/ (committed)
 bin/check-assets                     # proves that the build inputs reproduce dist/
 composer serve                       # builds and seeds the Workbench, then serves /orrery
 ```
@@ -66,7 +66,7 @@ composer serve                       # builds and seeds the Workbench, then serv
 
 ## Test policy
 
-Run as few tests as possible. While working and at the end of a task: `bin/tia` (or one test file), plus the task's own new or changed test files once on each engine whose SQL the task touches (`bin/test <engine> --drop-database -- <files>`), and `composer lint`. When the task changes `resources/`, also `npm test`, `npm run build` and `bin/check-assets`. Whole suites, `composer test:all`, server suites and docker run only rarely, after a large change is wrapped up. The full matrix runs before a release (`bin/matrix` locally, or the same legs in parallel on CI: `.github/workflows/tests.yml`). Never run two test runs at once on one machine.
+Run as few tests as possible. While working and at the end of a task: `bin/tia` (or one test file), plus the task's own new or changed test files once on each engine whose SQL the task touches (`bin/test <engine> --drop-database -- <files>`), and `composer lint`. When the task changes `resources/`, also `pnpm test`, `pnpm run build` and `bin/check-assets`. Whole suites, `composer test:all`, server suites and docker run only rarely, after a large change is wrapped up. The full matrix runs before a release (`bin/matrix` locally, or the same legs in parallel on CI: `.github/workflows/tests.yml`). Never run two test runs at once on one machine.
 
 Each parallel run (a worktree, an agent, a matrix leg) uses its own database name (see `bin/CLAUDE.md`). `tests/known-failures.md` is empty: never add a row for a bug of your own task; fix it.
 
@@ -74,7 +74,7 @@ Each parallel run (a worktree, an agent, a matrix leg) uses its own database nam
 
 - Commit subjects are shorter than 70 characters, with a conventional prefix (`feat:`, `fix:`, `docs:`, `test:`, `chore:`, `refactor:`).
 - Stage explicit paths only. Never `git add -A` or `git add .`.
-- `dist/` is committed. After a change in `resources/js/` or `resources/css/`, run `npm test` and `npm run build` and commit `dist/`. The package publishes no assets: `Orrery::css()` and `Orrery::js()` inline `dist/` into the page.
+- `dist/` is committed. After a change in `resources/js/` or `resources/css/`, run `pnpm test` and `pnpm run build` and commit `dist/`. The package publishes no assets: `Orrery::css()` and `Orrery::js()` inline `dist/` into the page.
 - `.excluded/` is gitignored reference material (`.excluded/horizon-issues/index.md` sorts Horizon's issues by demand). Never commit anything under it.
 - Put a class in the directory of its area; a tick phase goes in the `Phases/` directory of its area. `src/Support/` is gone.
 - The `origin` remote is `git@github.com:justrau/laravel-orrery.git`. `main` is the trunk; direct commits to `main` are authorized.

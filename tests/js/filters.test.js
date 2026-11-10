@@ -1,5 +1,5 @@
 // Tests of resources/js/support/filters.js: the rules of the shared filter
-// bar (components/ui/FilterBar.vue). `npm test` runs them
+// bar (components/ui/FilterBar.vue). `pnpm test` runs them
 // with TZ=UTC, so the local times are UTC.
 
 import {test} from 'node:test';

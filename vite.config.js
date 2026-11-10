@@ -4,8 +4,10 @@ import vue from '@vitejs/plugin-vue';
 
 /**
  * The directory of the npm package that holds a file, or null when the file is
- * not in node_modules/ (the last node_modules/ segment decides, so a nested
- * package counts as itself).
+ * not in node_modules/. The last node_modules/ segment decides, so a nested
+ * package counts as itself, and so does a package in pnpm's store layout
+ * (node_modules/.pnpm/<name>@<version>/node_modules/<name>/, the real path
+ * that Vite resolves a package to).
  */
 function packageDirectory(file) {
     const path = file.split('?')[0].replaceAll('\\', '/');
@@ -21,10 +23,11 @@ function packageDirectory(file) {
 
 /**
  * Writes dist/THIRD_PARTY_NOTICES.txt: the name, version, license and license
- * text (and NOTICE text, when the package has one) of every npm package whose code or files end up in dist/. A JavaScript
- * module counts when the bundle renders code of it (a module that tree shaking
- * removed does not); a file that a stylesheet names with url() (the font)
- * counts as it is inlined.
+ * text (and NOTICE text, when the package has one) of every npm package whose
+ * code or files end up in dist/. A JavaScript module counts when the bundle
+ * renders code of it (a module that tree shaking removed does not); a file of
+ * a package that a stylesheet names with url() counts as it is inlined (the
+ * stylesheets name none today).
  */
 function thirdPartyNotices() {
     const assetPackages = new Set();
@@ -80,7 +83,7 @@ function thirdPartyNotices() {
             this.emitFile({
                 type: 'asset',
                 fileName: 'THIRD_PARTY_NOTICES.txt',
-                source: 'Third-party code in the built files of dist/ (written by npm run build from the\n'
+                source: 'Third-party code in the built files of dist/ (written by pnpm run build from the\n'
                     + 'npm packages of the bundle). See NOTICE.md for the rest of the attribution.\n\n'
                     + sections.join('\n'),
             });
@@ -94,15 +97,13 @@ export default {
     build: {
         assetsDir: '',
         // The package serves no asset files: Orrery::css() and Orrery::js() inline
-        // dist/ into the page. So the bundled font (resources/css/tokens.css) must
-        // be inlined into the stylesheet as a data URL, whatever its size.
+        // dist/ into the page, so the build must write no file besides them.
         // The bundle budget of bin/check-assets (bundle_budget_bytes), in kB of
         // 1,000. Vite counts UTF-16 code units and the check counts
         // bytes: the check is the authority, and Vite stays silent up to the
         // difference that non-ASCII characters make.
         chunkSizeWarningLimit: 650,
-        assetsInlineLimit: (filePath) => (filePath.endsWith('.woff2') ? true : undefined),
-        rollupOptions: {
+        rolldownOptions: {
             input: ['resources/js/app.js'],
             output: {
                 entryFileNames: '[name].js',

@@ -152,9 +152,9 @@ final class LegacyGoneTest extends TestCase
     }
 
     /**
-     * Rejects: a legacy npm package left in package.json or in the root
-     * entry or the package list of package-lock.json, so `npm ci` would
-     * still install it.
+     * Rejects: a legacy npm package left in package.json, or in the root
+     * importer or the package list of pnpm-lock.yaml, so `pnpm install`
+     * would still install it.
      * Still passes: a package that another dependency pulls in under its
      * own name (none of these is, today).
      */
@@ -163,8 +163,8 @@ final class LegacyGoneTest extends TestCase
         $root = self::root();
         /** @var array<string, mixed> $package */
         $package = json_decode((string) file_get_contents($root.'/package.json'), true, 512, JSON_THROW_ON_ERROR);
-        /** @var array<string, mixed> $lock */
-        $lock = json_decode((string) file_get_contents($root.'/package-lock.json'), true, 512, JSON_THROW_ON_ERROR);
+        $lock = (string) file_get_contents($root.'/pnpm-lock.yaml');
+        self::assertStringContainsString("importers:\n", $lock, 'pnpm-lock.yaml is missing or has no importers.');
         $found = [];
 
         foreach (['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] as $section) {
@@ -172,16 +172,19 @@ final class LegacyGoneTest extends TestCase
                 if (is_array($package[$section] ?? null) && array_key_exists($name, $package[$section])) {
                     $found[] = "package.json {$section} {$name}";
                 }
-
-                if (is_array($lock['packages']['']['devDependencies'] ?? null) && $section === 'devDependencies' && array_key_exists($name, $lock['packages']['']['devDependencies'])) {
-                    $found[] = "package-lock.json root {$name}";
-                }
             }
         }
 
         foreach (self::PACKAGES as $name) {
-            if (is_array($lock['packages'] ?? null) && array_key_exists('node_modules/'.$name, $lock['packages'])) {
-                $found[] = "package-lock.json node_modules/{$name}";
+            $quoted = preg_quote($name, '/');
+
+            // An importer entry ("      dayjs:") or a package ("  dayjs@1.11.13:", quoted when scoped).
+            if (preg_match('/^      \'?'.$quoted.'\'?:$/m', $lock) === 1) {
+                $found[] = "pnpm-lock.yaml importer {$name}";
+            }
+
+            if (preg_match('/^  \'?'.$quoted.'@[^\s:]+\'?:$/m', $lock) === 1) {
+                $found[] = "pnpm-lock.yaml package {$name}";
             }
         }
 

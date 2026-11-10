@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 #
 # Reproducible assets: builds dist/ from the committed sources
-# and package-lock.json, and fails when the result differs from the committed
+# and pnpm-lock.yaml, and fails when the result differs from the committed
 # dist/.
 #
 #   bin/check-assets
 #
-# 1. It refuses to start when package-lock.json is not committed, or when
-#    dist/, package.json or package-lock.json has uncommitted changes.
+# 1. It refuses to start when pnpm-lock.yaml is not committed, or when
+#    dist/, package.json, pnpm-lock.yaml or pnpm-workspace.yaml has
+#    uncommitted changes.
 # 2. The running Node must have the major version of .nvmrc.
-# 3. npm ci --engine-strict: it fails when package-lock.json does not match
-#    package.json, or when Node or npm is outside package.json "engines".
-# 4. npm run build.
-# 5. It fails when git status shows a change in dist/, package.json or
-#    package-lock.json: a modified, staged or untracked file.
+# 3. pnpm install --frozen-lockfile --engine-strict: it fails when
+#    pnpm-lock.yaml does not match package.json, or when Node or pnpm is
+#    outside package.json "engines". pnpm-workspace.yaml keeps the minimum
+#    release age and runs no install script.
+# 4. pnpm run build.
+# 5. It fails when git status shows a change in dist/, package.json,
+#    pnpm-lock.yaml or pnpm-workspace.yaml: a modified, staged or untracked
+#    file.
 # 5a. Before step 5, it fails when dist/app.js calls eval() or Function()
 #    The documented Content Security Policy has no
 #    'unsafe-eval'. The patterns are the spec's \bFunction\s*\( and
@@ -45,21 +49,21 @@ fail() {
     exit 1
 }
 
-for tool in git node npm; do
+for tool in git node pnpm; do
     command -v "$tool" >/dev/null 2>&1 || fail "$tool is not on PATH"
 done
 
 # --no-optional-locks: status does not write the index of the checkout.
 changes() {
-    git --no-optional-locks status --porcelain --untracked-files=all -- dist package.json package-lock.json
+    git --no-optional-locks status --porcelain --untracked-files=all -- dist package.json pnpm-lock.yaml pnpm-workspace.yaml
 }
 
-git ls-files --error-unmatch package-lock.json >/dev/null 2>&1 || fail "package-lock.json is not committed"
+git ls-files --error-unmatch pnpm-lock.yaml >/dev/null 2>&1 || fail "pnpm-lock.yaml is not committed"
 
 before=$(changes)
 if [ -n "$before" ]; then
     printf '%s\n' "$before" >&2
-    fail "dist/, package.json or package-lock.json has uncommitted changes before the build. Commit or discard them first."
+    fail "dist/, package.json, pnpm-lock.yaml or pnpm-workspace.yaml has uncommitted changes before the build. Commit or discard them first."
 fi
 
 [ -f .nvmrc ] || fail ".nvmrc is missing"
@@ -75,11 +79,11 @@ if [ "${actual%%.*}" != "$wanted_major" ]; then
     fail "node $actual is not Node $wanted_major (.nvmrc). Switch to Node $wanted_major first, for example with 'fnm use' or 'nvm use'."
 fi
 
-echo "bin/check-assets: node $actual, npm $(npm --version)"
+echo "bin/check-assets: node $actual, pnpm $(pnpm --version)"
 
-npm ci --engine-strict --no-audit --no-fund ||
-    fail "npm ci failed: package-lock.json does not match package.json, or Node or npm is outside the engines of package.json"
-npm run build || fail "npm run build failed"
+pnpm install --frozen-lockfile --engine-strict ||
+    fail "pnpm install failed: pnpm-lock.yaml does not match package.json, or Node or pnpm is outside the engines of package.json"
+pnpm run build || fail "pnpm run build failed"
 
 # The eval check (step 6), before the comparison, so it also names a build
 # that differs. A word boundary before the name: not preceded by a letter, a
@@ -124,7 +128,7 @@ after=$(changes)
 if [ -n "$after" ]; then
     printf '%s\n' "$after" >&2
     git --no-pager diff --stat -- dist >&2 || true
-    fail "the build does not reproduce the committed dist/ (or it changed package.json or package-lock.json). Commit the rebuilt dist/ in a commit of its own, or fix the build."
+    fail "the build does not reproduce the committed dist/ (or it changed package.json, pnpm-lock.yaml or pnpm-workspace.yaml). Commit the rebuilt dist/ in a commit of its own, or fix the build."
 fi
 
 echo "bin/check-assets: the build reproduces the committed dist/"

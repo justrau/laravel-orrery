@@ -178,14 +178,14 @@ final class JsTestCoverageTest extends TestCase
     }
 
     /**
-     * Rejects: an npm test script without the fixed time zone or locale (a
+     * Rejects: a test script without the fixed time zone or locale (a
      * German LC_ALL makes the number tests fail), a script that runs another
      * directory, and an assets workflow that never runs the tests or runs
-     * them before npm ci.
-     * Still passes: a workflow step that runs npm test and ignores its exit
+     * them before pnpm install.
+     * Still passes: a workflow step that runs pnpm test and ignores its exit
      * status (the test reads the YAML text only).
      */
-    public function test_npm_test_runs_node_test_with_a_fixed_zone_and_the_workflow_runs_it(): void
+    public function test_pnpm_test_runs_node_test_with_a_fixed_zone_and_the_workflow_runs_it(): void
     {
         $package = json_decode((string) file_get_contents(self::root().'/package.json'), true);
         self::assertIsArray($package);
@@ -197,11 +197,11 @@ final class JsTestCoverageTest extends TestCase
         self::assertStringContainsString("node --test 'tests/js/*.test.js'", $script);
 
         $workflow = (string) file_get_contents(self::root().'/.github/workflows/assets.yml');
-        $install = strpos($workflow, 'run: npm ci');
-        $test = strpos($workflow, 'run: npm test');
-        self::assertNotFalse($install, 'the assets workflow does not run npm ci');
-        self::assertNotFalse($test, 'the assets workflow does not run npm test');
-        self::assertGreaterThan($install, $test, 'npm test runs before npm ci');
+        $install = strpos($workflow, 'run: pnpm install --frozen-lockfile');
+        $test = strpos($workflow, 'run: pnpm test');
+        self::assertNotFalse($install, 'the assets workflow does not run pnpm install --frozen-lockfile');
+        self::assertNotFalse($test, 'the assets workflow does not run pnpm test');
+        self::assertGreaterThan($install, $test, 'pnpm test runs before pnpm install');
     }
 
     /**

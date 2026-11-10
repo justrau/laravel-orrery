@@ -5,14 +5,14 @@ This guide tells you how to set up the package, which tests to run, and how to c
 ## Setup
 
 - PHP 8.3 or later, with `pcntl` and `posix` for the process and script tests. Composer. Docker, for the MySQL and Postgres tests only.
-- Node 24 and npm `^11.10.0`, for frontend work only. `.nvmrc` holds the Node version (`fnm use` or `nvm use`), and `package.json` `engines` holds both constraints.
+- Node 24 and pnpm 11, for frontend work only. `.nvmrc` holds the Node version (`fnm use` or `nvm use`), `package.json` `packageManager` the pnpm version, and `engines` both constraints. `pnpm-workspace.yaml` sets a minimum release age, so pnpm installs no version that was published too recently, and it runs no install script of a dependency.
 
 ```bash
 composer install
-npm ci          # frontend work only
+pnpm install    # frontend work only
 ```
 
-`composer.lock` is not committed, because this is a library. `package-lock.json` is committed.
+`composer.lock` is not committed, because this is a library. `pnpm-lock.yaml` is committed.
 
 ## Tests
 
@@ -46,12 +46,12 @@ PHPStan runs at level 8 with Larastan, for PHP 8.3. It must report no errors, wi
 The package ships the built dashboard in `dist/`, and `dist/` is committed. After a change in `resources/js/` or `resources/css/`:
 
 ```bash
-npm test          # the JavaScript unit tests
-npm run build     # writes dist/, including dist/THIRD_PARTY_NOTICES.txt
+pnpm test         # the JavaScript unit tests
+pnpm run build    # writes dist/, including dist/THIRD_PARTY_NOTICES.txt
 bin/check-assets  # proves that the build inputs reproduce the committed dist/
 ```
 
-Commit the changed `dist/` files with the change. `bin/check-assets` refuses to start when `dist/`, `package.json` or `package-lock.json` has uncommitted changes, and it runs `npm ci`, which replaces `node_modules/`. The page runs under a strict Content Security Policy: no `eval` in the bundle, and no static `style=`, `<style>` or `v-html` in a template.
+Commit the changed `dist/` files with the change. `bin/check-assets` refuses to start when `dist/`, `package.json`, `pnpm-lock.yaml` or `pnpm-workspace.yaml` has uncommitted changes, and it runs `pnpm install --frozen-lockfile`, which brings `node_modules/` in line with the lockfile. The page runs under a strict Content Security Policy: no `eval` in the bundle, and no static `style=`, `<style>` or `v-html` in a template.
 
 To check the dashboard in a browser, run `composer serve` (it builds and seeds the Workbench) and open `/orrery` on the address that it prints. `SERVER_PORT=8793 composer serve` chooses the port. `workbench/fixtures.md` lists the seeded data.
 
