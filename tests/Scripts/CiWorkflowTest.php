@@ -87,7 +87,7 @@ final class CiWorkflowTest extends TestCase
      * Rejects: a quick tier that a push to main or a pull request does not start, that runs for a
      * docs-only change, that a newer push does not cancel, that drops one of the four in-memory legs
      * or runs them on the full engine set (no --memory-only), that leaves out the engine job, Pint,
-     * static analysis or the assets check.
+     * static analysis or the JavaScript tests and the dist/ check (with pnpm).
      * Still passes: a leg that passes --memory-only but whose bin/matrix ignores it (MatrixRunnerTest
      * guards that).
      */
@@ -103,11 +103,8 @@ final class CiWorkflowTest extends TestCase
 
         $jobs = $workflow['jobs'];
         self::assertSame('./.github/workflows/static-analysis.yml', $jobs['static-analysis']['uses']);
-        self::assertSame('./.github/workflows/assets.yml', $jobs['assets']['uses']);
-
-        foreach (['static-analysis.yml', 'assets.yml'] as $called) {
-            self::assertArrayHasKey('workflow_call', self::workflow($called)['on'], "{$called} cannot be called");
-        }
+        self::assertArrayHasKey('workflow_call', self::workflow('static-analysis.yml')['on'], 'static-analysis.yml cannot be called');
+        self::assertSame(['pnpm install --frozen-lockfile', 'pnpm test', 'bin/check-assets'], array_values(array_filter(array_column($jobs['js']['steps'], 'run'))));
 
         self::assertContains('composer format:check', array_column($jobs['format']['steps'], 'run'));
 

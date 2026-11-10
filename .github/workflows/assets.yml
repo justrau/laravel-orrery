@@ -6,18 +6,16 @@
 
 name: assets
 
-# quick.yml calls it on every push to main and every pull request. Start it
-# by hand with `gh workflow run assets.yml --ref <branch>`.
+# Manual only: start it with `gh workflow run assets.yml --ref <branch>`.
+# A push or a pull request does not start it, to save Actions minutes.
 on:
-  workflow_call:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  # github.workflow is the caller's name when quick.yml calls it.
-  group: ${{ github.workflow }}-assets-${{ github.ref }}
+  group: assets-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

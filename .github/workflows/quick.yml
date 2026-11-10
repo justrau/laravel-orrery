@@ -1,6 +1,7 @@
 # The quick tier: on every push to main and every pull request.
 #
-# - static analysis and assets: the two workflows of the same name, called.
+# - static analysis: the workflow of the same name, called.
+# - js: the JavaScript unit tests and bin/check-assets, with pnpm.
 # - format: composer format:check (Pint, pint.json).
 # - memory: four fast legs on in-memory SQLite only (bin/matrix --ci
 #   --memory-only): the lowest Laravel 12 and 13 on PHP 8.3, and the latest
@@ -37,9 +38,34 @@ jobs:
     name: static analysis
     uses: ./.github/workflows/static-analysis.yml
 
-  assets:
-    name: assets
-    uses: ./.github/workflows/assets.yml
+  js:
+    name: JavaScript tests and the dist/ check (pnpm)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The pnpm version comes from packageManager in package.json.
+      - name: Set up pnpm
+        uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+
+      - name: Set up Node
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build and compare
+        run: bin/check-assets
 
   format:
     name: Pint (composer format:check)
