@@ -9,8 +9,9 @@ use PHPUnit\Framework\TestCase;
 use Symfony\Component\Yaml\Yaml;
 
 /**
- * The jobs of .github/workflows/tests.yml. The test reads the workflow; it
- * never runs GitHub Actions.
+ * The workflows in .github/workflows/: the jobs of tests.yml, the quick tier
+ * and the rules every workflow keeps. The test reads the workflows; it never
+ * runs GitHub Actions.
  */
 #[Group('scripts')]
 final class CiWorkflowTest extends TestCase
@@ -80,5 +81,98 @@ final class CiWorkflowTest extends TestCase
 
         $artifact = array_values(array_filter($job['steps'], static fn (array $step): bool => str_starts_with((string) ($step['uses'] ?? ''), 'actions/upload-artifact')))[0];
         self::assertStringEndsWith('${{ matrix.variant_key }}', $artifact['with']['name'], 'two variant jobs would upload one artifact name');
+    }
+
+    /**
+     * Rejects: a quick tier that a push to main or a pull request does not start, that runs for a
+     * docs-only change, that a newer push does not cancel, that drops one of the four in-memory legs
+     * or runs them on the full engine set (no --memory-only), that leaves out the engine job, Pint,
+     * static analysis or the assets check.
+     * Still passes: a leg that passes --memory-only but whose bin/matrix ignores it (MatrixRunnerTest
+     * guards that).
+     */
+    public function test_the_quick_tier_runs_on_pushes_and_pull_requests_with_the_fast_legs(): void
+    {
+        $workflow = self::workflow('quick.yml');
+
+        self::assertSame(['main'], $workflow['on']['push']['branches']);
+        self::assertSame(['docs/**', '**.md'], $workflow['on']['push']['paths-ignore']);
+        self::assertSame(['docs/**', '**.md'], $workflow['on']['pull_request']['paths-ignore']);
+        self::assertTrue($workflow['concurrency']['cancel-in-progress']);
+        self::assertStringContainsString('${{ github.ref }}', $workflow['concurrency']['group']);
+
+        $jobs = $workflow['jobs'];
+        self::assertSame('./.github/workflows/static-analysis.yml', $jobs['static-analysis']['uses']);
+        self::assertSame('./.github/workflows/assets.yml', $jobs['assets']['uses']);
+
+        foreach (['static-analysis.yml', 'assets.yml'] as $called) {
+            self::assertArrayHasKey('workflow_call', self::workflow($called)['on'], "{$called} cannot be called");
+        }
+
+        self::assertContains('composer format:check', array_column($jobs['format']['steps'], 'run'));
+
+        $legs = array_map(static fn (array $leg): string => "{$leg['php']}/{$leg['laravel']}/{$leg['dependencies']}", $jobs['memory']['strategy']['matrix']['include']);
+        self::assertSame(['8.3/12/lowest', '8.3/13/lowest', '8.5/12/latest', '8.5/13/latest'], $legs);
+        self::assertStringContainsString('bin/matrix --ci --memory-only ', implode("\n", array_column($jobs['memory']['steps'], 'run')));
+
+        $engines = $jobs['engines'];
+        self::assertSame(['mysql', 'postgres'], array_keys($engines['services']));
+        $script = implode("\n", array_column($engines['steps'], 'run'));
+        self::assertStringContainsString('bin/matrix --ci ', $script);
+        self::assertStringContainsString('--php=8.5 --laravel=13 --no-lowest', $script);
+        self::assertStringNotContainsString('--memory-only', $script);
+        self::assertStringNotContainsString('--db=', $script, 'the engine job runs every engine');
+        self::assertStringNotContainsString('--schema=reuse', $script);
+    }
+
+    /**
+     * Rejects: a workflow that grants more than read access to the contents, that keeps the
+     * checkout credentials, or that uses an action by a tag or a branch instead of a commit SHA.
+     * Still passes: a SHA that is not the commit of the release its comment names.
+     */
+    public function test_every_workflow_reads_only_drops_the_credentials_and_pins_actions_by_sha(): void
+    {
+        $files = glob(self::root().'/.github/workflows/*.yml') ?: [];
+        self::assertNotSame([], $files);
+
+        foreach ($files as $file) {
+            $name = basename($file);
+            $workflow = self::workflow($name);
+            self::assertSame(['contents' => 'read'], $workflow['permissions'], $name);
+
+            foreach ($workflow['jobs'] as $id => $job) {
+                self::assertArrayNotHasKey('permissions', $job, "{$name} {$id}");
+
+                foreach ($job['steps'] ?? [] as $step) {
+                    $uses = (string) ($step['uses'] ?? '');
+
+                    if ($uses === '') {
+                        continue;
+                    }
+
+                    self::assertMatchesRegularExpression('/^[\w.-]+\/[\w.\/-]+@[0-9a-f]{40}$/D', $uses, "{$name} {$id}: {$uses}");
+
+                    if (str_starts_with($uses, 'actions/checkout@')) {
+                        self::assertFalse($step['with']['persist-credentials'] ?? true, "{$name} {$id}: the checkout keeps its credentials");
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private static function workflow(string $name): array
+    {
+        $workflow = Yaml::parse((string) file_get_contents(self::root().'/.github/workflows/'.$name));
+        self::assertIsArray($workflow);
+
+        return $workflow;
+    }
+
+    private static function root(): string
+    {
+        return dirname(__DIR__, 2);
     }
 }

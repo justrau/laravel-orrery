@@ -1,0 +1,212 @@
+# The quick tier: on every push to main and every pull request.
+#
+# - static analysis and assets: the two workflows of the same name, called.
+# - format: composer format:check (Pint, pint.json).
+# - memory: four fast legs on in-memory SQLite only (bin/matrix --ci
+#   --memory-only): the lowest Laravel 12 and 13 on PHP 8.3, and the latest
+#   Laravel 12 and 13 on PHP 8.5. Each runs the suite and the required groups;
+#   the lowest legs also check that Composer resolved the declared floors.
+# - engines: the latest Laravel 13 on PHP 8.5 on in-memory SQLite, a SQLite
+#   file, MySQL and Postgres, every run fresh. The provisioning is the one of
+#   tests.yml (its header comment has the contract).
+# The full matrix is tests.yml (nightly), the latest framework releases are
+# framework-latest.yml (weekly).
+
+name: quick
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+      - '**.md'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quick-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static-analysis:
+    name: static analysis
+    uses: ./.github/workflows/static-analysis.yml
+
+  assets:
+    name: assets
+    uses: ./.github/workflows/assets.yml
+
+  format:
+    name: Pint (composer format:check)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.5'
+          coverage: none
+          tools: composer:v2
+
+      - name: Install
+        run: composer update --no-interaction --no-progress
+
+      - name: Check the code style
+        run: composer format:check
+
+  memory:
+    name: PHP ${{ matrix.php }}, Laravel ${{ matrix.laravel }}, ${{ matrix.dependencies }}, in-memory SQLite
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {php: '8.3', laravel: '12', dependencies: lowest}
+          - {php: '8.3', laravel: '13', dependencies: lowest}
+          - {php: '8.5', laravel: '12', dependencies: latest}
+          - {php: '8.5', laravel: '13', dependencies: latest}
+
+    env:
+      PHP_VERSION: ${{ matrix.php }}
+      LARAVEL_MAJOR: ${{ matrix.laravel }}
+      DEPENDENCIES: ${{ matrix.dependencies }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: dom, pdo_sqlite, pcntl, posix
+          coverage: none
+          tools: composer:v2
+
+      - name: Run the leg on in-memory SQLite
+        run: |
+          set -euo pipefail
+          if [ "$DEPENDENCIES" = lowest ]; then
+            selection=--no-latest
+          else
+            selection=--no-lowest
+          fi
+          bin/matrix --ci --memory-only --run-id=ci \
+            "--php=${PHP_VERSION}" "--laravel=${LARAVEL_MAJOR}" "$selection" \
+            "--php-binary=${PHP_VERSION}=$(command -v php)" \
+            "--composer=$(command -v composer)"
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: quick-memory-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}
+          path: .matrix/ci/
+          if-no-files-found: warn
+
+  engines:
+    name: PHP 8.5, Laravel 13, latest, every engine
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: orrery
+        ports:
+          - 33106:3306
+        options: >-
+          --health-cmd "mysqladmin ping --host=127.0.0.1 --user=root --password=orrery --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+          --health-start-period 30s
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: orrery
+        ports:
+          - 54336:5432
+        options: >-
+          --health-cmd "pg_isready --host=127.0.0.1 --username=postgres --dbname=postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+          --health-start-period 30s
+
+    env:
+      ORRERY_TEST_DATABASE: orrery_ci_${{ github.run_id }}_q
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.5'
+          extensions: dom, pdo_mysql, pdo_pgsql, pdo_sqlite, pcntl, posix
+          coverage: none
+          tools: composer:v2
+
+      - name: Provision the databases and the endpoint markers
+        env:
+          MYSQL_CONTAINER: ${{ job.services.mysql.id }}
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          base=$ORRERY_TEST_DATABASE
+          php -n bin/lib/testdb.php validate-name "$base"
+          token=$(php -n -r 'echo bin2hex(random_bytes(16));')
+
+          docker exec --env MYSQL_PWD=orrery "$MYSQL_CONTAINER" mysql --user=root --execute "
+            CREATE DATABASE \`${base}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            CREATE DATABASE \`${base}_mirror\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            CREATE DATABASE orrery_marker;
+            CREATE TABLE orrery_marker.marker (token VARCHAR(64) NOT NULL PRIMARY KEY);
+            INSERT INTO orrery_marker.marker (token) VALUES ('${token}');"
+
+          docker exec "$POSTGRES_CONTAINER" psql --username=postgres --dbname=postgres --no-psqlrc --set=ON_ERROR_STOP=1 \
+            --command="CREATE DATABASE \"${base}\"" \
+            --command="CREATE DATABASE \"${base}_mirror\"" \
+            --command="CREATE DATABASE orrery_marker" \
+            --command="COMMENT ON DATABASE orrery_marker IS '${token}'" \
+            --command='\connect orrery_marker' \
+            --command="CREATE TABLE marker (token varchar(64) NOT NULL PRIMARY KEY)" \
+            --command="INSERT INTO marker (token) VALUES ('${token}')"
+
+          echo "ORRERY_TEST_TOKEN=${token}" >>"$GITHUB_ENV"
+
+      - name: Run the leg on every engine
+        run: |
+          set -euo pipefail
+          bin/matrix --ci --run-id=ci \
+            --php=8.5 --laravel=13 --no-lowest --variants=same/none \
+            "--php-binary=8.5=$(command -v php)" \
+            "--composer=$(command -v composer)"
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: quick-engines-php8.5-laravel13-latest
+          path: .matrix/ci/
+          if-no-files-found: warn

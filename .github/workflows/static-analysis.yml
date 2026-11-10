@@ -6,16 +6,18 @@
 
 name: static analysis
 
-# Manual only: start it with `gh workflow run static-analysis.yml --ref <branch>`.
-# A push or a pull request does not start it, to save Actions minutes.
+# quick.yml calls it on every push to main and every pull request. Start it
+# by hand with `gh workflow run static-analysis.yml --ref <branch>`.
 on:
+  workflow_call:
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: static-analysis-${{ github.ref }}
+  # github.workflow is the caller's name when quick.yml calls it.
+  group: ${{ github.workflow }}-static-analysis-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
