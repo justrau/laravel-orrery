@@ -14,9 +14,10 @@
 
 name: framework-latest
 
-# Manual only (the owner's rule: no schedule, to save Actions minutes):
-# start it with `gh workflow run framework-latest.yml --ref <branch>`.
+# Weekly, and by hand with `gh workflow run framework-latest.yml --ref <branch>`.
 on:
+  schedule:
+    - cron: '41 3 * * 1'
   workflow_dispatch:
 
 permissions:

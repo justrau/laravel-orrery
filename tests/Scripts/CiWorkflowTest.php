@@ -161,6 +161,40 @@ final class CiWorkflowTest extends TestCase
     }
 
     /**
+     * Rejects: a full matrix without the nightly schedule or the manual start, a nightly run that
+     * spends the matrix on a main without new commits (no gate, or legs that do not wait for it),
+     * and a gate that also skips a manual run.
+     * Still passes: a gate whose git log reads a wrong time window (the test reads the script text).
+     */
+    public function test_the_full_matrix_runs_nightly_only_after_a_recent_commit(): void
+    {
+        $workflow = self::workflow('tests.yml');
+
+        self::assertCount(1, $workflow['on']['schedule']);
+        self::assertMatchesRegularExpression('/^\d+ \d+ \* \* \*$/D', $workflow['on']['schedule'][0]['cron'], 'not daily');
+        self::assertArrayHasKey('workflow_dispatch', $workflow['on']);
+
+        $gate = $workflow['jobs']['recent'];
+        $script = implode("\n", array_column($gate['steps'], 'run'));
+        self::assertStringContainsString("git log --since='24 hours ago'", $script);
+        self::assertStringContainsString('!= schedule', $script, 'a manual run must not be skipped');
+        self::assertSame('recent', $workflow['jobs']['leg']['needs']);
+        self::assertSame("needs.recent.outputs.run == 'true'", $workflow['jobs']['leg']['if']);
+    }
+
+    /**
+     * Rejects: a framework-latest workflow without its weekly schedule or its manual start.
+     */
+    public function test_the_latest_framework_check_runs_weekly(): void
+    {
+        $workflow = self::workflow('framework-latest.yml');
+
+        self::assertCount(1, $workflow['on']['schedule'] ?? []);
+        self::assertMatchesRegularExpression('/^\d+ \d+ \* \* [0-6]$/D', $workflow['on']['schedule'][0]['cron'], 'not weekly');
+        self::assertArrayHasKey('workflow_dispatch', $workflow['on']);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private static function workflow(string $name): array
