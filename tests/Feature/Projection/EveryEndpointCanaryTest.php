@@ -296,6 +296,13 @@ final class EveryEndpointCanaryTest extends RetryTestCase
             'POST orrery/api/tags/monitored' => [[$api.'/tags/monitored', ['tag' => self::TAG.'-new'], 200]],
             'DELETE orrery/api/tags/monitored' => [[$api.'/tags/monitored?tag='.self::TAG.'-new', [], 200]],
             'DELETE orrery/api/tags/monitored/{tag}' => [[$api.'/tags/monitored/'.self::TAG, [], 200]],
+            // The operator actions on the queue tables: the run-now first (the pending job is not delayed), then its delete.
+            'POST orrery/api/jobs/{uuid}/run-now' => [[$api.'/jobs/'.$f['pending'].'/run-now', [], 200]],
+            'POST orrery/api/jobs/{uuid}/delete' => [[$api.'/jobs/'.$f['pending'].'/delete', [], 200]],
+            'POST orrery/api/queues/{connection}/{queue}/waiting' => [[$api.'/queues/database/default/waiting', [], 200]],
+            'POST orrery/api/queues/{connection}/{queue}/clear' => [[$api.'/queues/database/default/clear', [], 200]],
+            // The member's retry is still queued, so the batch is open: the cancel answers without the batch name.
+            'POST orrery/api/batches/{id}/cancel' => [[$api.'/batches/'.$f['batch'].'/cancel', [], 200]],
         ];
     }
 
