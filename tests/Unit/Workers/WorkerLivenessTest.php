@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Unit\Workers;
 
 use Illuminate\Config\Repository;
+use Illuminate\Database\SQLiteConnection;
+use Justrau\Orrery\Tests\Support\OffGridTime;
 use Justrau\Orrery\Workers\WorkerLiveness;
 use PHPUnit\Framework\Attributes\DataProvider;
+use PDO;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -98,6 +101,33 @@ final class WorkerLivenessTest extends TestCase
         self::assertNull($facts->leaseExpiresAt((object) ['connection' => 'database', 'reserved_at' => null]));
         self::assertSame(90, $facts->retryAfter('database'));
         self::assertNull($facts->retryAfter('missing'));
+    }
+
+    /**
+     * Rejects: a reserved_at and a heartbeat read with a plain (float) cast.
+     * SQLite 3.45 on x86-64 keeps some decimals as the float next to the
+     * nearest one; read as it is, a lease that ends exactly now looked live,
+     * and so did a heartbeat exactly one silence old. Here SQLite stores
+     * that neighbour (Support\OffGridTime). Still passes: a reader that is
+     * exact only for times before 2^31 s.
+     */
+    public function test_stored_times_off_the_float_grid_end_the_lease_and_the_silence_on_time(): void
+    {
+        $facts = $this->liveness(['queue.connections.database' => ['driver' => 'database', 'retry_after' => 300]]);
+        $now = (float) '1790000000.123457';
+        $reservedAt = OffGridTime::neighbour('1789999700.123457', 1);
+        $row = (object) ['status' => 'reserved', 'connection' => 'database', 'reserved_by' => self::WORKER, 'reserved_at' => (float) $reservedAt];
+
+        self::assertSame($now, $facts->leaseExpiresAt($row), 'the lease ends exactly now');
+        self::assertSame('unknown', $facts->of($row, $facts->leaseExpiresAt($row), [], $now)['liveness']);
+
+        $session = new SQLiteConnection(new PDO('sqlite::memory:'));
+        $session->statement('create table orrery_worker_heartbeats (worker_id varchar(255), last_seen_at numeric(16, 6))');
+        $session->table('orrery_worker_heartbeats')->insert(['worker_id' => self::WORKER, 'last_seen_at' => OffGridTime::neighbour('1789999940.123457', 1)]);
+        $heartbeats = $facts->heartbeats($session, [$row]);
+
+        self::assertSame([self::WORKER => (float) '1789999940.123457'], $heartbeats);
+        self::assertSame('silent', $facts->of($row, $facts->leaseExpiresAt($row), $heartbeats, $now)['liveness'], 'a heartbeat exactly one silence old');
     }
 
     /**

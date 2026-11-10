@@ -4,6 +4,7 @@ namespace Justrau\Orrery\Workers;
 
 use Illuminate\Contracts\Config\Repository;
 use Illuminate\Database\Connection;
+use Justrau\Orrery\Storage\Clock;
 
 /**
  * The worker liveness fact of a running row: a fact, not a
@@ -124,7 +125,7 @@ final class WorkerLiveness
         $reservedAt = $row->reserved_at ?? null;
         $retryAfter = $this->retryAfter((string) ($row->connection ?? ''), $leases);
 
-        return is_numeric($reservedAt) && $retryAfter !== null ? (float) $reservedAt + $retryAfter : null;
+        return is_numeric($reservedAt) && $retryAfter !== null ? Clock::stored($reservedAt) + $retryAfter : null;
     }
 
     /**
@@ -203,7 +204,7 @@ final class WorkerLiveness
         $seen = [];
 
         foreach ($session->table('orrery_worker_heartbeats')->whereIn('worker_id', array_keys($ids))->get(['worker_id', 'last_seen_at']) as $heartbeat) {
-            $seen[(string) $heartbeat->worker_id] = (float) $heartbeat->last_seen_at;
+            $seen[(string) $heartbeat->worker_id] = Clock::stored($heartbeat->last_seen_at);
         }
 
         return $seen;

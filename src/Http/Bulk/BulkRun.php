@@ -345,7 +345,7 @@ final class BulkRun
             throw self::mismatch();
         }
 
-        if ($now - (float) $row->last_run_at > self::EXPIRY_SECONDS) {
+        if ($now - Clock::stored($row->last_run_at) > self::EXPIRY_SECONDS) {
             throw self::expired();
         }
     }

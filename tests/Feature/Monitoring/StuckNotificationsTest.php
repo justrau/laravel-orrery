@@ -34,6 +34,7 @@ use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\Feature\Lists\ListFixtures;
 use Justrau\Orrery\Tests\Support\Fixtures\Notifications\ScriptedChannel;
 use Justrau\Orrery\Tests\Support\Fixtures\Notifications\ThrowingStore;
+use Justrau\Orrery\Tests\Support\OffGridTime;
 use Justrau\Orrery\Tests\TestCase;
 use PHPUnit\Framework\Attributes\DataProvider;
 use RuntimeException;
@@ -652,6 +653,60 @@ final class StuckNotificationsTest extends TestCase
         self::assertSame(100, $this->mirror()->table(StuckNotifications::COOLDOWNS)->count(), 'one run prunes at most 500');
         $this->runIncidents();
         self::assertSame(0, $this->mirror()->table(StuckNotifications::COOLDOWNS)->count());
+    }
+
+    /**
+     * Rejects: stored times read with a plain (float) cast. SQLite 3.45 on
+     * x86-64 keeps some decimals as the float next to the nearest one; read
+     * as it is, an incident exactly MAX_AGE_SECONDS old (below the float of
+     * its decimal) read as older and was never sent, and a cooldown that
+     * ends exactly now (above it) still held the notification back. Other
+     * engines keep the decimal; there the test checks only the boundaries.
+     * Still passes: a check that is exact only for times before 2^31 s.
+     */
+    public function test_stored_times_off_the_float_grid_end_the_age_and_the_cooldown_on_time(): void
+    {
+        $now = '1800000000.689484';
+        Carbon::setTestNow(Carbon::createFromFormat('U.u', $now));
+        Notification::fake();
+        $this->route('mail', 'ops@example.test');
+        $this->incidentFor(1);
+        $this->incidentFor(2, ['queue' => 'reports']);
+        $old = Clock::toDecimal((float) $now - StuckNotifications::MAX_AGE_SECONDS);
+        $this->mirror()->table(StuckIncidents::TABLE)->where('job_uuid', self::uuidOf(1))->update(['first_seen_at' => OffGridTime::stored($this->mirror(), $old, -1)]);
+        $id = $this->cooldownRow('database', 'reports', StuckSignals::OUTCOME_NOT_OBSERVED, 'mail', (float) $now, 2);
+        $this->mirror()->table(StuckNotifications::COOLDOWNS)->where('key', $id)->update(['cooldown_until' => OffGridTime::stored($this->mirror(), $now, 1)]);
+        $this->recordEvents();
+
+        $this->runIncidents();
+
+        Notification::assertSentOnDemandTimes(StuckJobNotification::class, 2);
+    }
+
+    /**
+     * Rejects: a summary claim that reads cooldown_until with a plain (float)
+     * cast: a cooldown that ends exactly now, stored as the float above its
+     * decimal (SQLite 3.45 on x86-64), held its summary back. The hook
+     * writes that float after the candidate read, which compares decimals
+     * in SQL. Still passes: a check that is exact only for times before
+     * 2^31 s.
+     */
+    public function test_a_summary_whose_cooldown_ends_exactly_now_off_the_float_grid_is_sent(): void
+    {
+        $now = '1800000000.689484';
+        Carbon::setTestNow(Carbon::createFromFormat('U.u', $now));
+        Notification::fake();
+        $this->route('mail', 'ops@example.test');
+        $id = $this->cooldownRow('database', 'reports', StuckSignals::OUTCOME_NOT_OBSERVED, 'mail', (float) $now, 2);
+        Hooks::$callback = function (string $point) use ($id, $now): void {
+            if ($point === StuckNotifications::BEFORE_SUMMARY) {
+                $this->mirror()->table(StuckNotifications::COOLDOWNS)->where('key', $id)->update(['cooldown_until' => OffGridTime::stored($this->mirror(), $now, 1)]);
+            }
+        };
+
+        $this->runIncidents();
+
+        Notification::assertSentOnDemand(StuckJobsSummary::class, static fn (StuckJobsSummary $summary): bool => $summary->count === 2 && $summary->queueName === 'reports');
     }
 
     /**
