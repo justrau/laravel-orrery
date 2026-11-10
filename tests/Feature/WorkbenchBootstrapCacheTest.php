@@ -54,11 +54,15 @@ use Workbench\App\Support\WorkbenchSkeleton;
  * scripts, workbench and docker. Two selection controls check the arguments of the child. The
  * overlap case runs only a slice of it (FAST_SUITE_SLICE): controller tests, which boot the
  * package application and serve its routes, its gates and its page through the shared skeleton,
- * and the console tests, which copy that skeleton for the install command. The slice took about
- * 7 s and the whole fast suite about 40 s (2026-11-07), and the launcher sequence about 3 s, so
- * the slice still overlaps the sequence; the test requires at least one slice test to finish
- * during a launcher command. The other fast-suite tests read the same skeleton files, and they
- * run in `composer test`.
+ * and the console tests, which copy that skeleton for the install command. The other fast-suite
+ * tests read the same skeleton files, and they run in `composer test`.
+ *
+ * The overlap of that case does not depend on the speed of the machine. The launcher sequence
+ * starts after the first slice test finished. A hold fixture is the last test of the slice: it
+ * boots the ordinary package application again and again until the sequence has ended, so the
+ * slice cannot end first. Each launcher command must overlap a slice test that was in progress
+ * during it, not a test that finished inside it: a short command beside one long slice test
+ * overlaps it, and no test finishes inside the command.
  */
 #[Group('workbench')]
 final class WorkbenchBootstrapCacheTest extends WorkbenchCliTestCase
@@ -97,6 +101,11 @@ final class WorkbenchBootstrapCacheTest extends WorkbenchCliTestCase
         'tests/Controller/ListProjectionTest.php',
         'tests/Feature/Console',
     ];
+
+    /**
+     * The class of the hold fixture that ends the fast-suite slice (writeSliceHoldFixture()).
+     */
+    private const SLICE_HOLD_FIXTURE = 'WorkbenchSliceFixture\\SliceHoldFixtureTest';
 
     /**
      * The groups that the fast suite leaves out (tests/CLAUDE.md, "Groups and the skip rule").
@@ -179,27 +188,34 @@ final class WorkbenchBootstrapCacheTest extends WorkbenchCliTestCase
     /**
      * Rejects: a launcher command that deletes, empties or partly writes a manifest of the shared
      * Testbench skeleton, or changes a file that an ordinary package test reads there, while
-     * ordinary tests run; and a run in which the two sides never overlapped.
+     * ordinary tests run; and a launcher command that no slice test was in progress beside. Still
+     * passes: a command that overlaps only the hold fixture (it boots the same application as the
+     * slice tests, but runs no controller or console test).
      */
     public function test_the_launcher_sequence_beside_a_slice_of_the_fast_suite(): void
     {
         $environment = $this->foreignCaches(true) + ['DB_DATABASE' => $this->database()];
         $foreignBefore = self::tree($this->foreignDirectory());
 
-        // PHPUnit writes one "Test Finished" event per test to this log while the suite runs.
+        // PHPUnit writes one "Test Preparation Started" and one "Test Finished" event per test to
+        // this log while the suite runs, also for a skipped test.
         $events = $this->outsideDirectory.DIRECTORY_SEPARATOR.'suite-events.txt';
-        $finished = static fn (): int => is_file($events) ? substr_count((string) file_get_contents($events), "\nTest Finished (") : 0;
+        $count = static fn (string $event): int => is_file($events) ? substr_count((string) file_get_contents($events), "\n{$event} (") : 0;
+        $release = $this->outsideDirectory.DIRECTORY_SEPARATOR.'slice-release';
+        $fixture = $this->writeSliceHoldFixture($release);
 
-        $suite = $this->startPhp([...$this->fastSuiteSliceArguments(), '--log-events-text', $events], [], self::FAST_SUITE_CHILD_SECONDS);
+        $suite = $this->startPhp([...$this->fastSuiteSliceArguments(), $fixture, '--log-events-text', $events], [], self::FAST_SUITE_CHILD_SECONDS);
 
-        // The number of fast-suite tests that finished during each launcher command.
+        // The number of slice tests in progress during each launcher command: the tests that
+        // started before the command ended, less the tests that finished before it started.
+        // The slice runs one test at a time, so each of them ran during the command.
         $during = [];
-        $before = 0;
-        $observe = static function (string $step, bool $after) use ($finished, &$during, &$before): void {
+        $finishedAtStart = 0;
+        $observe = static function (string $step, bool $after) use ($count, &$during, &$finishedAtStart): void {
             if ($after) {
-                $during[$step] = $finished() - $before;
+                $during[$step] = $count('Test Preparation Started') - $finishedAtStart;
             } else {
-                $before = $finished();
+                $finishedAtStart = $count('Test Finished');
             }
         };
 
@@ -207,9 +223,11 @@ final class WorkbenchBootstrapCacheTest extends WorkbenchCliTestCase
             // The launcher starts only when the suite runs tests. On a loaded
             // machine the suite's bootstrap can take longer than the whole
             // launcher sequence, and then the two would not overlap.
-            $this->waitUntil(static fn (): bool => $finished() >= 1, $suite, 'The fast suite did not finish its first test', self::FIRST_SUITE_TEST_SECONDS);
+            $this->waitUntil(static fn (): bool => $count('Test Finished') >= 1, $suite, 'The fast suite did not finish its first test', self::FIRST_SUITE_TEST_SECONDS);
             $sequence = $this->runLauncherSequence($environment, $observe);
         } finally {
+            // The hold fixture ends the slice.
+            touch($release);
             $this->waitForExit($suite);
         }
 
@@ -218,8 +236,85 @@ final class WorkbenchBootstrapCacheTest extends WorkbenchCliTestCase
         // process tests (ProcessHarnessTest), so a pass with skipped tests is
         // the same result.
         $this->assertMatchesRegularExpression('/^(OK \(\d+ tests?, \d+ assertions?\)|OK, but some tests were skipped!\RTests: \d+, Assertions: \d+, Skipped: \d+\.)$/m', $suite->getOutput());
-        $this->assertGreaterThan(0, array_sum($during), 'No fast-suite test finished while a launcher command ran, so the two did not overlap: '.json_encode($during));
+        $this->assertSame([], array_keys(array_filter($during, static fn (int $tests): bool => $tests < 1)), 'A launcher command ran while no fast-suite test was in progress, so the two did not overlap: '.json_encode($during));
+        $this->assertStringContainsString('Test Finished ('.self::SLICE_HOLD_FIXTURE.'::test_boots_until_the_launcher_sequence_ends)', (string) file_get_contents($events), 'The hold fixture did not run.');
+        $this->assertStringEndsWith('Test Finished ('.self::SLICE_HOLD_FIXTURE."::test_boots_until_the_launcher_sequence_ends)\n", self::lastTestEvent($events), 'The hold fixture was not the last test of the slice.');
         $this->assertLauncherSequence($sequence, $foreignBefore);
+    }
+
+    /**
+     * The last "Test Finished" line of a PHPUnit event log, with its line end.
+     */
+    private static function lastTestEvent(string $events): string
+    {
+        preg_match_all('/^Test Finished \(.*\R/m', (string) file_get_contents($events), $matches);
+
+        return (string) end($matches[0]);
+    }
+
+    /**
+     * Write the hold fixture of the fast-suite slice into the outside directory, and return its
+     * path. It is an ordinary package test (tests/TestCase.php). Until the file $release exists, it
+     * boots the package application through the Testbench skeleton again and again, as
+     * tests/Support/bin/package-testbench-boots.php does, and requires both manifests to exist and
+     * to include cleanly after each boot. After the loop, it gives the container and the facades
+     * back to its own application, so its teardown runs as in every other test.
+     */
+    private function writeSliceHoldFixture(string $release): string
+    {
+        $directory = $this->outsideDirectory.DIRECTORY_SEPARATOR.'slice-hold';
+        mkdir($directory, 0700);
+        [$namespace, $class] = explode('\\', self::SLICE_HOLD_FIXTURE);
+        $path = $directory.DIRECTORY_SEPARATOR.$class.'.php';
+
+        file_put_contents($path, implode("\n", [
+            '<?php',
+            '',
+            "namespace {$namespace};",
+            '',
+            'use Illuminate\Container\Container;',
+            'use Illuminate\Foundation\PackageManifest;',
+            'use Illuminate\Support\Facades\Facade;',
+            'use Justrau\Orrery\OrreryServiceProvider;',
+            'use Justrau\Orrery\Tests\TestCase;',
+            '',
+            '// The hold fixture of WorkbenchBootstrapCacheTest: the last test of the fast-suite slice.',
+            "final class {$class} extends TestCase",
+            '{',
+            '    public function test_boots_until_the_launcher_sequence_ends(): void',
+            '    {',
+            '        $release = '.var_export($release, true).';',
+            '        $deadline = microtime(true) + '.self::OVERLAP_CHILD_SECONDS.';',
+            '',
+            '        try {',
+            '            while (! is_file($release)) {',
+            '                if (microtime(true) > $deadline) {',
+            '                    self::fail("No release file after '.self::OVERLAP_CHILD_SECONDS.' seconds.");',
+            '                }',
+            '',
+            '                $app = $this->createApplication();',
+            '',
+            '                foreach ([$app->make(PackageManifest::class)->manifestPath, $app->getCachedServicesPath()] as $manifest) {',
+            '                    self::assertFileExists($manifest);',
+            '                    self::assertIsArray(require $manifest);',
+            '                }',
+            '',
+            '                self::assertTrue($app->providerIsLoaded(OrreryServiceProvider::class));',
+            '                $app->flush();',
+            '            }',
+            '        } finally {',
+            '            Container::setInstance($this->app);',
+            '            Facade::clearResolvedInstances();',
+            '            Facade::setFacadeApplication($this->app);',
+            '        }',
+            '',
+            '        self::assertFileExists($release);',
+            '    }',
+            '}',
+            '',
+        ]));
+
+        return $path;
     }
 
     public function test_the_fast_suite_child_leaves_out_the_scripts_workbench_and_docker_groups(): void

@@ -359,11 +359,13 @@ final class Watcher
      * Stops the watcher's monotonic clock at its current value (tests only):
      * the breaker window, the report limit, the monitoring cache and the
      * signal cache then change only through advanceMonotonicForTesting().
-     * A new application's watcher runs again.
+     * The frozen value is on the grid of Clock::frozenBaseForTesting(), so
+     * a whole TTL added to it reads as the whole TTL. A new application's
+     * watcher runs again.
      */
     public static function freezeMonotonicForTesting(): void
     {
-        self::instance()->frozenMonotonic = Clock::monotonic();
+        self::instance()->frozenMonotonic = Clock::frozenBaseForTesting(Clock::monotonic());
     }
 
     /**
