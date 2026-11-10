@@ -9,6 +9,13 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 ### Added
 
 - **Dark mode.** The dashboard follows the dark or light appearance of the operating system (`prefers-color-scheme`). There is no toggle. Every colour, shadow and gradient comes from a design token with a light and a dark value, and the body text keeps WCAG AA contrast in both. The README shows the Overview in dark mode.
+- **Long-wait recovery.** A long wait is now an incident with a start and an end: it ends after 3 consecutive known minutes below the threshold, so a queue that moves around its limit sends one start and one recovery. The new event `LongWaitRecovered` (with the duration and the channels of the start message) fires once per incident; the new notification `LongWaitRecovered` goes only to the channels that got the start message, and a channel that is down is tried again for 10 minutes (`notifications.long_wait.recovered`, default `true`). Bind `Contracts\LongWaitRecoveredNotification` to send your own.
+- **Failure-spike notices.** `notifications.failure_spike.per_minute` (default `null`, off) sends one notice for a minute whose failed jobs on all queues reach that number, with the count (at least) and the three largest failure groups; then each channel waits `notifications.failure_spike.cooldown` minutes (default 30).
+
+### Changed
+
+- **Failure groups merge messages that differ only in an id.** The group key (`GroupKey::VERSION` `v2`) replaces datetimes, UUIDs, ULIDs, email addresses, long hexadecimal runs, numbers of 4 or more digits and the value of a MySQL duplicate entry in the first line, keeps the SQLSTATE code and the driver's error number, and cuts it at " (Connection: ". Short numbers stay, so "HTTP 404" and "HTTP 503" stay apart. Old failures keep their stored key, so a group can show twice until `trim.failed` removes the old rows (see [Upgrading](docs/upgrading.md)).
+- **`running` of `/api/workload`** counts each reserved job by the `retry_after` of its own connection, when the connections of one jobs table have different leases. The backlog keeps the shortest lease of the table, so a job whose reservation expired for the shortest lease counts in both `running` and `length`.
 
 ## [0.1.0] - 2026-11-10
 

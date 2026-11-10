@@ -21,12 +21,12 @@ Where the code and a spec disagree, read the code and report the difference.
 | `Workers/`, `Markers/` | Heartbeats and live workers; restart and deploy markers. |
 | `Database/` | Models, repositories, the schema. |
 | `Http/` | The JSON API and the SPA page. |
-| `Notifications/` | `LongWaitDetected`, `StuckJobDetected`, `StuckJobsSummary`. |
+| `Notifications/` | `RoutedNotification` (the base of the long-wait routes' messages), `LongWaitDetected`, `LongWaitRecovered`, `FailureSpikeDetected`, `StuckJobDetected`, `StuckJobsSummary`. |
 
 ## Registration modules
 
 - `OrreryServiceProvider::MODULES` lists the nine modules in registration and boot order: `StorageModule`, `RuntimeModule`, `ObservationModule`, `LifecycleModule`, `OperationsModule`, `MaintenanceModule`, `MonitoringModule`, `ControlModule`, `HttpModule` (`Registration\Modules`). No priorities, no discovery. Each comment in the list says what a later module needs from that module.
-- Each module implements `Registration\Module`: `register()`, `boot()`, `listeners()`, `resetForTesting()`. A module's listeners register just before its `boot()`, before the two legacy `EventMap` entries (`JobFailed` → `MarshalFailedEvent`, `LongWaitDetected` → `SendNotification`).
+- Each module implements `Registration\Module`: `register()`, `boot()`, `listeners()`, `resetForTesting()`. A module's listeners register just before its `boot()`, before the legacy `EventMap` entries (`JobFailed` → `MarshalFailedEvent`, `LongWaitDetected` → `SendNotification`, `LongWaitRecovered` → `SendRecoveredNotification`).
 - The provider wraps every listener: a driver filter (only `database` queue connections), then the watcher. A listener that implements `Runtime\WatchesItself` (for example `RecordWorkerHeartbeat`) watches its own writes, so it also runs while the breaker is open.
 - `Modules::addForTesting($module, $before)` adds a test module.
 

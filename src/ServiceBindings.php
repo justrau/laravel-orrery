@@ -28,5 +28,9 @@ trait ServiceBindings
             Contracts\LongWaitDetectedNotification::class,
             Notifications\LongWaitDetected::class,
         );
+        $this->app->bind(
+            Contracts\LongWaitRecoveredNotification::class,
+            Notifications\LongWaitRecovered::class,
+        );
     }
 }

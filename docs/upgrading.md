@@ -5,6 +5,10 @@
 - `/orrery/api/health` `schema` and `orrery:install` show the installed and the expected version with the exact steps.
 - **A schema dump** (`php artisan schema:dump`) keeps no row of the marker table `orrery_schema`. A `migrate` that loads the dump writes the marker, but only when it loads it on the connection of the package tables (your default connection, or `--database=<ORRERY_CONNECTION>`). If you load a dump in another way, run `php artisan orrery:install`: it writes the marker and keeps every table and row. When `ORRERY_CONNECTION` is another connection, a dump of your default connection holds no package table but records the package migration, so `/orrery/api/health` `schema` asks you to install: run `php artisan migrate:refresh --path=database/migrations/2026_09_23_000000_create_orrery_tables.php --realpath` once, which creates the package tables on that connection.
 
+## From 0.1 to 0.2
+
+- **Failure groups merge messages that differ only in an id.** The group key (`GroupKey` `v2`) replaces the variable parts of the first line (see [Known limits](known-limits.md)). The key is stored when a job fails and is never computed again, so the failures of 0.1 keep their old key: a group can show twice, once with the old failures and once with the new ones, until `trim.failed` removes the old rows. A bulk run that was started on an old group keeps its frozen selection.
+
 **An install from a build before 0.1.0** takes this path once, because its schema cannot be told apart from the release's. **It drops every `orrery_*` table and its rows**: the job mirror, the history, the samples, the health events, the ledger with its audit rows, the fences, the bulk runs and the incidents. Only `jobs`, `failed_jobs` and `job_batches` keep their data. On MySQL and Postgres:
 
 1. Run `php artisan vendor:publish --tag=orrery-migrations --force`: a copy published by an early build can hold an older schema.

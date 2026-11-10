@@ -3,7 +3,6 @@
 namespace Justrau\Orrery\Database\Repositories;
 
 use Illuminate\Container\Container;
-use Illuminate\Database\Query\Builder;
 use Justrau\Orrery\Contracts\WorkloadRepository;
 use Justrau\Orrery\Control\PauseCauses;
 use Justrau\Orrery\Control\SignalState;
@@ -34,9 +33,15 @@ use Justrau\Orrery\Workers\LiveWorkers;
  * - `oldest_age` and `threshold` from WaitTime, and `over_limit`
  *   (WaitTime::overLimit(), the predicate of the queue samples).
  * - `running`: the reserved mirror rows of the queue on every alias with a
- *   live lease: `reserved_at` later than now − retry_after of the row's
- *   WaitTime target (the lease rule of LiveWorkers). The expired
- *   reservations of a dead worker are not running.
+ *   live lease: `reserved_at` later than now − the retry_after of the
+ *   mirror row's own connection (its queue object, WaitTime::retryAfter()),
+ *   as LiveWorkers takes the lease of each worker's own connection. The
+ *   expired reservations of a dead worker are not running. The backlog
+ *   (`length`) keeps the shortest retry_after of the table on purpose:
+ *   Laravel's pop uses the popping connection's lease, so a worker of the
+ *   shortest-lease alias can take such a job again. A reservation that
+ *   expired for the shortest lease but not for its own therefore counts in
+ *   both `running` and `length`.
  * - `in_per_min` and `out_per_min`: the rates of the
  *   per-minute samples over the five complete minutes before the current
  *   minute m_now, [m_now − 300, m_now) (`rates_from`, `rates_to`), through
@@ -78,7 +83,7 @@ use Justrau\Orrery\Workers\LiveWorkers;
  * (Instrumentation, no statement), one LiveWorkers read, one measurement (shared for a
  * few seconds through the MeasurementCache, with the native pause state inside
  * it), one signal read, the running read (one statement per distinct
- * retry_after, on the index `st_reserved`), the rates read of the samples
+ * retry_after of the measured aliases, on the index `st_reserved`), the rates read of the samples
  * (two settings reads and one samples statement for all rows, plus one
  * grouped scan per kind of the minutes from the counts frontier M on, none
  * while M is at the current minute), and, only when a row is over its
@@ -119,14 +124,17 @@ class DatabaseWorkloadRepository implements WorkloadRepository
             return [];
         }
 
-        // The lease interval of each row: the retry_after of its WaitTime target.
-        $leases = [];
+        // The aliases of every row per lease interval: the retry_after of each alias's own queue object.
+        $aliases = [];
 
         foreach ($measured as $row) {
-            $leases[$row['connection']."\0".$row['queue']] = $this->waitTime->retryAfter($row['connections']);
+            foreach ($row['connections'] as $alias) {
+                $aliases[$this->waitTime->retryAfter([$alias])][$alias] = true;
+            }
         }
 
-        $running = Watcher::instance()->run('workload:running', fn (): array => $this->running($now, array_values(array_unique($leases))), null);
+        $aliases = array_map(static fn (array $names): array => array_map('strval', array_keys($names)), $aliases);
+        $running = Watcher::instance()->run('workload:running', fn (): array => $this->running($now, $aliases), null);
         // The five complete minutes before the current minute, from the samples (one read for all rows).
         $ratesTo = SampleCounts::minuteOf($now);
         $ratesFrom = $ratesTo - self::RATE_MINUTES * SampleCounts::MINUTE;
@@ -146,7 +154,6 @@ class DatabaseWorkloadRepository implements WorkloadRepository
             $overLimit = $unknown ? null : WaitTime::overLimit($row);
             $since = $overLimit === true ? ($runs[$row['connection']."\0".$queue] ?? null) : null;
             $pause = PauseCauses::of($signals, $row['native'], $row['connection'], $queue);
-            $lease = $leases[$row['connection']."\0".$queue];
             $series = SampleCounts::series('queue', $this->coverage->primary($row['connection']), $queue);
             $in = $rates?->sum($series, 'pushed');
             $completed = $rates?->sum($series, 'completed');
@@ -163,7 +170,7 @@ class DatabaseWorkloadRepository implements WorkloadRepository
                 'oldest_age' => $row['oldest_age'],
                 'threshold' => $row['threshold'],
                 'over_limit' => $overLimit,
-                'running' => $running === null || ! $instrumented ? null : self::sum($running[$lease] ?? [], $row['connections'], $queue),
+                'running' => $running === null || ! $instrumented ? null : self::sum($running, $row['connections'], $queue),
                 'in_per_min' => $in === null || ! $instrumented ? null : $in / (float) self::RATE_MINUTES,
                 'out_per_min' => $completed === null || $failed === null ? null : ($completed + $failed) / (float) self::RATE_MINUTES,
                 'rates_from' => $ratesFrom,
@@ -184,36 +191,32 @@ class DatabaseWorkloadRepository implements WorkloadRepository
     }
 
     /**
-     * The running rows per lease interval and `connection\0queue`: `status`
-     * reserved with a live lease, `reserved_at` later than now − retry_after.
-     * One statement per distinct retry_after of the measured rows (usually
-     * one), keyed by that retry_after.
+     * The running rows per `connection\0queue`: `status` reserved with a
+     * live lease, `reserved_at` later than now − the retry_after of the
+     * row's own connection. One statement per distinct retry_after (usually
+     * one), filtered to the aliases with that lease.
      *
-     * @param  list<int>  $leases  the distinct retry_after values
-     * @return array<int, array<string, int>>
+     * @param  array<int, list<string>>  $aliases  the aliases per retry_after
+     * @return array<string, int>
      */
-    private function running(float $now, array $leases): array
+    private function running(float $now, array $aliases): array
     {
         $session = Container::getInstance()->make(PackageSession::class)->mirror();
+        $counts = [];
 
-        $grouped = static function (Builder $query): array {
-            $counts = [];
+        foreach ($aliases as $lease => $names) {
+            $query = $session->table('orrery_jobs')
+                ->where('status', 'reserved')
+                ->whereIn('connection', $names)
+                ->where('reserved_at', '>', Clock::toDecimal($now - $lease));
 
             foreach ($query->groupBy('connection', 'queue')->select(['connection', 'queue'])->selectRaw('COUNT(*) AS n')->get() as $row) {
                 $key = $row->connection."\0".$row->queue;
                 $counts[$key] = ($counts[$key] ?? 0) + (int) $row->n;
             }
-
-            return $counts;
-        };
-
-        $running = [];
-
-        foreach ($leases as $lease) {
-            $running[$lease] = $grouped($session->table('orrery_jobs')->where('status', 'reserved')->where('reserved_at', '>', Clock::toDecimal($now - $lease)));
         }
 
-        return $running;
+        return $counts;
     }
 
     /**
