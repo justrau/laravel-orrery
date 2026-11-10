@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Unit;
 
+use Closure;
 use Illuminate\Container\Container;
 use Illuminate\Support\Carbon;
 use Justrau\Orrery\Registration\Modules\StorageModule;
@@ -186,5 +187,76 @@ final class ClockTest extends TestCase
         }
 
         self::assertGreaterThan($first, Clock::monotonic(), 'The reset lets the clock run again.');
+    }
+
+    /**
+     * Rejects: a frozen base read from hrtime() as it is. The sum of such a
+     * base and an advance loses its last bits when it crosses a power of two,
+     * so a frozen duration of 5 s read as 4.999999999999986 on a CI runner
+     * that had run for about two minutes (ConnectAttemptsTest). The check
+     * crosses every power of two up to 2^42 s, so an unaligned base fails
+     * here on every run. Still passes: a base on a coarser grid (whole
+     * seconds).
+     */
+    public function test_a_frozen_clock_adds_seconds_exactly_across_powers_of_two(): void
+    {
+        $real = hrtime(true) / 1e9;
+        Clock::freezeMonotonicForTesting();
+
+        self::assertGreaterThanOrEqual($real, Clock::monotonic(), 'The freeze never moves the clock back.');
+        self::assertLessThan($real + 1.0, Clock::monotonic());
+
+        self::assertExactAcrossPowersOfTwo(Clock::monotonic(...), Clock::advanceMonotonicForTesting(...));
+    }
+
+    /**
+     * Rejects: a frozen watcher base taken from a running Clock::monotonic()
+     * as it is: the monitoring cache of 10 s then read 9.999999999999986 s
+     * as still fresh on a CI runner (HotPathBudgetTest). Still passes: a base
+     * on a coarser grid (whole seconds).
+     */
+    public function test_a_frozen_watcher_clock_adds_seconds_exactly_across_powers_of_two(): void
+    {
+        $real = hrtime(true) / 1e9;
+        Watcher::freezeMonotonicForTesting();
+
+        self::assertGreaterThanOrEqual($real, Watcher::monotonic(), 'The freeze never moves the clock back.');
+        self::assertLessThan($real + 1.0, Watcher::monotonic());
+
+        self::assertExactAcrossPowersOfTwo(Watcher::monotonic(...), Watcher::advanceMonotonicForTesting(...));
+    }
+
+    /**
+     * Advances a frozen clock to just below each power of two above it, up
+     * to 2^42 s, and then by 5 s across that power: each 5 s must read as
+     * exactly 5.0.
+     *
+     * @param  Closure(): float  $read
+     * @param  Closure(float): void  $advance
+     */
+    private static function assertExactAcrossPowersOfTwo(Closure $read, Closure $advance): void
+    {
+        $frozen = $read();
+        $offset = 0.0;
+        $power = 1.0;
+
+        while ($power <= $frozen) {
+            $power *= 2.0;
+        }
+
+        for (; $power <= 2.0 ** 42; $power *= 2.0) {
+            // Whole seconds to between 3 s and 2 s below the power.
+            $step = floor($power - $frozen) - 2.0 - $offset;
+            $advance($step);
+            $offset += $step;
+            $below = $read();
+            self::assertLessThan($power, $below);
+
+            $advance(5.0);
+            $offset += 5.0;
+            $elapsed = $read() - $below;
+
+            self::assertSame(5.0, $elapsed, sprintf('5 s across 2^%d s read as %.17g s.', (int) log($power, 2), $elapsed));
+        }
     }
 }

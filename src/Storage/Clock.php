@@ -54,11 +54,25 @@ final class Clock
      * Stops monotonic() at its current value (tests only): it then moves only
      * through advanceMonotonicForTesting(), so a test that measures a duration
      * does not depend on how fast the machine runs. Watcher::monotonic()
-     * stops with it while the watcher is not frozen itself.
+     * stops with it while the watcher is not frozen itself. The frozen value
+     * is on the grid of frozenBaseForTesting().
      */
     public static function freezeMonotonicForTesting(): void
     {
-        self::$frozenMonotonic = hrtime(true) / 1e9;
+        self::$frozenMonotonic = self::frozenBaseForTesting(hrtime(true) / 1e9);
+    }
+
+    /**
+     * The first multiple of 1/1024 s at or after $seconds: the base of a
+     * frozen test clock. Whole seconds and binary fractions (0.5, 0.25) then
+     * add to it and subtract from it exactly. A base read from hrtime() as it
+     * is loses its last bits when a sum crosses a power of two, so a frozen
+     * 5 s can read as 4.999999999999986 s. The base is never before $seconds,
+     * so a freeze never moves a clock back.
+     */
+    public static function frozenBaseForTesting(float $seconds): float
+    {
+        return ceil($seconds * 1024.0) / 1024.0;
     }
 
     /**
