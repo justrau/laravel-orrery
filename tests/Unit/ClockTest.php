@@ -265,9 +265,11 @@ final class ClockTest extends TestCase
      * Rejects: a stored time read with a plain (float) cast. SQLite 3.45 on
      * x86-64 keeps 1796604698.689484 as the float above it, so 600 s after
      * it read as 599.99999976 s and a row at the exact end of its grace
-     * stayed pending on CI (ActiveReconciliationTest). Still passes: a
-     * reader that is exact only for times before 2^31 s (the float grid is
-     * coarser after it; no case here).
+     * stayed pending on CI (ActiveReconciliationTest). Also rejects
+     * round($value * 1e6) / 1e6: before PHP 8.4, round() pre-rounds to 15
+     * significant digits and misses the microsecond (CI, PHP 8.3). Still
+     * passes: a reader that is exact only for times before 2^31 s (the
+     * float grid is coarser after it; no case here).
      */
     public function test_a_stored_time_off_the_float_grid_reads_as_its_decimal(): void
     {

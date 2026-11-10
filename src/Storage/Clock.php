@@ -100,13 +100,17 @@ final class Clock
      * A difference with now() then misses whole seconds by a hair, and a
      * check at the exact end of a grace or a lease decides wrongly. Every
      * stored time that PHP compares with now(), or with a bound computed
-     * from it, reads through this: it rounds to the microsecond grid of the
-     * column, so whole seconds add to the result and subtract from it
-     * exactly.
+     * from it, reads through this. It formats the value as the six-decimal
+     * text that the writers bind (toDecimal()) and parses that text, as
+     * now() parses Carbon's text, so the result is the float of the stored
+     * decimal and whole seconds add to it and subtract from it exactly.
+     * Never round($value * 1e6) / 1e6: before PHP 8.4, round() pre-rounds
+     * to 15 significant digits, so it misses the microsecond of a current
+     * time.
      */
     public static function stored(int|float|string $value): float
     {
-        return round((float) $value * 1_000_000) / 1_000_000;
+        return (float) self::toDecimal((float) $value);
     }
 
     /**
