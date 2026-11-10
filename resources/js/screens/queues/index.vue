@@ -25,6 +25,9 @@
         POLL_SECONDS,
         RECENT_FAILURE_SECONDS,
         cardName,
+        clearFailure,
+        clearOutcome,
+        clearSheet,
         connectionSections,
         controlBodies,
         controlNotice,
@@ -46,6 +49,7 @@
         normalizeMarkers,
         normalizeWorkload,
         isPaused,
+        queueActionUrl,
         num,
         pauseHint,
         pausedFrom,
@@ -75,6 +79,9 @@
      * selection, "Show more") keeps the global alert for them.
      */
     const BACKGROUND_STATUSES = [...SECTION_STATUSES, ANY_ERROR_STATUS, ...BACKGROUND_FAILURES];
+
+    /** A clear's answer is read inline: these statuses and failures never raise the global alert (a 403 does). */
+    const CLEAR_HANDLES = [409, 422, 500, 502, 503, 504, ...BACKGROUND_FAILURES];
 
     /**
      * The Queues screen.
@@ -693,9 +700,69 @@
                 this.sheetOpen = false;
             },
 
+            /** The inspector's actions: Clear waiting jobs has its own sheet; the others are control signals. */
+            onInspectorControl(action) {
+                if (action === 'clear') return this.openClear(this.selectedRow);
+
+                return this.openControl(action, 'queue', this.selectedRow);
+            },
+
+            /**
+             * Open "Clear waiting jobs…": an operator read counts the waiting
+             * jobs first (`POST …/waiting`), and the sheet freezes that count.
+             * A count that fails or is refused shows as unknown, never 0. A
+             * route change while the count runs opens nothing.
+             */
+            openClear(row) {
+                if (this.sheetOpen || this.busy || !row) return Promise.resolve();
+
+                this.cancelPreparation();
+
+                const sequence = this.startRequest('operation');
+
+                return this.$http.post(Orrery.basePath + queueActionUrl(row.connection, row.name, 'waiting'), {}, {handles: [ANY_ERROR_STATUS, ...BACKGROUND_FAILURES]})
+                    .then(response => (response && response.data && typeof response.data === 'object' ? response.data : null))
+                    .catch(() => null)
+                    .then(count => {
+                        if (this.unmounted || !this.isCurrentRequest('operation', sequence) || this.sheetOpen || this.busy) return;
+
+                        this.controlResult = null;
+                        this.operation = clearSheet(row, count);
+                        this.snapshotKey++;
+                        this.sheetOpen = true;
+                    });
+            },
+
+            /** Post the frozen clear; its answer, or why it failed, shows as the result notice. */
+            postClear(selection) {
+                if (this.busy) return Promise.resolve();
+
+                this.busy = true;
+                this.controlResult = null;
+
+                return this.$http.post(Orrery.basePath + queueActionUrl(selection.connection, selection.queue, 'clear'), {}, {handles: CLEAR_HANDLES})
+                    .then(response => {
+                        this.controlResult = clearOutcome(selection, response ? response.data : null);
+                    })
+                    .catch(error => {
+                        this.controlResult = clearFailure(selection, error);
+                    })
+                    .finally(() => {
+                        this.busy = false;
+                        this.sheetOpen = false;
+
+                        if (!this.unmounted) {
+                            this.refresh();
+                            requestLiveRefresh();
+                        }
+                    });
+            },
+
             /** Post exactly the frozen selection that the sheet emits. */
             confirmOperation(selection) {
                 if (!selection) return Promise.resolve();
+
+                if (selection.kind === 'clear') return this.postClear(selection);
 
                 return this.postControl(selection);
             },
@@ -942,7 +1009,7 @@
             <queue-inspector :row="selectedRow" :not-found="notFound" :loading="rows === null && !rowsError" :history="selectedHistory" :markers="markers"
                              :workers="workers" :workers-error="workersError" :now="now" :cache-note="cacheNote"
                              :retention="retention" :retention-error="retentionError"
-                             @control="openControl($event, 'queue', selectedRow)" />
+                             @control="onInspectorControl" />
         </template>
 
         <confirm-sheet :open="sheetOpen" :title="operation ? operation.title : ''" :message="operation ? operation.message : null"

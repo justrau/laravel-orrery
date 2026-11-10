@@ -9,7 +9,8 @@
  * num(), which accepts a finite number or a numeric string.
  */
 
-import {formatDayMinuteZoned, formatDuration, formatHourMinuteZoned, formatLimit, nowSeconds, relativeTime, toSeconds} from '../../support/time.js';
+import {formatCount, formatDayMinuteZoned, formatDuration, formatHourMinuteZoned, formatLimit, nowSeconds, relativeTime, toSeconds} from '../../support/time.js';
+import {codeText} from '../../support/wording.js';
 import {heartbeatAge} from '../../shell/data.js';
 import {groupCountAtLeast, operationLabel, timesText} from '../failed/failures.js';
 import {
@@ -878,4 +879,88 @@ export function controlMessage(selection) {
 /** The confirm button label of a control action. */
 export function controlConfirmLabel(selection) {
     return {pause: 'Pause', continue: 'Continue', terminate: 'Terminate'}[selection.action] || 'Confirm';
+}
+
+// ---------------------------------------------------------------------------
+// Clear waiting jobs
+// ---------------------------------------------------------------------------
+
+/** The API path of a queue's waiting jobs: `/api/queues/{connection}/{queue}/{action}`, the name's "/" kept. */
+export function queueActionUrl(connection, queue, action) {
+    return `/api/queues/${encodeURIComponent(connection)}/${String(queue).split('/').map(encodeURIComponent).join('/')}/${action}`;
+}
+
+function wholeCount(value) {
+    return Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+/**
+ * The count of the clear's sheet, from `POST …/waiting`: "N waiting
+ * (including M delayed; K in batches, whose batches will not finish)". A
+ * count that could not be read (null: a failed or refused read) is
+ * "unknown", never 0; an unknown batch part says so.
+ */
+export function clearCountText(count) {
+    const waiting = wholeCount(count && count.waiting);
+    const delayed = wholeCount(count && count.delayed);
+
+    if (waiting === null || delayed === null) return 'The number of waiting jobs is unknown.';
+
+    const inBatches = wholeCount(count.in_batches);
+    const batches = inBatches === null
+        ? 'how many are in batches is unknown'
+        : (inBatches === 0 ? 'none in batches' : `${formatCount(inBatches)} in batches, whose batches will not finish`);
+
+    return `${formatCount(waiting)} waiting (including ${formatCount(delayed)} delayed; ${batches}).`;
+}
+
+/**
+ * The sheet of "Clear waiting jobs…": the queue and its aliases, and the
+ * count frozen when the sheet opens (null: unknown). The final numbers come
+ * from the answer.
+ */
+export function clearSheet(row, count) {
+    const aliases = Array.isArray(row.connections) && row.connections.length ? row.connections : [row.connection];
+
+    return {
+        title: `Clear waiting jobs of ${row.name}?`,
+        message: `${clearCountText(count)} Every job of ${row.connection}:${row.name} that no worker has reserved is deleted, with its rows in Orrery. Reserved jobs keep running. This cannot be undone.`,
+        confirmLabel: 'Clear waiting jobs',
+        tone: 'danger',
+        selection: {kind: 'clear', connection: row.connection, queue: row.name, aliases: aliases.slice()},
+    };
+}
+
+/** The answer of a clear (200), as a notice `{tone, title, detail}`. */
+export function clearOutcome(selection, data) {
+    const deleted = wholeCount(data && data.deleted);
+
+    if (!data || deleted === null) return {tone: 'warning', title: `Clear of ${selection.queue}: outcome unknown`, detail: codeText('write_failed')};
+
+    const notes = [];
+
+    if (data.mirror_failed === true) notes.push("Some of Orrery's rows could not be deleted; reconciliation marks them unknown later.");
+    if (wholeCount(data.undecodable) > 0) notes.push(`${formatCount(data.undecodable)} payload(s) could not be decoded, so their unresolved rows in Orrery stay.`);
+    if (data.reason === 'time_budget') notes.push('It stopped at its time limit: waiting jobs remain. Clear again to go on.');
+    if (data.reason === 'probe_failed') notes.push('Orrery could not check its unresolved rows, so it stopped before the next batch: those jobs are still queued. Clear again.');
+
+    const title = `Cleared ${formatCount(deleted)} waiting ${deleted === 1 ? 'job' : 'jobs'} of ${selection.queue}`;
+    const tone = data.complete === true && data.mirror_failed !== true ? 'success' : 'warning';
+
+    return {tone, title, detail: notes.length ? notes.join(' ') : 'Reserved jobs were kept.'};
+}
+
+/**
+ * A clear that did not answer 200: a refusal (409 `in_transaction`,
+ * `not_database_queue`) changed nothing; a 403 is left to the global alert
+ * (null); any other failure has an unknown outcome.
+ */
+export function clearFailure(selection, error) {
+    const status = error && error.response ? error.response.status : null;
+    const body = error && error.response && error.response.data && typeof error.response.data === 'object' ? error.response.data : {};
+
+    if (status === 403) return null;
+    if (status === 409 && typeof body.error === 'string') return {tone: 'danger', title: `${selection.queue} was not cleared`, detail: codeText(body.error)};
+
+    return {tone: 'warning', title: `Clear of ${selection.queue}: outcome unknown`, detail: codeText('write_failed')};
 }

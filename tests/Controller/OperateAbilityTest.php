@@ -70,14 +70,15 @@ final class OperateAbilityTest extends TestCase
             }
 
             foreach (array_diff($route->methods(), ['GET', 'HEAD']) as $method) {
-                $writes[] = [$method, '/'.str_replace(['{id}', '{tag}', '{uuid}'], ['00000000-0000-4000-8000-000000000001', 'probe', '00000000-0000-4000-8000-000000000001'], $route->uri())];
+                $writes[] = [$method, '/'.str_replace(['{id}', '{tag}', '{uuid}', '{connection}', '{queue}'], ['00000000-0000-4000-8000-000000000001', 'probe', '00000000-0000-4000-8000-000000000001', 'database', 'default'], $route->uri())];
             }
         }
 
         // POST /api/control, /api/tags/monitored, /api/jobs/{uuid}/retry, /api/jobs/{uuid}/forget,
+        // /api/jobs/{uuid}/delete, /api/queues/{connection}/{queue}/waiting and …/clear,
         // /api/bulk/freeze, /api/bulk/run and /api/operations/{id}/resolve, and DELETE /api/tags/monitored/{tag}
         // and /api/tags/monitored?tag=. The legacy writes are gone.
-        $this->assertCount(9, $writes, 'The write routes changed: check that each one still needs the operate ability.');
+        $this->assertCount(12, $writes, 'The write routes changed: check that each one still needs the operate ability.');
 
         $this->viewerWithoutOperate();
 

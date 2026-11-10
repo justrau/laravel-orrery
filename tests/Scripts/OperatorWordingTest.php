@@ -303,7 +303,7 @@ final class OperatorWordingTest extends TestCase
             }
         }
 
-        foreach (['src/Failed/ReadOnlyFailedRecords.php', 'src/Http/Controllers/JobController.php', 'src/Http/Controllers/StuckJobsController.php', 'src/Http/Controllers/JobWriteController.php', 'src/Http/Controllers/BulkController.php', 'src/Http/Controllers/BatchesController.php'] as $file) {
+        foreach (['src/Failed/ReadOnlyFailedRecords.php', 'src/Http/Controllers/JobController.php', 'src/Http/Controllers/StuckJobsController.php', 'src/Http/Controllers/JobWriteController.php', 'src/Http/Controllers/BulkController.php', 'src/Http/Controllers/BatchesController.php', 'src/Http/Controllers/WaitingJobsController.php'] as $file) {
             if (is_file($root.'/'.$file)) {
                 $files[] = $file;
             }

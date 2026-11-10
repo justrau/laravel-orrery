@@ -198,6 +198,35 @@ class ClearCommandTest extends HooksTestCase
         self::assertStringContainsString('Those jobs are still queued', $output);
     }
 
+    /**
+     * Rejects: a command-line clear without its audit (the event, with the actor `cli` and the counts), and a clear
+     * inside an open transaction of the queue connection, whose batches would not commit one by one.
+     */
+    public function test_clear_is_recorded_and_refused_inside_a_transaction(): void
+    {
+        Queue::push(new BasicJob);
+        $events = new \ArrayObject;
+        \Illuminate\Support\Facades\Event::listen(\Justrau\Orrery\Events\OperatorActionPerformed::class, static function (\Justrau\Orrery\Events\OperatorActionPerformed $event) use ($events): void {
+            $events[] = $event;
+        });
+
+        DB::connection()->beginTransaction();
+
+        try {
+            self::assertSame(1, Artisan::call('orrery:clear', ['connection' => 'database', '--force' => true]));
+            self::assertStringContainsString('inside a transaction', Artisan::output());
+        } finally {
+            DB::connection()->rollBack();
+        }
+
+        self::assertCount(0, $events, 'a refused clear did nothing');
+        self::assertSame(1, DB::table('jobs')->count());
+
+        self::assertSame(0, Artisan::call('orrery:clear', ['connection' => 'database', '--force' => true]));
+        self::assertCount(1, $events);
+        self::assertSame(['clear', ['connection' => 'database', 'queue' => 'default'], 'cli', 'done', 1], [$events[0]->action, $events[0]->target, $events[0]->actor, $events[0]->result, $events[0]->counts['deleted']]);
+    }
+
     public function test_clear_refuses_a_queue_connection_without_the_database_driver(): void
     {
         $this->app['config']->set('queue.connections.sync', ['driver' => 'sync']);

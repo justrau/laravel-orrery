@@ -13,6 +13,7 @@
         cycleHistoryToDrop,
         cycleTabs,
         cycleView,
+        deleteSheet,
         detailUrl,
         earlierView,
         entryUrl,
@@ -130,8 +131,13 @@
                 return !!this.outcome && this.outcome.action === 'forget' && this.outcome.removedRow === true;
             },
 
+            /** The screen's own delete removed the job: the not-found panel says so. */
+            deleted() {
+                return !!this.outcome && this.outcome.action === 'delete' && this.outcome.removedRow === true;
+            },
+
             notFound() {
-                return notFoundState(this.legacyId, this.forgotten);
+                return notFoundState(this.legacyId, this.forgotten, this.deleted);
             },
 
             /** The list tab of the row; after a 404 the tab of the last read, so "Back to Failed" stays. */
@@ -610,6 +616,7 @@
                 if (kind === 'retry' && this.actions.retry) content = retrySheet(this.detail, this.sqliteConnections);
                 if (kind === 'forget' && this.actions.forget) content = forgetSheet(this.detail);
                 if (kind === 'resolve' && this.actions.resolve) content = resolveSheet(this.detail.operation, this.detail);
+                if (kind === 'delete' && this.actions.delete && !this.actions.deleteBlocked) content = deleteSheet(this.detail);
 
                 if (!content) return;
 
@@ -640,7 +647,8 @@
 
                         this.outcome = {
                             action,
-                            removedRow: action === 'forget' && forgetRemovedRow(response.data),
+                            removedRow: (action === 'forget' && forgetRemovedRow(response.data))
+                                || (action === 'delete' && !!response.data && ['deleted', 'mirror_failed'].includes(response.data.result)),
                             ...(action === 'resolve' ? resolveOutcome(response.data && response.data.operation) : writeOutcome(action, response.data)),
                         };
                     })
@@ -690,6 +698,7 @@
             <template v-if="layout !== 'phone'">
                 <o-button v-if="actions.retry" operate variant="primary" icon="retry" :disabled="busy" @click="openSheet('retry')">Retry…</o-button>
                 <o-button v-if="actions.forget" operate variant="danger" :disabled="busy" @click="openSheet('forget')">Forget…</o-button>
+                <o-button v-if="actions.delete" operate variant="danger" :disabled="busy || !!actions.deleteBlocked" :title="actions.deleteBlocked || null" data-delete @click="openSheet('delete')">Delete…</o-button>
             </template>
         </toolbar-controls>
 
@@ -1022,10 +1031,12 @@
             </div>
 
             <!-- Phone: Retry and Forget in a bottom bar -->
-            <div v-if="detail && layout === 'phone' && (actions.retry || actions.forget)" class="o-jd__bottom-bar">
+            <div v-if="detail && layout === 'phone' && (actions.retry || actions.forget || actions.delete)" class="o-jd__bottom-bar">
                 <o-button v-if="actions.retry" operate variant="primary" size="lg" block :disabled="busy" @click="openSheet('retry')">Retry…</o-button>
                 <o-button v-if="actions.forget" operate variant="danger" size="lg" block :disabled="busy" @click="openSheet('forget')">Forget…</o-button>
+                <o-button v-if="actions.delete" operate variant="danger" size="lg" block :disabled="busy || !!actions.deleteBlocked" data-delete @click="openSheet('delete')">Delete…</o-button>
             </div>
+            <div v-if="detail && actions.deleteBlocked" class="o-jd__sheet-footnote" data-delete-blocked>{{ actions.deleteBlocked }}</div>
         </div>
 
         <!-- The inspector at 1024 and wider -->
@@ -1090,6 +1101,9 @@
                 <div v-if="selection && selection.note" class="o-jd__sheet-note">
                     <svg width="16" height="16" viewBox="0 0 20 20" aria-hidden="true" focusable="false" class="o-jd__sheet-note-icon"><path d="M10 2.5l8 14H2z" fill="currentColor" /><path d="M10 8v4" fill="none" stroke="var(--color-bg)" stroke-width="1.8" stroke-linecap="round" /><circle cx="10" cy="14.2" r="1" fill="var(--color-bg)" /></svg>
                     <span>{{ selection.note }}</span>
+                </div>
+                <div v-if="selection && selection.batchLink" class="o-jd__sheet-footnote" data-sheet-batch>
+                    <router-link class="o-jd__link" :to="selection.batchLink" @click="closeSheet">Cancel the batch instead…</router-link>
                 </div>
                 <div v-if="selection && selection.footnote" class="o-jd__sheet-footnote">{{ selection.footnote }}</div>
             </template>

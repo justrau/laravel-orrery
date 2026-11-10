@@ -306,6 +306,27 @@ final class WaitTime
     }
 
     /**
+     * The database queue connections whose queue objects share the jobs
+     * table of $connection (its aliases, $connection included), in name
+     * order, as measure() lists them in a row's `connections`. A connection
+     * whose target cannot be resolved has only itself.
+     *
+     * @return list<string>
+     */
+    public function aliasesOf(string $connection): array
+    {
+        $this->targets = [];
+
+        foreach ($this->groups(array_fill_keys($this->databaseConnections(), [])) as $group) {
+            if ($group['target'] !== null && in_array($connection, $group['connections'], true)) {
+                return $group['connections'];
+            }
+        }
+
+        return [$connection];
+    }
+
+    /**
      * The queue connections whose queue objects share one jobs table with
      * different retry_after values (gate fix 4), one entry per table:
      * `connections` in name order, the `table`, and `values`, the

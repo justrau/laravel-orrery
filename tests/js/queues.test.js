@@ -6,6 +6,10 @@ import assert from 'node:assert/strict';
 import {
     cardName,
     backlogStatus,
+    clearCountText,
+    clearFailure,
+    clearOutcome,
+    clearSheet,
     connectionSections,
     controlBodies,
     controlNotice,
@@ -28,6 +32,7 @@ import {
     historyWindow,
     inOutBars,
     inOutText,
+    queueActionUrl,
     limitText,
     markerName,
     markersIn,
@@ -792,4 +797,50 @@ test('cardName adds the connection only when the name repeats', () => {
     assert.equal(cardName(b, [a, b, c]), 'reports:emails');
     assert.equal(cardName(c, [a, b, c]), 'default');
     assert.equal(cardName(c, null), 'default');
+});
+
+// Rejects: an unknown count shown as 0, a delayed or batched part left out, and an unknown batch part shown as none.
+test('clearCountText freezes the count of the clear sheet', () => {
+    assert.equal(clearCountText({waiting: 12, ready: 9, delayed: 3, in_batches: 2}), '12 waiting (including 3 delayed; 2 in batches, whose batches will not finish).');
+    assert.equal(clearCountText({waiting: 1, ready: 1, delayed: 0, in_batches: 0}), '1 waiting (including 0 delayed; none in batches).');
+    assert.equal(clearCountText({waiting: 4, ready: 4, delayed: 0, in_batches: null}), '4 waiting (including 0 delayed; how many are in batches is unknown).');
+    assert.equal(clearCountText(null), 'The number of waiting jobs is unknown.');
+    assert.equal(clearCountText({waiting: null, delayed: 0}), 'The number of waiting jobs is unknown.');
+});
+
+// Rejects: a clear path that encodes the queue's "/" as %2F, a sheet without its frozen target and count, and a sheet
+// that is not destructive.
+test('clearSheet and queueActionUrl name the queue and its aliases', () => {
+    assert.equal(queueActionUrl('database', 'emails/high', 'clear'), '/api/queues/database/emails/high/clear');
+    assert.equal(queueActionUrl('db x', 'a b', 'waiting'), '/api/queues/db%20x/a%20b/waiting');
+
+    const sheet = clearSheet({name: 'emails', connection: 'database', connections: ['database', 'database-twin']}, {waiting: 2, delayed: 1, in_batches: 0});
+    assert.equal(sheet.title, 'Clear waiting jobs of emails?');
+    assert.match(sheet.message, /^2 waiting \(including 1 delayed; none in batches\)\. Every job of database:emails that no worker has reserved is deleted/);
+    assert.equal(sheet.tone, 'danger');
+    assert.deepEqual(sheet.selection, {kind: 'clear', connection: 'database', queue: 'emails', aliases: ['database', 'database-twin']});
+    assert.match(clearSheet({name: 'emails', connection: 'database'}, null).message, /^The number of waiting jobs is unknown\./);
+});
+
+// Rejects: a partial clear (time budget, failed probe, failed mirror delete) shown as plain success, an answer
+// without counts shown as success, and a refusal or an unknown outcome reported as done.
+test('clearOutcome and clearFailure word every answer', () => {
+    const selection = {queue: 'emails'};
+    const done = clearOutcome(selection, {deleted: 3, mirror_rows: 3, unresolved_rows: 0, undecodable: 0, count_mismatches: 0, mirror_failed: false, complete: true, reason: null});
+    assert.deepEqual(done, {tone: 'success', title: 'Cleared 3 waiting jobs of emails', detail: 'Reserved jobs were kept.'});
+
+    const budget = clearOutcome(selection, {deleted: 900, undecodable: 0, mirror_failed: false, complete: false, reason: 'time_budget'});
+    assert.equal(budget.tone, 'warning');
+    assert.match(budget.detail, /time limit/);
+    assert.match(clearOutcome(selection, {deleted: 0, complete: false, reason: 'probe_failed'}).detail, /still queued/);
+    const mirror = clearOutcome(selection, {deleted: 1, undecodable: 2, mirror_failed: true, complete: true, reason: null});
+    assert.equal(mirror.tone, 'warning');
+    assert.match(mirror.detail, /reconciliation marks them unknown later.*2 payload/);
+    assert.equal(clearOutcome(selection, {}).tone, 'warning');
+
+    assert.equal(clearFailure(selection, {response: {status: 409, data: {error: 'in_transaction'}}}).tone, 'danger');
+    assert.match(clearFailure(selection, {response: {status: 409, data: {error: 'in_transaction'}}}).detail, /inside a transaction/);
+    assert.equal(clearFailure(selection, {response: {status: 403, data: {error: 'forbidden_action'}}}), null);
+    assert.match(clearFailure(selection, {response: {status: 503, data: {error: 'write_failed'}}}).title, /outcome unknown/);
+    assert.match(clearFailure(selection, {}).title, /outcome unknown/);
 });

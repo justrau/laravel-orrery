@@ -17,6 +17,7 @@ import {
     earlierView,
     cycleTabs,
     cycleView,
+    deleteSheet,
     detailUrl,
     earlierExceptions,
     entryUrl,
@@ -234,8 +235,8 @@ test('headerFacts lists the identity and the times, unknown as "—"', () => {
 
 // Rejects: Retry or Forget offered without canOperate, on a held row, on a row that is not failed, without a usable occurrence id, or when the server says no; Resolve without an awaiting operation; and a read-only reason shown as its raw code.
 test('actionsFor offers exactly what the server would accept now', () => {
-    assert.deepEqual(actionsFor(failedDetail(), true), {retry: true, forget: true, resolve: false, held: false, reason: null});
-    assert.deepEqual(actionsFor(failedDetail(), false), {retry: false, forget: false, resolve: false, held: false, reason: null});
+    assert.deepEqual(actionsFor(failedDetail(), true), {retry: true, forget: true, resolve: false, delete: false, deleteBlocked: null, held: false, reason: null});
+    assert.deepEqual(actionsFor(failedDetail(), false), {retry: false, forget: false, resolve: false, delete: false, deleteBlocked: null, held: false, reason: null});
     assert.equal(actionsFor(failedDetail({status: 'completed'}), true).retry, false);
     assert.equal(actionsFor(failedDetail({occurrence_id: null}), true).retry, false);
     assert.equal(actionsFor(failedDetail({occurrence_id: 0}), true).forget, false);
@@ -243,10 +244,10 @@ test('actionsFor offers exactly what the server would accept now', () => {
     assert.equal(actionsFor(failedDetail({actions: {retry: false, forget: true, resolve: false, read_only_reason: null}}), true).retry, false);
 
     const held = failedDetail({status: 'retrying', operation: {id: OP, action: 'retry', state: 'claimed', awaiting_reason: 'sqlite_host_file'}, actions: {retry: true, forget: true, resolve: true, read_only_reason: null}});
-    assert.deepEqual(actionsFor(held, true), {retry: false, forget: false, resolve: true, held: true, reason: null});
+    assert.deepEqual(actionsFor(held, true), {retry: false, forget: false, resolve: true, delete: false, deleteBlocked: null, held: true, reason: null});
     assert.equal(actionsFor(held, false).resolve, false);
     // A forget claim holds a row that is still failed: nothing may start beside it.
-    assert.deepEqual(actionsFor(failedDetail({operation: {id: OP, action: 'forget', state: 'claimed', awaiting_reason: null}}), true), {retry: false, forget: false, resolve: false, held: true, reason: null});
+    assert.deepEqual(actionsFor(failedDetail({operation: {id: OP, action: 'forget', state: 'claimed', awaiting_reason: null}}), true), {retry: false, forget: false, resolve: false, delete: false, deleteBlocked: null, held: true, reason: null});
     assert.equal(actionsFor(failedDetail({actions: {retry: false, forget: false, resolve: true, read_only_reason: null}}), true).resolve, false, 'no operation, no resolve');
 
     const readOnly = actionsFor(failedDetail({actions: {retry: false, forget: false, resolve: false, read_only_reason: 'ids_may_be_reused'}}), true);
@@ -308,7 +309,7 @@ test('writeRequest posts exactly the frozen selection', () => {
     assert.equal(writeRequest({action: 'retry', uuid: UUID, occurrence_id: 1.5}), null);
     assert.equal(writeRequest({action: 'retry', uuid: UUID, occurrence_id: 0}), null);
     assert.equal(writeRequest({action: 'retry', uuid: 'abc', occurrence_id: 1}), null);
-    assert.equal(writeRequest({action: 'delete', uuid: UUID, occurrence_id: 1}), null);
+    assert.equal(writeRequest({action: 'purge', uuid: UUID, occurrence_id: 1}), null);
     assert.equal(writeRequest({action: 'resolve', operation_id: '../x'}), null);
     assert.equal(writeRequest(null), null);
 });
@@ -878,4 +879,61 @@ test('treeNode unwraps a natural object that the server wrapped', () => {
     assert.deepEqual(treeNode(own.children[0].value).children.map(child => [child.key, child.value]), [['ref', 1]]);
     assert.deepEqual(treeNode({map: 1, other: 2}).children.map(child => child.key), ['map', 'other']);
     assert.equal(treeNode({ref: 48213}).kind, 'marker');
+});
+
+function pendingDetail(over = {}) {
+    return failedDetail({status: 'pending', reserved_at: null, finished_at: null, failed_at: null, exception_class: null, exception_message: null, chained: false,
+        actions: {retry: false, forget: false, resolve: false, read_only_reason: null, delete: true, pending_reason: null}, ...over});
+}
+
+// Rejects: a Delete offered to a viewer, on a row that is not pending, beside an operation, or without the server's
+// consent; and an unresolved bulk row whose Delete is enabled (it must show disabled, with its reason).
+test('actionsFor offers Delete on a waiting job only', () => {
+    assert.deepEqual(actionsFor(pendingDetail(), true), {retry: false, forget: false, resolve: false, delete: true, deleteBlocked: null, held: false, reason: null});
+    assert.equal(actionsFor(pendingDetail(), false).delete, false);
+    assert.equal(actionsFor(pendingDetail({status: 'reserved'}), true).delete, false);
+    assert.equal(actionsFor(pendingDetail({operation: {id: OP, action: 'retry', state: 'claimed', awaiting_reason: null}}), true).delete, false);
+    assert.equal(actionsFor(pendingDetail({actions: {delete: false}}), true).delete, false);
+
+    const blocked = actionsFor(pendingDetail({actions: {delete: true, pending_reason: 'job_id_unknown'}}), true);
+    assert.equal(blocked.delete, true);
+    assert.match(blocked.deleteBlocked, /Try again in a minute/);
+});
+
+// Rejects: a delete sheet that misses the job, the batch that never finishes (with its Cancel instead), the dropped
+// chain, or that claims "no chain" when the chain is unknown; and a selection that is not the page's uuid.
+test('deleteSheet names the job, its batch and its chain', () => {
+    const plain = deleteSheet(pendingDetail());
+    assert.equal(plain.title, 'Delete this waiting job?');
+    assert.match(plain.message, /^App\\Jobs\\SendInvoice · 3f9b0c12 on database:emails\. .*This cannot be undone\.$/);
+    assert.equal(plain.note, null);
+    assert.equal(plain.tone, 'danger');
+    assert.deepEqual(plain.selection, {action: 'delete', uuid: UUID, batchLink: null});
+
+    const batched = deleteSheet(pendingDetail({batch_id: 'b-1', batch: {id: 'b-1', name: 'Invoices'}, chained: true}));
+    assert.match(batched.note, /belongs to the batch Invoices\. After the delete, that batch never finishes\. To stop the whole batch, cancel the batch instead\./);
+    assert.match(batched.note, /the rest of the chain is dropped and never runs/);
+    assert.equal(batched.selection.batchLink, '/batches/b-1');
+
+    assert.match(deleteSheet(pendingDetail({chained: null})).note, /^Whether this job carries a chain is unknown/);
+});
+
+// Rejects: a delete or run-now posted to another path, or with a uuid that is not one.
+test('writeRequest posts a delete and a run-now of the frozen uuid', () => {
+    assert.deepEqual(writeRequest({action: 'delete', uuid: UUID.toUpperCase()}), {url: `/api/jobs/${UUID}/delete`, body: {}});
+    assert.deepEqual(writeRequest({action: 'run_now', uuid: UUID}), {url: `/api/jobs/${UUID}/run-now`, body: {}});
+    assert.equal(writeRequest({action: 'delete', uuid: 'abc'}), null);
+});
+
+// Rejects: a delete result that falls to the generic "outcome unknown", a refused delete shown as success, and a
+// mirror_failed shown as plain success.
+test('writeOutcome words every delete result', () => {
+    assert.equal(writeOutcome('delete', {result: 'deleted'}).tone, 'success');
+    assert.equal(writeOutcome('delete', {result: 'not_pending'}).tone, 'danger');
+    assert.equal(writeOutcome('delete', {result: 'gone'}).tone, 'danger');
+    assert.match(writeOutcome('delete', {result: 'job_id_unknown'}).detail, /Try again in a minute/);
+    assert.equal(writeOutcome('delete', {result: 'mirror_failed'}).tone, 'warning');
+    assert.equal(writeOutcome('delete', {result: 'other'}).title, 'Outcome unknown');
+    assert.equal(writeFailure('delete', {response: {status: 409, data: {error: 'not_database_queue'}}}).title, 'Not deleted');
+    assert.match(notFoundState(null, false, true).title, /^Deleted/);
 });

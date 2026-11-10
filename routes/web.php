@@ -21,6 +21,11 @@ Route::prefix('api')->group(function (): void {
     // The per-job writes (uuid-constrained).
     Route::post('/jobs/{uuid}/retry', 'JobWriteController@retry')->where('uuid', '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}');
     Route::post('/jobs/{uuid}/forget', 'JobWriteController@forget')->where('uuid', '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}');
+    Route::post('/jobs/{uuid}/delete', 'WaitingJobsController@delete')->where('uuid', JobController::UUID_PATTERN);
+
+    // The waiting jobs of a queue: the count of the clear's sheet (a read-only POST) and the clear.
+    Route::post('/queues/{connection}/{queue}/waiting', 'WaitingJobsController@waiting')->where('queue', '.+');
+    Route::post('/queues/{connection}/{queue}/clear', 'WaitingJobsController@clear')->where('queue', '.+');
 
     // The bulk runs.
     Route::get('/bulk', 'BulkController@index');

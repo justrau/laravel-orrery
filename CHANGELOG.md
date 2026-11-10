@@ -6,6 +6,17 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 ## [Unreleased]
 
+### Added
+
+- **Delete a waiting job.** "Delete…" on the detail of a pending job (`POST /orrery/api/jobs/{uuid}/delete`) deletes it from its queue before a worker takes it. The sheet says when the job's batch then never finishes, and when a chain is dropped.
+- **Clear a queue from the dashboard.** "Clear waiting jobs…" on the Queues screen counts the waiting jobs first (`POST /orrery/api/queues/{connection}/{queue}/waiting`), then clears them (`…/clear`) within 15 seconds per request. It shares its code with `orrery:clear`.
+- **The event `OperatorActionPerformed`** and one `info` log line for each of these actions, with the actor. There is no stored activity log.
+
+### Changed
+
+- `orrery:clear` also deletes the mirror rows of the other connection names on the same jobs table, compares the queue name byte by byte (on MySQL `high` no longer clears `HIGH`), and refuses a queue connection that is inside a transaction.
+- `GET /orrery/api/jobs/{uuid}` adds `chained` (pending jobs) and `actions.delete` and `actions.pending_reason`.
+
 ## [0.1.0] - 2026-11-10
 
 The first release: a Horizon-style dashboard for the `database` queue driver of Laravel. Orrery is a watcher only. It never starts, supervises or scales queue workers; you run `queue:work` under systemd, supervisord, Forge or another process manager. Your `jobs`, `failed_jobs` and `job_batches` tables stay authoritative, and Orrery keeps its own `orrery_*` mirror tables next to them.

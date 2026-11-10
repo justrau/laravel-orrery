@@ -58,6 +58,8 @@ use Throwable;
  *   first_cycle, last_cycle, count}` when it folded a retry. No entry is
  *   invented for an unrecorded retry.
  * - `history`: the first page of `GET /api/jobs/{uuid}/history`.
+ * - `chained`: pending rows only. Whether the job carries a chain of later
+ *   jobs, which a delete drops (chained()); null when it cannot be told.
  * - `signals` and `enforced_rule`: pending and reserved rows only. Every
  *   stuck signal that holds now (Monitoring\StuckSignals),
  *   `[{signal, facts}]`, and the enforced rule now (EnforcedRule::forRow()),
@@ -66,7 +68,10 @@ use Throwable;
  *   never `payload`, `saved_record` or `error`; `bulk_ref` only where the
  *   column exists), `{id, action: null, …}` when the ledger row is gone or
  *   cannot be read (held, state unknown), or null.
- * - `actions`: `{retry, forget, resolve, read_only_reason}`. Retry and
+ * - `actions`: `{retry, forget, resolve, read_only_reason, delete,
+ *   pending_reason}`. Delete: the row is pending and no operation holds it;
+ *   `pending_reason` is `job_id_unknown` for an unresolved bulk row, whose
+ *   delete waits until its jobs id is known. Retry and
  *   forget: the row is failed, no operation holds it, and the failed-record
  *   adapter is not read-only (`provider_read_only`, `ids_may_be_reused`) and
  *   proves the occurrence (`occurrence_unprovable` for a null `provider_id`
@@ -118,7 +123,7 @@ class JobController extends Controller
         ...JobProjection::SUMMARY_COLUMNS,
         'cycle_started_at', 'cycle_source', 'max_tries', 'retry_until', 'max_exceptions', 'timeout', 'fail_on_timeout',
         'worker_tries', 'worker_timeout', 'worker_evidence_attempt', 'releases', 'exceptions', 'timeouts', 'reclaims',
-        'observed_gap', 'late_outcomes', 'last_outcome_attempt', 'history_truncated', 'history_discarded', 'provider_id',
+        'observed_gap', 'late_outcomes', 'last_outcome_attempt', 'history_truncated', 'history_discarded', 'provider_id', 'job_id',
         'payload_bytes', 'exception_bytes', 'context_bytes',
     ];
 
@@ -289,11 +294,35 @@ class JobController extends Controller
             $detail['enforced_rule'] = EnforcedRule::forRow($row, $now);
         }
 
+        if ($row->status === 'pending') {
+            $detail['chained'] = self::chained(self::string($row->payload ?? null));
+        }
+
         return $detail + [
             'operation' => $operation,
             'actions' => $this->actions($row, $operation),
             'batch' => $this->batch(self::string($row->batch_id ?? null)),
         ];
+    }
+
+    /**
+     * Whether the payload's command carries a chain of later jobs: the count
+     * of its serialized `chained` property (Laravel's Queueable), read as
+     * text, never unserialized. A serialized object without the property has
+     * no chain: Laravel's serialization leaves out a property at its default
+     * (the empty chain). Null when it cannot be told: a payload over its
+     * bound, or a command that is not a serialized object (an encrypted one).
+     */
+    public static function chained(?string $payload): ?bool
+    {
+        $decoded = $payload === null ? null : json_decode($payload, true, 64);
+        $command = is_array($decoded) && is_array($decoded['data'] ?? null) ? ($decoded['data']['command'] ?? null) : null;
+
+        if (! is_string($command) || ! str_starts_with($command, 'O:')) {
+            return null;
+        }
+
+        return preg_match('/s:7:"chained";a:(\d+):/', $command, $match) === 1 && (int) $match[1] > 0;
     }
 
     /**
@@ -624,12 +653,16 @@ class JobController extends Controller
     {
         $failed = $row->status === 'failed' && $operation === null;
         [$allowed, $reason] = $failed ? $this->adapterDecision($row) : [false, null];
+        $pending = $row->status === 'pending' && $operation === null;
 
         return [
             'retry' => $allowed,
             'forget' => $allowed,
             'resolve' => $operation !== null && is_string($operation['awaiting_reason'] ?? null),
             'read_only_reason' => $reason,
+            'delete' => $pending,
+            // An unresolved bulk row: its jobs id is not known yet, so the delete waits (the button is disabled).
+            'pending_reason' => $pending && ($row->job_id ?? null) === null ? 'job_id_unknown' : null,
         ];
     }
 

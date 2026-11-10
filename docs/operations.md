@@ -62,6 +62,15 @@ php artisan orrery:retry --all --key=<group key> --key=<group key> --from=<epoch
 
 `--all` prints the freeze and asks for a confirmation. `--force` skips it. Without `--force` it acts on nothing when the input is not interactive (`--no-interaction`) or STDIN is not a terminal (a pipe could answer the question). Ctrl-C stops after the current job. A scope option given with an empty value (for example `--batch=` with an unset shell variable) is refused. Exit codes, by precedence: 1 an error or a declined confirmation, 130 interrupted, 3 any uncertain job, 2 any refused job or a job that is no longer a member, 0 otherwise.
 
+## Waiting jobs
+
+These actions change your queue tables, so they need `operateOrrery`. Each one runs as an operator action: on an SQLite queue file it writes only when you start it.
+
+- **Delete one job.** "Delete…" on the detail of a pending job deletes it from its queue before a worker takes it, with its rows in Orrery. A job that a worker took meanwhile is kept, and the answer says so. A job in a batch leaves that batch unfinished forever, so the sheet offers to cancel the batch instead; a job that carries a chain drops the rest of the chain. The delete of a bulk-pushed job waits until Orrery knows its row in the queue table: try again in a minute.
+- **Clear a queue.** "Clear waiting jobs…" on the Queues screen first counts the waiting jobs of the queue (ready and delayed, and how many belong to batches, whose batches then never finish). It deletes every job of the queue that no worker has reserved, with the rows in Orrery of every connection name on the same jobs table. From the dashboard it stops after 15 seconds and says so; clear again to go on. `orrery:clear` does the same work without a time limit.
+
+**Audit.** Each delete and clear dispatches the event `Justrau\Orrery\Events\OperatorActionPerformed` (the action, its target, the actor, the time, the result and the counts) and writes one `info` line to your log. Orrery keeps no activity log of its own: listen to the event to store one.
+
 ## Deploys and restarts
 
 Add `orrery:deployed` to your deploy script, after the new code is live:
@@ -94,4 +103,4 @@ php artisan orrery:deployed --label="v1.4.2"
 | `orrery:clear-metrics` | Deletes the per-minute counts. The queue state stays, and every earlier minute reads as unknown. |
 | `orrery:deployed [--label=] [--window=600]` | Records a deploy marker. |
 
-Every command except `orrery:tick` exits non-zero when its requested work did not happen. `orrery:clear` also deletes the mirror rows of waiting bulk jobs whose id the package has not resolved yet; a bulk push whose mirror rows are written after `orrery:clear` ran keeps those rows.
+Every command except `orrery:tick` exits non-zero when its requested work did not happen. `orrery:clear` also deletes the mirror rows of waiting bulk jobs whose id the package has not resolved yet, on every connection name of the same jobs table; a bulk push whose mirror rows are written after `orrery:clear` ran keeps those rows. The queue name is compared byte by byte: `high` never clears `HIGH`.

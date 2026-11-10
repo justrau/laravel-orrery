@@ -158,7 +158,7 @@ final class BindingLifetimeTest extends TestCase
         $owners = [
             ...self::SCOPED,
             ...self::PROCESS,
-            \Justrau\Orrery\Console\ClearCommand::class,
+            \Justrau\Orrery\Actions\WaitingJobs::class,
             \Justrau\Orrery\Failed\IdReuseProofs::class,
             \Justrau\Orrery\Lifecycle\IncidentCleanup::class,
             \Justrau\Orrery\Maintenance\SiblingLocks::class,

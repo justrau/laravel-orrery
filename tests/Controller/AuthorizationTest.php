@@ -759,6 +759,44 @@ final class AuthorizationTest extends TestCase
                     'the response does not report a forget: '.$response->getContent(),
                 ),
             ),
+            // The writes on waiting jobs: one waiting job per case, on a queue of its own.
+            'POST orrery/api/jobs/{uuid}/delete' => $this->write(
+                fn (): string => $api.'/jobs/'.$this->waitingTarget.'/delete',
+                [],
+                fn () => $this->arrangeWaiting(self::DELETE_QUEUE),
+                fn (): string => $this->waitingTarget,
+                fn (mixed $before): ?string => $this->problem(
+                    $this->mirror()->table('orrery_jobs')->where('uuid', $before)->doesntExist() && $this->waitingOn(self::DELETE_QUEUE) === 0,
+                    'the waiting job still exists',
+                ),
+                fn (TestResponse $response): ?string => $this->problem(
+                    $response->json('result') === 'deleted',
+                    'the response does not report a delete: '.$response->getContent(),
+                ),
+            ),
+            'POST orrery/api/queues/{connection}/{queue}/waiting' => $this->operatorRead(
+                fn (): string => $api.'/queues/database/'.self::CLEAR_QUEUE.'/waiting',
+                fn (): array => [],
+                fn () => $this->arrangeWaiting(self::CLEAR_QUEUE),
+                fn (TestResponse $response): ?string => $this->problem(
+                    $response->json('waiting') === 1 && $response->json('ready') === 1,
+                    'the count does not hold the waiting job: '.$response->getContent(),
+                ),
+            ),
+            'POST orrery/api/queues/{connection}/{queue}/clear' => $this->write(
+                fn (): string => $api.'/queues/database/'.self::CLEAR_QUEUE.'/clear',
+                [],
+                fn () => $this->arrangeWaiting(self::CLEAR_QUEUE),
+                fn (): int => $this->waitingOn(self::CLEAR_QUEUE),
+                fn (mixed $before): ?string => $this->problem(
+                    $before === 1 && $this->waitingOn(self::CLEAR_QUEUE) === 0,
+                    'the waiting job of the queue was not cleared',
+                ),
+                fn (TestResponse $response): ?string => $this->problem(
+                    $response->json('deleted') === 1 && $response->json('complete') === true,
+                    'the response does not report the clear: '.$response->getContent(),
+                ),
+            ),
             // The bulk runs. The freeze only reads; the run retries the failed batch member.
             'POST orrery/api/bulk/freeze' => $this->operatorRead(
                 fn (): string => $api.'/bulk/freeze',
@@ -867,6 +905,34 @@ final class AuthorizationTest extends TestCase
                 html: true,
             ),
         ];
+    }
+
+    /** The queue of the delete fixture. */
+    private const DELETE_QUEUE = 'authz-delete';
+
+    /** The queue of the clear and count fixtures. */
+    private const CLEAR_QUEUE = 'authz-clear';
+
+    /** The uuid of the waiting job of the last arrangeWaiting(). */
+    private string $waitingTarget = '';
+
+    /**
+     * Exactly one waiting job on $queue, pushed through the swapped queue when there is none.
+     */
+    private function arrangeWaiting(string $queue): void
+    {
+        if ($this->waitingOn($queue) === 0) {
+            AuthorizationJob::dispatch()->onConnection('database')->onQueue($queue);
+        }
+
+        $this->assertSame(1, $this->waitingOn($queue));
+        $this->waitingTarget = (string) $this->mirror()->table('orrery_jobs')->where('queue', $queue)->where('status', 'pending')->value('uuid');
+        $this->assertNotSame('', $this->waitingTarget, 'The waiting job has no mirror row.');
+    }
+
+    private function waitingOn(string $queue): int
+    {
+        return $this->app['db']->connection(TestEnvironment::PRIMARY)->table('jobs')->where('queue', $queue)->whereNull('reserved_at')->count();
     }
 
     /** The operation of the resolve fixture. */
