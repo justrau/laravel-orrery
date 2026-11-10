@@ -34,7 +34,7 @@ final class WatchedReadsTest extends ControllerTest
     {
         return [
             'throughput' => ['/orrery/api/throughput'],
-            'queue history' => ['/orrery/api/queues/database/default/history'],
+            'queue history' => ['/orrery/api/queues/history?connection=database&queue=default'],
             'workers' => ['/orrery/api/workers'],
             'control' => ['/orrery/api/control'],
             'markers' => ['/orrery/api/markers'],

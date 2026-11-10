@@ -858,7 +858,7 @@ final class SampleCountsTest extends RetentionTestCase
         self::assertSame(1, $throughput[$counted]);
         self::assertSame(0, $throughput[$counted - 60], 'A counted quiet minute is 0.');
 
-        $history = array_column($this->api('/orrery/api/queues/database/default/history?minutes=60')['buckets'], null, 'at');
+        $history = array_column($this->api('/orrery/api/queues/history?connection=database&queue=default&minutes=60')['buckets'], null, 'at');
         self::assertSame([1, null], [$history[$old]['ready'], $history[$old]['completed']], 'The sampled minute has its state and unknown counts.');
         self::assertSame(1, $history[$counted]['completed']);
 
@@ -905,7 +905,7 @@ final class SampleCountsTest extends RetentionTestCase
 
         $this->queueState('database', 'default', $x);
         $throughput = array_column($this->api('/orrery/api/throughput?minutes=1440')['buckets'], 'completed', 'at');
-        $history = array_column($this->api('/orrery/api/queues/database/default/history?minutes=1440')['buckets'], null, 'at');
+        $history = array_column($this->api('/orrery/api/queues/history?connection=database&queue=default&minutes=1440')['buckets'], null, 'at');
         $points = $this->classCompletions(1440);
 
         self::assertNull($throughput[$x], 'The trimmed minute X is unknown in the throughput.');
