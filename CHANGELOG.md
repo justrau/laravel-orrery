@@ -8,7 +8,7 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 ### Changed
 
-- **A byte budget for the observations that wait for a commit.** Besides the count cap, the observations held for the commit of an application transaction now have a byte budget: the smaller of 32 MB and an eighth of `memory_limit`, estimated from the payload sizes (a bulk push counts all its payloads). An observation past either limit is dropped and counted in `unverified`, with its reason (`deferral.count_cap` or `deferral.byte_budget`) as the health window's last error. An observation frees its decoded payload copy as soon as its write ran. A dropped push stays invisible until its reservation creates the row; [Known limits](docs/known-limits.md) says so.
+- **A byte budget for the observations that wait for a commit.** Besides the count cap, the observations held for the commit of an application transaction now have a byte budget: the smaller of 32 MB and an eighth of `memory_limit`, estimated from the payload sizes plus a small fixed size per job. A bulk push or a `Bus::batch()` is one observation: when its payloads exceed the budget, the whole bulk is dropped, and its jobs appear only when a worker reserves them. A dropped observation is counted in `unverified`, with its reason (`deferral.count_cap` or `deferral.byte_budget`) in the health window's errors; it never replaces an earlier error as the last one. A held observation keeps only its payload string: the decoded copy is freed at once, and the write decodes the payload again. A dropped push stays invisible until its reservation creates the row; [Known limits](docs/known-limits.md) says so.
 
 ## [0.1.0] - 2026-11-10
 
