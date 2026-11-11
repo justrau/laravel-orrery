@@ -1503,10 +1503,11 @@ final class Paths
      * A test hook (test mode only): with ORRERY_TEST_REMOVAL_HOLD=<dir> and
      * ORRERY_TEST_REMOVAL_HOLD_AT=<point>, the removal writes the path into
      * <dir>/<point>.reached and waits (at most 60 s) for <dir>/<point>.release.
-     * The points: "store", before an owner store is removed, and "rmdir",
-     * after a directory was emptied and before its rmdir.
+     * The points: "closed", after a shutdown closed its owner record and
+     * before it stops anything; "store", before an owner store is removed;
+     * and "rmdir", after a directory was emptied and before its rmdir.
      */
-    private static function hold(string $point, string $path): void
+    public static function hold(string $point, string $path): void
     {
         $dir = Environment::testMode() ? getenv('ORRERY_TEST_REMOVAL_HOLD') : false;
 
@@ -3539,11 +3540,13 @@ final class App
      * second. A failed process listing is no evidence, so it keeps waiting.
      * SIGTERM ends it, as it does in every stop (the leader last).
      *
-     * A test hook (test mode only): with ORRERY_TEST_ANCHOR_STAYS=1, an empty
-     * group does not end it, so only a stop's SIGTERM does (at most 60 s).
-     * Without it, a test of the stop's order races this check: a stop whose
-     * process listing is slow (a loaded machine) can find the anchor already
-     * gone, and then it never signals the anchor.
+     * A test hook (test mode only): with ORRERY_TEST_ANCHOR_STAYS=<pid>, an
+     * empty group does not end it, so only a stop's SIGTERM does, or the end
+     * of process <pid> (the test that set it). Without it, a test of the
+     * stop's order races this check: a stop whose process listing is slow (a
+     * loaded machine) can find the anchor already gone, and then it never
+     * signals the anchor. A fixed lifetime raced the same way on a machine
+     * slow enough.
      *
      * @param  list<string>  $arguments
      * @return array<string, mixed>
@@ -3552,8 +3555,8 @@ final class App
     {
         self::parse($arguments, 0, []);
         $self = (int) getmypid();
-        $stays = Environment::testMode() && getenv('ORRERY_TEST_ANCHOR_STAYS') === '1';
-        $deadline = microtime(true) + 60;
+        $holder = Environment::testMode() ? getenv('ORRERY_TEST_ANCHOR_STAYS') : false;
+        $stays = is_string($holder) && preg_match('/^[1-9][0-9]*$/', $holder) === 1 ? (int) $holder : null;
 
         // Once a second; in test mode at most 10 times a second with
         // ORRERY_TEST_POLL_MS (each check lists every process).
@@ -3562,8 +3565,8 @@ final class App
         while (true) {
             usleep((int) ($interval * 1_000_000));
 
-            if ($stays) {
-                if (microtime(true) >= $deadline) {
+            if ($stays !== null) {
+                if (! function_exists('posix_kill') || ! posix_kill($stays, 0)) {
                     return ['anchor' => $self, 'group' => 'held'];
                 }
 
@@ -3642,6 +3645,7 @@ final class App
             return ['run_id' => $owner['run'], 'record' => false];
         }
 
+        Paths::hold('closed', $owner['dir']);
         $lease = ($record['kind'] ?? 'lease') !== 'owner';
 
         if ($lease && $owner['dir'] !== $this->registry()->dir) {
