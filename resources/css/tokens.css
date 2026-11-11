@@ -46,6 +46,8 @@
     --color-shade: #000000;
     --color-backdrop: rgba(0, 0, 0, 0.18);
     --color-scrim: rgba(29, 29, 31, 0.24);
+    --color-scrollbar-thumb: rgba(0, 0, 0, 0.2);
+    --color-scrollbar-thumb-hover: rgba(0, 0, 0, 0.36);
     --gradient-logo: linear-gradient(180deg, #3D3F44 0%, #26272B 100%);
     --shadow-button: 0 0.5px 1px rgba(0, 0, 0, 0.06);
     --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.12);
@@ -113,6 +115,8 @@
         --color-shade: #000000;
         --color-backdrop: rgba(0, 0, 0, 0.5);
         --color-scrim: rgba(0, 0, 0, 0.55);
+        --color-scrollbar-thumb: rgba(255, 255, 255, 0.2);
+        --color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.36);
         --gradient-logo: linear-gradient(180deg, #4A4C52 0%, #333438 100%);
         --shadow-button: 0 0.5px 1px rgba(0, 0, 0, 0.4);
         --shadow-raised: 0 1px 2px rgba(0, 0, 0, 0.5);

@@ -12,6 +12,7 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 ### Changed
 
+- **Thin scrollbars.** Every scroll area of the dashboard (the sidebar, the content, the inspector, tables and drawers) has a thin, quiet scrollbar on a transparent track, in light and dark mode, instead of the browser's default one.
 - **The sidebar groups the queues by jobs table.** Each set of connections that share one jobs table has its own section, headed with the connection names ("Queues · database, database-long"), and a queue shows only its name. Before, one section was headed "Queues · database" after the queue driver, which read like a connection named `database`, and a queue name on two connections showed as "default (database)".
 
 ### Fixed
