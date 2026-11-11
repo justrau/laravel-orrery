@@ -748,11 +748,12 @@
     }
 
     .o-attention-stack__edge {
-        background-color: var(--color-subtle);
+        background-color: var(--color-sidebar);
         border: 1px solid var(--color-separator);
         border-radius: 0 0 var(--radius-card) var(--radius-card);
         border-top: 0;
-        height: 5px;
+        box-shadow: var(--shadow-raised);
+        height: 6px;
         margin-inline: 8px;
     }
 
