@@ -7,6 +7,7 @@ namespace Justrau\Orrery\Tests\Feature\Workers;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\ControllerTest;
+use Justrau\Orrery\Workers\Heartbeats;
 use Justrau\Orrery\Workers\LiveWorkers;
 use Justrau\Orrery\Workers\Phases\HeartbeatSweepPhase;
 
@@ -94,6 +95,31 @@ final class LiveWorkersTest extends ControllerTest
 
         self::assertSame([$kept['worker_id']], $this->mirror()->table('orrery_worker_heartbeats')->pluck('worker_id')->all(), 'the sweep deleted a fresh worker, or kept one older than the fresh window');
         self::assertCount(1, app(LiveWorkers::class)->list());
+    }
+
+    /**
+     * Rejects: a sweep with one cutoff from this process's configuration, which deletes a row that is still
+     * inside its own listing window: a daemon with --sleep=400 (2 × 400 + 5 quiet, 830 s listed) and a writer
+     * whose own interval is 300 s (630 s listed). Rows outside their windows go. It would still pass a sweep
+     * that also deletes a row rewritten between its read and its delete (the delete re-checks the cutoff).
+     */
+    public function test_the_heartbeat_sweep_keeps_each_row_inside_its_own_listing_window(): void
+    {
+        $now = Clock::now();
+        $sleeper = $this->heartbeatRow('web-1', 601, ['last_seen_at' => $now - 600, 'options' => json_encode(['sleep' => 400])]);
+        $slowWriter = $this->heartbeatRow('web-1', 602, ['last_seen_at' => $now - 620, 'options' => json_encode([Heartbeats::INTERVAL_OPTION => 300])]);
+        $this->insertHeartbeats([
+            $sleeper,
+            $slowWriter,
+            $this->heartbeatRow('web-1', 603, ['last_seen_at' => $now - 600]),
+            $this->heartbeatRow('web-1', 604, ['last_seen_at' => $now - 900, 'options' => json_encode(['sleep' => 400])]),
+            $this->heartbeatRow('web-1', 605, ['last_seen_at' => $now - 640, 'options' => json_encode([Heartbeats::INTERVAL_OPTION => 300])]),
+        ]);
+
+        (new HeartbeatSweepPhase)->run(new TickBudget(Clock::monotonic() + 60));
+
+        self::assertSame([$sleeper['worker_id'], $slowWriter['worker_id']], $this->mirror()->table('orrery_worker_heartbeats')->orderBy('pid')->pluck('worker_id')->all());
+        self::assertCount(2, app(LiveWorkers::class)->list(), 'the kept rows are listed');
     }
 
     /**

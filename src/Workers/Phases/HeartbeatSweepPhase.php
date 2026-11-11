@@ -12,10 +12,17 @@ use Justrau\Orrery\Workers\LiveWorkers;
 /**
  * The heartbeat sweep of orrery:tick: it deletes the
  * heartbeats older than max(300 seconds, the largest `retry_after` of the
- * database-driver queue connections + 60, LiveWorkers::freshSeconds()). So a
- * worker that died holding a lease keeps its row while the lease can still
- * be active, and an idle worker with a long heartbeat interval keeps its row
- * while its heartbeat is fresh.
+ * database-driver queue connections + 60, LiveWorkers::freshSeconds()), and
+ * older than the row's own listing window
+ * (LiveWorkers::listedSeconds(quietSeconds($options))). So a worker that
+ * died holding a lease keeps its row while the lease can still be active,
+ * and an idle worker keeps its row while LiveWorkers lists it, also with a
+ * long --sleep or a longer interval on its own host.
+ *
+ * One read of the rows older than the common cutoff (worker id, options,
+ * last seen: no index on options, but only stale rows), then one delete per
+ * 500 ids. Each delete repeats the cutoff, so a row that its worker wrote
+ * again after the read stays.
  */
 final class HeartbeatSweepPhase implements TickPhase
 {
@@ -38,9 +45,25 @@ final class HeartbeatSweepPhase implements TickPhase
 
     public function run(TickBudget $budget): void
     {
-        WorkerHeartbeat::query()
-            ->where('last_seen_at', '<', Clock::toDecimal(Clock::now() - self::staleSeconds()))
-            ->delete();
+        $now = Clock::now();
+        $cutoff = Clock::toDecimal($now - self::staleSeconds());
+        $expired = [];
+
+        $rows = WorkerHeartbeat::query()->where('last_seen_at', '<', $cutoff)->get(['worker_id', 'options', 'last_seen_at']);
+
+        foreach ($rows as $row) {
+            $decoded = json_decode((string) $row->options, true);
+            /** @var array<string, mixed> $options */
+            $options = is_array($decoded) ? $decoded : [];
+
+            if (Clock::stored($row->last_seen_at) < $now - LiveWorkers::listedSeconds(LiveWorkers::quietSeconds($options))) {
+                $expired[] = (string) $row->worker_id;
+            }
+        }
+
+        foreach (array_chunk($expired, 500) as $ids) {
+            WorkerHeartbeat::query()->whereIn('worker_id', $ids)->where('last_seen_at', '<', $cutoff)->delete();
+        }
     }
 
     public static function staleSeconds(): int

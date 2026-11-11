@@ -304,7 +304,25 @@ final class ProcessContext
             $this->evidence->connection,
             $this->evidence->queue,
             $this->evidence->once,
+            $this->evidence->sleep,
+            $this->evidence->rest,
         );
+    }
+
+    /**
+     * The --rest of the queue:listen parent of a listen child (the parent
+     * rests between two children), from the parent's command line; null
+     * when this is no listen child or the parent names no --rest.
+     */
+    public function listenRest(): ?float
+    {
+        if ($this->mode() !== self::LISTEN_CHILD) {
+            return null;
+        }
+
+        $command = (string) $this->parent()['command'];
+
+        return preg_match('/(?:^|\s)--rest(?:=|\s+)(\d+(?:\.\d+)?)(?:\s|$)/', $command, $match) === 1 ? (float) $match[1] : null;
     }
 
     /**
@@ -447,7 +465,20 @@ final class ProcessContext
             is_string($connection) && $connection !== '' ? $connection : null,
             is_string($queue) && $queue !== '' ? $queue : null,
             $input->hasOption('once') && (bool) $input->getOption('once'),
+            self::numberOption($input, 'sleep'),
+            self::numberOption($input, 'rest'),
         );
+    }
+
+    private static function numberOption(ArgvInput $input, string $name): ?float
+    {
+        if (! $input->hasOption($name)) {
+            return null;
+        }
+
+        $value = $input->getOption($name);
+
+        return is_numeric($value) && (float) $value >= 0 ? (float) $value : null;
     }
 
     private static function integerOption(ArgvInput $input, string $name): ?int

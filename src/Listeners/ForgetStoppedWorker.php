@@ -6,6 +6,7 @@ use Illuminate\Console\Events\CommandFinished;
 use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Queue\Events\JobTimedOut;
 use Illuminate\Queue\Events\WorkerStopping;
+use Illuminate\Queue\Worker;
 use Justrau\Orrery\Runtime\Hooks;
 use Justrau\Orrery\Runtime\ProcessContext;
 use Justrau\Orrery\Runtime\WatchesItself;
@@ -25,9 +26,16 @@ use Justrau\Orrery\Workers\Heartbeats;
  * - Not a queue:listen child: its parent starts the next child at once,
  *   and without the row the parent would leave the list between two
  *   children. LiveWorkers shows only the newest child of a parent.
- * - Not after JobTimedOut: Laravel kills the worker, and the job can stay
- *   reserved; the row then stays for the stuck-job rules (WorkerLiveness)
- *   until the heartbeat sweep.
+ * - Not after JobTimedOut when Laravel kills the worker next
+ *   (Worker::$killOnTimeout, true by default): the job can stay reserved,
+ *   and the row then stays for the stuck-job rules (WorkerLiveness) until
+ *   the heartbeat sweep. With $killOnTimeout false Laravel throws into the
+ *   job and the worker goes on, so a later stop still deletes the row.
+ * - Not on the WorkerStopping of a nested worker: a job that calls
+ *   Artisan::call('queue:work', …) runs a second worker inside this
+ *   command (depth above 1), whose stop is not this process's stop.
+ * - Nothing runs when this process wrote no row (Heartbeats::hasRow()), so
+ *   the end of a web request's Artisan::call() reads no process context.
  *
  * It watches itself (WatchesItself), so the command depth is counted also
  * while the breaker is open; the delete runs inside the watcher. None of
@@ -55,8 +63,12 @@ class ForgetStoppedWorker implements WatchesItself
         }
 
         if ($event instanceof JobTimedOut) {
-            $this->timedOut = true;
+            $this->timedOut = self::killsOnTimeout();
 
+            return;
+        }
+
+        if ($event instanceof WorkerStopping && $this->depth > 1) {
             return;
         }
 
@@ -68,7 +80,7 @@ class ForgetStoppedWorker implements WatchesItself
             }
         }
 
-        if ($this->timedOut) {
+        if ($this->timedOut || ! Heartbeats::hasRow()) {
             return;
         }
 
@@ -80,5 +92,11 @@ class ForgetStoppedWorker implements WatchesItself
 
         Hooks::reach(self::BEFORE_FORGET);
         Heartbeats::forget();
+    }
+
+    /** Whether Laravel kills the worker after a timed-out job (Worker::$killOnTimeout; a version without it always kills). */
+    private static function killsOnTimeout(): bool
+    {
+        return ! property_exists(Worker::class, 'killOnTimeout') || Worker::$killOnTimeout !== false;
     }
 }

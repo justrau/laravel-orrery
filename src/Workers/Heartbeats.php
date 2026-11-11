@@ -116,6 +116,12 @@ final class Heartbeats
         return $written === true;
     }
 
+    /** Whether this process wrote its row and has not deleted it since: no statement, no process context. */
+    public static function hasRow(): bool
+    {
+        return self::bound()->written;
+    }
+
     /**
      * Deletes this process's row: one statement, inside the watcher, and
      * none when this process wrote no row. Returns true when the delete ran.
@@ -224,11 +230,37 @@ final class Heartbeats
 
     private static function encodedOptions(): string
     {
-        $options = self::bound()->options ?? ProcessContext::current()->workerEvidence()?->toArray() ?? [];
+        $options = self::bound()->options ?? self::commandLineOptions();
         $options[self::INTERVAL_OPTION] = RecordWorkerHeartbeat::interval();
         $json = json_encode((object) $options, JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
 
         return is_string($json) ? $json : '{}';
+    }
+
+    /**
+     * The options of the command line, without a WorkerStarting or Looping
+     * (a --once worker, a queue:listen child): the evidence with its loop
+     * waits, and for a listen child the parent's --rest when it is longer.
+     *
+     * @return array<string, mixed>
+     */
+    private static function commandLineOptions(): array
+    {
+        $context = ProcessContext::current();
+        $evidence = $context->workerEvidence();
+
+        if ($evidence === null) {
+            return [];
+        }
+
+        $options = $evidence->toArray() + $evidence->loopOptions();
+        $rest = $context->listenRest();
+
+        if ($rest !== null && $rest > (float) ($options['rest'] ?? 0.0)) {
+            $options['rest'] = $rest;
+        }
+
+        return $options;
     }
 
     /**

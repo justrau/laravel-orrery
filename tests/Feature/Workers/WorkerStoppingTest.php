@@ -11,6 +11,7 @@ use Illuminate\Queue\Events\JobTimedOut;
 use Illuminate\Queue\Events\Looping;
 use Illuminate\Queue\Events\WorkerStopping;
 use Illuminate\Queue\Jobs\SyncJob;
+use Illuminate\Queue\Worker;
 use Justrau\Orrery\Runtime\ProcessContext;
 use Justrau\Orrery\Runtime\WorkerEvidence;
 use Justrau\Orrery\Tests\ControllerTest;
@@ -79,6 +80,50 @@ final class WorkerStoppingTest extends ControllerTest
         event(new WorkerStopping(1));
 
         self::assertSame(1, $this->mirror()->table('orrery_worker_heartbeats')->count());
+    }
+
+    /**
+     * Rejects: a sticky timeout flag when Worker::$killOnTimeout is false:
+     * Laravel then throws into the job and keeps the worker running, so a
+     * later normal stop must still remove the row.
+     */
+    public function test_a_timeout_without_a_kill_does_not_keep_the_row_at_the_stop(): void
+    {
+        $kill = Worker::$killOnTimeout;
+        Worker::$killOnTimeout = false;
+
+        try {
+            $this->actAsWorker();
+            event(new Looping('database', 'default'));
+            event(new JobTimedOut('database', new SyncJob($this->app, '{}', 'database', 'default')));
+            event(new WorkerStopping(0));
+        } finally {
+            Worker::$killOnTimeout = $kill;
+        }
+
+        self::assertSame(0, $this->mirror()->table('orrery_worker_heartbeats')->count());
+    }
+
+    /**
+     * Rejects: a WorkerStopping of a nested worker (a job that calls
+     * Artisan::call('queue:work', ['--stop-when-empty' => true])) that
+     * deletes the row of the daemon that runs the job.
+     */
+    public function test_a_nested_worker_stop_keeps_the_outer_row(): void
+    {
+        $this->actAsWorker();
+        $input = new ArrayInput([]);
+        $output = new NullOutput;
+
+        event(new CommandStarting('queue:work', $input, $output));
+        event(new Looping('database', 'default'));
+        event(new CommandStarting('queue:work', $input, $output));
+        event(new WorkerStopping(0));
+        event(new CommandFinished('queue:work', $input, $output, 0));
+        self::assertSame(1, $this->mirror()->table('orrery_worker_heartbeats')->count(), 'the nested worker removed the outer row');
+
+        event(new WorkerStopping(0));
+        self::assertSame(0, $this->mirror()->table('orrery_worker_heartbeats')->count());
     }
 
     /**

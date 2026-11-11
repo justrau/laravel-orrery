@@ -45,7 +45,7 @@ final class ProcessContextTest extends TestCase
     }
 
     /**
-     * Rejects: evidence only from WorkerStarting, which a --once child never raises.
+     * Rejects: evidence only from WorkerStarting, which a --once child never raises, and a child without the --sleep that its parent passes or the parent's --rest.
      */
     #[Group('shared-database')]
     public function test_queue_listen_child_gives_evidence(): void
@@ -54,7 +54,8 @@ final class ProcessContextTest extends TestCase
         $path = $this->reportPath('listen');
         Queue::push(new ReportProcessContextJob($path));
 
-        $listener = WorkerProcess::start(['queue:listen', 'database', '--tries=5', '--timeout=33', '--sleep=0'], $env);
+        // --rest=30 keeps the parent from starting a second child (which would sleep 60 s) before the stop.
+        $listener = WorkerProcess::start(['queue:listen', 'database', '--tries=5', '--timeout=33', '--sleep=60', '--rest=30'], $env);
         $listener->waitUntil(static fn (): bool => is_file($path), 60, 'its queue:work child reported its context');
         $listener->stop();
 
@@ -66,6 +67,9 @@ final class ProcessContextTest extends TestCase
         // it enforces its own timeout on the child process. So the child's
         // command line gives its own default, 60 (see the result file).
         self::assertSame(['tries' => 5, 'timeout' => 60, 'connection' => 'database', 'queue' => 'default', 'once' => true], $report['evidence'], $listener->describe());
+        // The child gets --sleep from its parent, not --rest: the parent rests between two children.
+        self::assertEquals(['sleep' => 60, 'rest' => 0], $report['loop'], $listener->describe());
+        self::assertEquals(30, $report['listen_rest'], $listener->describe());
     }
 
     /**

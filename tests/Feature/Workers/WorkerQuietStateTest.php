@@ -6,6 +6,8 @@ namespace Justrau\Orrery\Tests\Feature\Workers;
 
 use Illuminate\Queue\Connectors\DatabaseConnector as LaravelDatabaseConnector;
 use Illuminate\Support\Carbon;
+use Justrau\Orrery\Listeners\RecordWorkerHeartbeat;
+use Justrau\Orrery\Runtime\WorkerEvidence;
 use Justrau\Orrery\Tests\ControllerTest;
 use Justrau\Orrery\Workers\Heartbeats;
 use Justrau\Orrery\Workers\LiveWorkers;
@@ -154,6 +156,28 @@ final class WorkerQuietStateTest extends ControllerTest
     }
 
     /**
+     * Rejects: a queue:listen child judged without its --sleep (Laravel
+     * passes the parent's --sleep to each child, and a --once child raises
+     * no WorkerStarting), and without the parent's --rest. With --sleep=60:
+     * 2 × 60 + 5 = 125 s.
+     */
+    public function test_a_listen_child_writes_its_sleep_and_the_parent_rest(): void
+    {
+        $this->actAsWorker(ppid: 4000, parentStartedAt: self::NOW - 100, parentCommand: 'php artisan queue:listen database --rest=30 --sleep=60',
+            evidence: new WorkerEvidence(1, 60, 'database', 'default', true, 60.0, 0.0));
+        RecordWorkerHeartbeat::write('database');
+
+        $options = json_decode((string) $this->mirror()->table('orrery_worker_heartbeats')->value('options'), true);
+        self::assertSame(60, (int) $options['sleep']);
+        self::assertSame(30, (int) $options['rest']);
+
+        $this->mirror()->table('orrery_worker_heartbeats')->update(['last_seen_at' => '1799999880.000000']);
+        $rows = app(LiveWorkers::class)->list();
+        self::assertSame(125.0, $rows[0]->quiet_seconds);
+        self::assertSame('live', $rows[0]->state, 'a listen child that sleeps 60 s is quiet after 120 s');
+    }
+
+    /**
      * Rejects: the web process's interval over the writer's own. The
      * writer stores its interval in the row's options when it writes.
      */
@@ -193,6 +217,25 @@ final class WorkerQuietStateTest extends ControllerTest
         ]);
 
         self::assertSame(['live', 'quiet', 'live'], $this->states());
+    }
+
+    /**
+     * Rejects: an option read as a number when it is not one (a negative,
+     * a word, an infinite or a boolean), so a broken row shrinks or
+     * breaks its window, and a numeric string that is ignored. Each bad
+     * value falls back: the configured interval, no sleep, no rest.
+     */
+    public function test_the_window_reads_only_finite_numbers_of_at_least_zero(): void
+    {
+        $interval = Heartbeats::INTERVAL_OPTION;
+
+        self::assertSame(125.0, LiveWorkers::quietSeconds(['sleep' => '60']));
+        self::assertSame(65.0, LiveWorkers::quietSeconds([$interval => '30']));
+        self::assertSame(35.0, LiveWorkers::quietSeconds([$interval => -30, 'sleep' => -60, 'rest' => '-5']));
+        self::assertSame(35.0, LiveWorkers::quietSeconds([$interval => 'fast', 'sleep' => 'long', 'rest' => true]));
+        self::assertSame(35.0, LiveWorkers::quietSeconds(['sleep' => INF, 'rest' => NAN]));
+        self::assertSame(35.0, LiveWorkers::quietSeconds(['sleep' => '1e999']));
+        self::assertSame(35.0, LiveWorkers::quietSeconds(['sleep' => null, 'rest' => []]));
     }
 
     /**

@@ -81,8 +81,10 @@ final class LiveWorkers
      * The listing window of a row without options of its own (the
      * writer's interval from this process's configuration, no sleep):
      * listedSeconds(quietSeconds()), rounded up. 60 s with the default
-     * interval of 15 s. The heartbeat sweep keeps the rows at least this
-     * long.
+     * interval of 15 s. The heartbeat sweep keeps every row at least this
+     * long, and a row with a longer window of its own (a long sleep, a
+     * longer interval of its writer) for that window
+     * (HeartbeatSweepPhase).
      */
     public static function freshSeconds(): int
     {
@@ -97,8 +99,9 @@ final class LiveWorkers
      * Heartbeats::INTERVAL_OPTION, else `orrery.workers.heartbeat_seconds` of
      * this process (a row of an older writer). An interval of 0 (a write on
      * every loop) takes the default interval (15 s), as its period is not
-     * known. A queue:listen child and a --once worker store no sleep: their
-     * period is the interval.
+     * known. A --once worker and a queue:listen child store the --sleep of
+     * their command line (a listen child gets it from its parent) and, for
+     * a listen child, the parent's --rest (Heartbeats).
      *
      * @param  array<string, mixed>  $options  the row's options
      */

@@ -28,7 +28,12 @@ class ReportProcessContextJob implements ShouldQueue
 
     public function handle(): void
     {
-        $report = ProcessContext::current()->toArray() + ['reported_by_pid' => getmypid()];
+        $context = ProcessContext::current();
+        $report = $context->toArray() + [
+            'reported_by_pid' => getmypid(),
+            'loop' => $context->workerEvidence()?->loopOptions(),
+            'listen_rest' => $context->listenRest(),
+        ];
         $temporary = $this->path.'.'.getmypid().'.tmp';
 
         if (file_put_contents($temporary, json_encode($report, JSON_THROW_ON_ERROR | JSON_UNESCAPED_UNICODE)) === false || ! rename($temporary, $this->path)) {
