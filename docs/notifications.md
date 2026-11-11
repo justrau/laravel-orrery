@@ -50,6 +50,8 @@ The Stuck tab and the job detail show the jobs that look stuck, each with the fa
 
 A running job also shows its worker's liveness (live, silent or unknown). That is a fact, not a stuck signal: a long job inside its reservation is live.
 
+A job that becomes `unknown` (its row in `jobs` stayed absent for max(`retry_after`, 600) seconds without an observed outcome) also gets an incident, with the signal `unknown`. Two reasons get none, so no event and no notification: `connection_removed` (its queue connection is no longer configured), and `blind_gap`: the job left `jobs` during a [blind gap](operations.md#turning-orrery-off), a time when Orrery was off or nothing observed, so its outcome was lost, not stuck. The Jobs list (the unknown tab) and the job detail show the reason ("Orrery was off or not observing"). A job lost at any other time alerts as before.
+
 The tick records one incident per job, cycle and signal and dispatches `Justrau\Orrery\Events\StuckJobDetected` for it, with the job's uuid, cycle, signal, connection, queue, name and the signal's numbers. The event carries no payload, exception text or context. Each incident is dispatched at most 3 times (again after 1 and 5 minutes when a listener throws). A tick that stops between a dispatch and its record can dispatch the same incident again, within those 3.
 
 ```php
