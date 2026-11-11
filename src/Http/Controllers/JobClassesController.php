@@ -40,6 +40,13 @@ use Throwable;
  *   (arrivalsKnown()).
  * - At most CLASS_LIMIT classes, by completed + failed desc, then the name
  *   in byte order; `truncated` is true when more had rows.
+ * - The memory bound: the stored read and each scan read at most
+ *   `dashboard.class_rows` rows (rowLimit()), newest minute first
+ *   (SampleCoverage::of() $rowLimit). Job names that change per job then
+ *   make the older minutes unknown, never a larger read: `capped` is true,
+ *   those minutes are in `unknown_minutes`, and every sum is "at least"
+ *   (`complete` false). The listed classes are then the busiest of the
+ *   minutes read, not of the whole window.
  * - `unknown_minutes`: `{count, first, last}` of the minutes whose
  *   completions or failures are unknown (P-5), or null when none is.
  *
@@ -83,6 +90,9 @@ class JobClassesController extends Controller
 
     public const NAME_MAX_CHARACTERS = 512;
 
+    /** The default of orrery.dashboard.class_rows: CLASS_LIMIT classes in each minute of the longest window. */
+    public const DEFAULT_CLASS_ROWS = self::CLASS_LIMIT * self::MAX_CLASS_MINUTES;
+
     public const READ_OPERATION = 'http:classes';
 
     /** Statement timeouts: Postgres SQLSTATE 57014; MySQL 3024 and MariaDB 1969 by driver code. */
@@ -105,7 +115,7 @@ class JobClassesController extends Controller
         }
 
         [$now, $from, $current] = self::window($minutes);
-        $read = $this->read($coverage, $sessions, null, $from, $current + SampleCounts::MINUTE);
+        $read = $this->read($coverage, $sessions, null, $from, $current + SampleCounts::MINUTE, self::rowLimit());
 
         if ($read instanceof JsonResponse) {
             return $read;
@@ -158,6 +168,7 @@ class JobClassesController extends Controller
             'retention_from' => $this->retentionFrom($window, $oldest, $counts, $now),
             'classes' => array_slice($classes, 0, self::CLASS_LIMIT),
             'truncated' => count($classes) > self::CLASS_LIMIT,
+            'capped' => $window->capped,
             'unknown_minutes' => $unknown === [] ? null : ['count' => count($unknown), 'first' => $unknown[0], 'last' => $unknown[count($unknown) - 1]],
         ], 200, [], self::JSON);
     }
@@ -230,12 +241,12 @@ class JobClassesController extends Controller
      *
      * @return array{0: SampleWindow, 1: ?int}|JsonResponse
      */
-    private function read(SampleCoverage $coverage, PackageSession $sessions, ?string $name, int $from, int $to): array|JsonResponse
+    private function read(SampleCoverage $coverage, PackageSession $sessions, ?string $name, int $from, int $to, ?int $rowLimit = null): array|JsonResponse
     {
         $result = Watcher::instance()->attempt(self::READ_OPERATION, static fn (): array => $sessions->bounded(
             $sessions->mirror(),
             static fn (): array => [
-                $coverage->of('job', $name === null ? null : ['name' => $name], $from, $to, SampleWindow::KINDS),
+                $coverage->of('job', $name === null ? null : ['name' => $name], $from, $to, SampleWindow::KINDS, $rowLimit),
                 $coverage->oldestTotal(),
             ],
         ));
@@ -251,6 +262,21 @@ class JobClassesController extends Controller
             'error' => $timeout ? 'read_timeout' : 'read_failed',
             'message' => $timeout ? 'The job classes could not be read in time.' : 'The job classes could not be read.',
         ], 503, [], self::JSON);
+    }
+
+    /**
+     * The row bound of the classes read: orrery.dashboard.class_rows when it
+     * is a whole number of 1 or more, else DEFAULT_CLASS_ROWS.
+     */
+    public static function rowLimit(): int
+    {
+        $value = config('orrery.dashboard.class_rows', self::DEFAULT_CLASS_ROWS);
+
+        if (is_string($value) && preg_match('/^[1-9]\d{0,8}$/D', $value) === 1) {
+            $value = (int) $value;
+        }
+
+        return is_int($value) && $value >= 1 ? $value : self::DEFAULT_CLASS_ROWS;
     }
 
     /**

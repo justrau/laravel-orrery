@@ -257,6 +257,83 @@ final class JobClassesControllerTest extends ControllerTest
     }
 
     /**
+     * The stored read stops after `dashboard.class_rows` rows, newest minute first.
+     *
+     * Rejects: a read without a row bound (Gamma's minute is listed, `capped` false), a cut
+     * minute read as complete (M - 180 holds only part of its rows), the minutes before the
+     * cut counted as 0 instead of unknown, and `complete: true` for a capped sum.
+     * Still passes: a bound that counts only the `job` rows (the `total` rows here fit
+     * either way).
+     */
+    public function test_the_stored_read_is_bounded_and_says_at_least(): void
+    {
+        $this->app['config']->set('orrery.dashboard.class_rows', 6);
+        $this->through(self::M);
+
+        foreach ([self::M - 240, self::M - 180, self::M - 120, self::M - 60] as $minute) {
+            $this->total($minute, 0);
+        }
+
+        // Newest first: M - 60 has 3 rows, M - 120 has 2, M - 180 has 3 (the 6th and 7th rows).
+        $this->job(self::ALPHA, self::M - 60, completed: 1);
+        $this->job('App\\Jobs\\Beta', self::M - 60, failed: 2);
+        $this->job(self::ALPHA, self::M - 120, completed: 3);
+        $this->job(self::ALPHA, self::M - 180, completed: 5);
+        $this->job('App\\Jobs\\Gamma', self::M - 180, completed: 9);
+        $this->job(self::ALPHA, self::M - 240, completed: 7);
+
+        $response = $this->getJson('/orrery/api/classes?minutes=5')->assertOk();
+
+        self::assertTrue($response->json('capped'));
+        self::assertSame([
+            ['name' => self::ALPHA, 'completed' => 4, 'failed' => 0, 'pushed' => null, 'runtime_avg_ms' => null, 'complete' => false],
+            ['name' => 'App\\Jobs\\Beta', 'completed' => 0, 'failed' => 2, 'pushed' => null, 'runtime_avg_ms' => null, 'complete' => false],
+        ], $response->json('classes'));
+        self::assertSame(['count' => 2, 'first' => self::M - 240, 'last' => self::M - 180], $response->json('unknown_minutes'));
+
+        // Within the bound, the same read is complete.
+        $this->app['config']->set('orrery.dashboard.class_rows', 11);
+        $response = $this->getJson('/orrery/api/classes?minutes=5')->assertOk();
+
+        self::assertFalse($response->json('capped'));
+        self::assertNull($response->json('unknown_minutes'));
+        self::assertSame([16, 9, 0], array_column($response->json('classes'), 'completed'));
+    }
+
+    /**
+     * The scan of each kind stops after `dashboard.class_rows` groups, newest minute first.
+     *
+     * Rejects: a scan without a group bound, a cut minute read as complete (M - 60 holds only
+     * part of its groups), and a kind marked unknown when its own scan fit the bound (the
+     * failures here have no group, so they stay known).
+     * Still passes: a bound on the number of distinct classes instead of groups.
+     */
+    public function test_the_scan_is_bounded_and_says_at_least(): void
+    {
+        $this->app['config']->set('orrery.dashboard.class_rows', 2);
+        $this->through(self::M - 120);
+        $this->row(self::ALPHA, 'a', 'completed', ['pushed_at' => self::M + 1.0, 'finished_at' => self::M + 2.0]);
+        $this->row(self::ALPHA, 'a', 'completed', ['pushed_at' => self::M - 59.0, 'finished_at' => self::M - 58.0]);
+        $this->row('App\\Jobs\\Beta', 'a', 'completed', ['pushed_at' => self::M - 59.0, 'finished_at' => self::M - 58.0]);
+        $this->row(self::ALPHA, 'a', 'completed', ['pushed_at' => self::M - 119.0, 'finished_at' => self::M - 118.0]);
+
+        $response = $this->getJson('/orrery/api/classes?minutes=5')->assertOk();
+
+        self::assertTrue($response->json('capped'));
+        self::assertSame(
+            [['name' => self::ALPHA, 'completed' => 1, 'failed' => 0, 'pushed' => null, 'runtime_avg_ms' => null, 'complete' => false]],
+            $response->json('classes'),
+        );
+        self::assertSame(['count' => 4, 'first' => self::M - 240, 'last' => self::M - 60], $response->json('unknown_minutes'));
+
+        $this->app['config']->set('orrery.dashboard.class_rows', 4);
+        $response = $this->getJson('/orrery/api/classes?minutes=5')->assertOk();
+
+        self::assertFalse($response->json('capped'));
+        self::assertSame([3, 1], array_column($response->json('classes'), 'completed'));
+    }
+
+    /**
      * Rejects: a window other than the current minute and minutes - 1 before it, a default other
      * than 60, and a range check that accepts 4 or 61 minutes (the classes endpoint allows 5..60).
      */
