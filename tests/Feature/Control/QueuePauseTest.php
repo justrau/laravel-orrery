@@ -191,7 +191,7 @@ final class QueuePauseTest extends ControllerTest
         $signals->pause('queue', 'database:emails', 'cli');
         $this->postJson('/orrery/api/control', ['action' => 'continue', 'scope' => 'queue', 'connection' => 'database', 'queue' => 'emails'])
             ->assertOk()
-            ->assertJson(['removed' => 1, 'still_paused_by' => [['scope' => 'global', 'value' => '', 'source' => 'orrery']], 'still_paused_unknown' => false]);
+            ->assertJson(['removed' => 1, 'still_paused_by' => [['scope' => 'global', 'value' => '', 'source' => 'orrery']], 'still_paused_unknown' => false], true);
     }
 
     /**
@@ -356,7 +356,7 @@ final class QueuePauseTest extends ControllerTest
 
         $this->postJson('/orrery/api/control', ['action' => 'continue', 'scope' => 'queue', 'connection' => 'database', 'queue' => 'high'])
             ->assertOk()
-            ->assertJson(['still_paused_by' => [['scope' => 'global', 'value' => '', 'source' => 'queue:pause --all']]]);
+            ->assertJson(['still_paused_by' => [['scope' => 'global', 'value' => '', 'source' => 'queue:pause --all']]], true);
 
         self::assertSame(0, Artisan::call('orrery:continue', ['--connection' => 'database', '--queue' => 'high']));
         self::assertStringContainsString('is still paused by Laravel\'s global pause (queue:continue --all).', (string) preg_replace('/\s+/', ' ', Artisan::output()));

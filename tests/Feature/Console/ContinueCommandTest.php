@@ -117,10 +117,10 @@ final class ContinueCommandTest extends ControllerTest
         // A global and a connection continue read Laravel's global pause too: known, not unknown.
         $this->postJson('/orrery/api/control', ['action' => 'continue'])
             ->assertOk()
-            ->assertJson(['removed' => 0, 'still_paused_by' => [], 'still_paused_unknown' => false]);
+            ->assertJson(['removed' => 0, 'still_paused_by' => [], 'still_paused_unknown' => false], true);
         $this->postJson('/orrery/api/control', ['action' => 'continue', 'scope' => 'connection', 'connection' => 'database'])
             ->assertOk()
-            ->assertJson(['removed' => 1, 'still_paused_by' => [], 'still_paused_unknown' => false]);
+            ->assertJson(['removed' => 1, 'still_paused_by' => [], 'still_paused_unknown' => false], true);
         self::assertSame(0, $this->mirror()->table('orrery_signals')->count());
     }
 
@@ -149,13 +149,13 @@ final class ContinueCommandTest extends ControllerTest
         Queue::pauseAll();
         $this->postJson('/orrery/api/control', ['action' => 'continue', 'scope' => 'queue', 'connection' => 'database', 'queue' => 'emails'])
             ->assertOk()
-            ->assertJson(['removed' => 0, 'lift_unknown' => true]);
+            ->assertJson(['removed' => 0, 'lift_unknown' => true], true);
 
         // Without the global pause the own flag is known: a definite lift, no lift_unknown.
         Queue::resumeAll();
         Queue::pause('database', 'emails');
         $this->postJson('/orrery/api/control', ['action' => 'continue', 'scope' => 'queue', 'connection' => 'database', 'queue' => 'emails'])
             ->assertOk()
-            ->assertJson(['removed' => 1, 'lift_unknown' => false]);
+            ->assertJson(['removed' => 1, 'lift_unknown' => false], true);
     }
 }
