@@ -44,6 +44,8 @@
             notFound: {type: Boolean, default: false},
             loading: {type: Boolean, default: false},
             history: {type: Object, default: null},
+            /** The window of the backlog cards' range ("past hour", backlog.js rangeLabel()). */
+            rangeLabel: {type: String, default: 'past hour'},
             markers: {type: Array, default: () => []},
             workers: {type: Array, default: null},
             workersError: {type: Boolean, default: false},
@@ -158,7 +160,7 @@
             },
 
             backlogSubtitle() {
-                return `past hour · ${this.row.ready === null ? '—' : formatCount(this.row.ready)} now`;
+                return `${this.rangeLabel} · ${this.row.ready === null ? '—' : formatCount(this.row.ready)} now`;
             },
 
             /** The newest marker of the window with its zoned time ("Deploy v2 09:40 GMT+3"). */
@@ -305,9 +307,9 @@
                 <div v-else-if="backlog === 'loading'" class="o-qi__muted">Loading…</div>
                 <template v-else>
                     <div v-if="backlog === 'stale'" class="o-qi__muted" data-backlog-stale>Stale: the backlog could not be refreshed. The chart shows the last data read.</div>
-                    <backlog-chart :window="window" :buckets="buckets" :max="scale" :markers="markers" :height="84"
+                    <backlog-chart :window="window" :buckets="buckets" :max="scale" :markers="markers" :height="84" :axis="false"
                                    :paused-from="pausedFrom" :paused-title="pausedTitle" :tone="tone"
-                                   :label="`${row.name}: ready jobs, past hour`" />
+                                   :label="`${row.name}: ready jobs, ${rangeLabel}`" />
                     <div class="o-qi__axis">
                         <span>{{ axisStart }}</span>
                         <span v-if="windowMarkers.length" class="o-qi__axis-marker" :title="axisMarker">{{ axisMarker }}</span>

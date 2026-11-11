@@ -7,12 +7,13 @@
     import Sparkline from '../../components/ui/Sparkline.vue';
     import InspectorLayout from '../../shell/InspectorLayout.vue';
     import {live, requestLiveRefresh, revealInspector, setToolbar} from '../../shell/store';
-    import {formatCount, formatHourMinuteZoned, formatLocal, nowSeconds, relativeTime} from '../../support/time';
+    import {formatCount, formatHourMinuteZoned, formatLocal, nowSeconds, relativeTime, timesInNote} from '../../support/time';
     import {queuePath} from '../../support/redirects.js';
     import {codeText} from '../../support/wording.js';
     import {GROUPS_BULK_STORAGE_KEY, countText, groupQueuesText, groupsSource, markerBefore} from '../failed/failures';
     import {nativeContinueCommands} from '../overview/overview';
     import BacklogChart from './BacklogChart.vue';
+    import {BACKLOG_RANGES, BACKLOG_SCALES, backlogPollSeconds, backlogRange, backlogScale, backlogSlots, cardTitle, rangeLabel, readBacklogChoice, slotSecondsFor, writeBacklogChoice} from './backlog.js';
     import MiniGauge from './MiniGauge.vue';
     import QueueInspector from './QueueInspector.vue';
     import {
@@ -20,11 +21,8 @@
         FAILURE_ROWS,
         HISTORY_CONCURRENCY,
         HISTORY_DEBOUNCE_MS,
-        HISTORY_MINUTES,
-        HISTORY_POLL_SECONDS,
         POLL_SECONDS,
         RECENT_FAILURE_SECONDS,
-        cardName,
         clearFailure,
         clearOutcome,
         clearSheet,
@@ -59,7 +57,6 @@
         runLimited,
         sectionPausedBroadly,
         sectionWorkersText,
-        sharedScale,
         shortName,
         subtitleText,
         waitText,
@@ -94,7 +91,10 @@
      *   (shell/store.js), and so do the failure groups of
      *   all queues (`groupsHour`): the screen does not fetch them again. The
      *   markers and the failures of a selected queue poll every 10 s. The
-     *   backlog cards poll every 30 s (one history request per queue).
+     *   backlog cards poll every 30 s (one history request per queue; less
+     *   often for the longer ranges, backlog.js backlogPollSeconds()). Their
+     *   range (15 min to 24 h) and their scale (shared, or per queue) apply
+     *   to every card and are remembered per browser.
      * - Pause, Continue and Terminate open a ConfirmSheet with a FROZEN
      *   selection (the queue or the connection, and its aliases); a poll never
      *   changes it. They send one `POST /api/control` per alias.
@@ -145,7 +145,7 @@
                 live,
                 now: nowSeconds(),
                 pollSeconds: POLL_SECONDS,
-                historyPollSeconds: HISTORY_POLL_SECONDS,
+                backlog: readBacklogChoice(),
                 markers: [],
                 histories: {},
                 historyKeys: null,
@@ -249,19 +249,43 @@
                 return rows;
             },
 
-            /** One y scale for the cards on screen. */
-            scale() {
-                const shown = {};
+            backlogRanges() {
+                return BACKLOG_RANGES;
+            },
+
+            backlogScales() {
+                return BACKLOG_SCALES;
+            },
+
+            /** The history minutes of the chosen range. */
+            historyMinutes() {
+                return backlogRange(this.backlog.range).minutes;
+            },
+
+            historyPollSeconds() {
+                return backlogPollSeconds(this.backlog.range);
+            },
+
+            rangeLabel() {
+                return rangeLabel(this.backlog.range);
+            },
+
+            /** The slots of the cards on screen, by key: the y scale reads them (backlog.js backlogScale()). */
+            cardSlots() {
+                const slots = {};
+                const seconds = slotSecondsFor(this.historyMinutes);
 
                 this.cardRows.forEach(row => {
-                    if (this.histories[row.key]) shown[row.key] = this.histories[row.key];
+                    const history = this.histories[row.key];
+
+                    if (history && history.window) slots[row.key] = backlogSlots(history.window, history.buckets, seconds);
                 });
 
-                return sharedScale(shown);
+                return slots;
             },
 
             backlogSubtitle() {
-                const parts = ['Ready jobs, past hour', 'one scale for all queues'];
+                const parts = [`Ready jobs, ${this.rangeLabel}`, this.backlog.scale === 'queue' ? 'own scale per queue' : 'one scale for all queues', timesInNote(this.now)];
                 const window = Object.values(this.histories).map(history => history.window).find(Boolean) || null;
                 const inWindow = markersIn(this.markers, window);
 
@@ -377,7 +401,6 @@
         },
 
         methods: {
-            cardName,
             countText,
             nativeContinueCommands,
             pauseHint,
@@ -419,7 +442,7 @@
              */
             refresh() {
                 const sequence = this.startRequest('screen');
-                const since = nowSeconds() - HISTORY_MINUTES * 60 - 120;
+                const since = nowSeconds() - this.historyMinutes * 60 - 120;
                 const current = () => this.isCurrentRequest('screen', sequence);
 
                 return Promise.allSettled([
@@ -465,7 +488,7 @@
                 const tasks = rows.map(row => {
                     const sequence = this.startRequest(`history:${row.key}`);
 
-                    const request = queueRequest('history', row.connection, row.name, {minutes: HISTORY_MINUTES});
+                    const request = queueRequest('history', row.connection, row.name, {minutes: this.historyMinutes});
 
                     return () => this.get(request.url, request.params, background).then(
                         data => this.applyHistory(row.key, sequence, {window: historyWindow(data), buckets: historyBuckets(data), error: false}),
@@ -485,6 +508,35 @@
                 if (this.unmounted || !this.isCurrentRequest(`history:${key}`, sequence)) return;
 
                 this.histories = {...this.histories, [key]: history};
+            },
+
+            /** The top of a card's y scale: shared by every card on screen, or its own. */
+            scaleOf(row) {
+                return backlogScale(this.backlog.scale, this.cardSlots, row.key);
+            },
+
+            cardTitle,
+
+            /**
+             * A new range for every card: the histories of the old range go
+             * (their windows differ), and every card and the markers read the
+             * new one. The choice is remembered per browser.
+             */
+            setRange(key) {
+                if (key === this.backlog.range) return;
+
+                this.backlog = {...this.backlog, range: backlogRange(key).key};
+                writeBacklogChoice(this.backlog);
+                this.histories = {};
+                this.loadHistory(false);
+                this.refresh();
+            },
+
+            setScale(key) {
+                if (key === this.backlog.scale) return;
+
+                this.backlog = {...this.backlog, scale: key};
+                writeBacklogChoice(this.backlog);
             },
 
             showMoreCards() {
@@ -858,7 +910,7 @@
 <template>
     <inspector-layout>
         <poll :request="refresh" :interval="pollSeconds" />
-        <poll :request="pollHistory" :interval="historyPollSeconds" :immediate="false" />
+        <poll :key="historyPollSeconds" :request="pollHistory" :interval="historyPollSeconds" :immediate="false" />
 
         <div v-if="canOperate" class="o-queues__bulk" data-bulk-run>
             <bulk-run :open="bulk.open" action="retry" :source="bulk.source" :selection-key="bulk.key"
@@ -943,21 +995,38 @@
             <div class="o-section__head">
                 <div class="o-section__title">Backlog</div>
                 <div class="o-section__subtitle" data-backlog-subtitle>{{ backlogSubtitle }}</div>
+                <div class="o-queues__spacer"></div>
+                <div class="o-backlog-controls">
+                    <div class="o-segmented" role="group" aria-label="Backlog range">
+                        <button v-for="entry in backlogRanges" :key="entry.key" type="button" class="o-segmented__item"
+                                :class="{'o-segmented__item--active': entry.key === backlog.range}" :aria-pressed="entry.key === backlog.range ? 'true' : 'false'"
+                                :data-backlog-range="entry.key" @click="setRange(entry.key)">{{ entry.label }}</button>
+                    </div>
+                    <div class="o-segmented" role="group" aria-label="Backlog scale">
+                        <button v-for="entry in backlogScales" :key="entry.key" type="button" class="o-segmented__item"
+                                :class="{'o-segmented__item--active': entry.key === backlog.scale}" :aria-pressed="entry.key === backlog.scale ? 'true' : 'false'"
+                                :data-backlog-scale="entry.key" @click="setScale(entry.key)">{{ entry.label }}</button>
+                    </div>
+                </div>
             </div>
             <div class="o-cards">
                 <div v-for="row in cardRows" :key="row.key" class="o-backlog-card"
                      :class="{'o-backlog-card--over': row.overLimit && !isPaused(row), 'o-backlog-card--paused': isPaused(row), 'o-backlog-card--selected': selectedRow && selectedRow.key === row.key}"
-                     data-backlog-card :data-key="row.key" role="button" tabindex="0" @click="select(row)" @keydown.enter.self.prevent="select(row)">
+                     data-backlog-card :data-key="row.key" @click="select(row)">
                     <div class="o-backlog-card__head">
-                        <span class="o-backlog-card__name" :title="`${row.connection}:${row.name}`">{{ cardName(row, rows) }}</span>
+                        <button type="button" class="o-backlog-card__name" :title="`${cardTitle(row).group} · ${row.name}`"
+                                :aria-pressed="selectedRow && selectedRow.key === row.key ? 'true' : 'false'" data-card-name @click.stop="select(row)">
+                            <span class="o-backlog-card__queue">{{ cardTitle(row).name }}</span>
+                            <span class="o-backlog-card__group">{{ cardTitle(row).group }}</span>
+                        </button>
                         <span class="o-backlog-card__value" data-card-value>{{ cardValue(row) }}</span>
                     </div>
                     <div v-if="!historyOf(row) || (!historyOf(row).window && !historyOf(row).error)" class="o-backlog-card__note">Loading…</div>
                     <div v-else-if="!historyOf(row).window" class="o-backlog-card__note" data-card-error>Could not load the backlog.</div>
                     <template v-else>
-                        <backlog-chart :window="historyOf(row).window" :buckets="historyOf(row).buckets" :max="scale" :markers="markers"
+                        <backlog-chart :window="historyOf(row).window" :buckets="historyOf(row).buckets" :max="scaleOf(row)" :markers="markers"
                                        :paused-from="pausedFrom(row, historyOf(row).window)" :paused-title="pausedTitle(row, historyOf(row).window)"
-                                       :tone="cardTone(row)" :label="`${cardName(row, rows)}: ready jobs, past hour`" />
+                                       :tone="cardTone(row)" :label="`${cardTitle(row).name} on ${cardTitle(row).group}: ready jobs, ${rangeLabel}`" />
                         <div v-if="historyOf(row).error" class="o-backlog-card__note" data-card-stale>Last read failed; showing older data.</div>
                     </template>
                 </div>
@@ -1009,7 +1078,7 @@
         </section>
 
         <template v-if="routeSelected" #inspector>
-            <queue-inspector :row="selectedRow" :not-found="notFound" :loading="rows === null && !rowsError" :history="selectedHistory" :markers="markers"
+            <queue-inspector :row="selectedRow" :not-found="notFound" :loading="rows === null && !rowsError" :history="selectedHistory" :markers="markers" :range-label="rangeLabel"
                              :workers="workers" :workers-error="workersError" :now="now" :cache-note="cacheNote"
                              :retention="retention" :retention-error="retentionError"
                              @control="onInspectorControl" />
@@ -1297,17 +1366,87 @@
         line-height: 18px;
     }
 
+    /* The card's title: a button that selects the queue (the chart below it takes its own focus). */
     .o-backlog-card__name {
+        align-items: flex-start;
+        background: transparent;
+        border: 0;
+        border-radius: 4px;
         color: var(--color-text);
+        cursor: pointer;
+        display: flex;
         flex: 1 1 0%;
-        font-weight: var(--font-weight-semibold);
+        flex-direction: column;
+        font-family: var(--font-sans);
+        font-size: var(--text-table);
+        line-height: 18px;
         min-width: 0;
+        padding: 0;
+        text-align: left;
+    }
+
+    .o-backlog-card__name:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+        outline-offset: 2px;
+    }
+
+    .o-backlog-card__queue {
+        font-weight: var(--font-weight-semibold);
+        max-width: 100%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .o-backlog-card__group {
+        color: var(--color-text-secondary);
+        font-size: var(--text-caption);
+        line-height: 16px;
+        max-width: 100%;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
     }
 
     .o-backlog-card--paused .o-backlog-card__name { color: var(--color-text-secondary); }
+
+    .o-backlog-controls {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .o-segmented {
+        align-items: center;
+        background-color: color-mix(in srgb, var(--color-text) 7%, transparent);
+        border-radius: 7px;
+        display: flex;
+        padding: 2px;
+    }
+
+    .o-segmented__item {
+        background: transparent;
+        border: 0;
+        border-radius: 5px;
+        color: var(--color-text);
+        cursor: pointer;
+        font-family: var(--font-sans);
+        font-size: var(--text-caption);
+        line-height: 16px;
+        padding: 3px 9px;
+        white-space: nowrap;
+    }
+
+    .o-segmented__item--active {
+        background-color: var(--color-bg);
+        box-shadow: var(--shadow-raised);
+        font-weight: var(--font-weight-semibold);
+    }
+
+    .o-segmented__item:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+        outline-offset: 1px;
+    }
 
     .o-backlog-card__value {
         color: var(--color-text-secondary);
