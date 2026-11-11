@@ -120,6 +120,7 @@ export function normalizeRow(row) {
         connections,
         ready: num(row.length),
         workers: num(row.processes),
+        quietWorkers: num(row.quiet_processes),
         oldestAge: num(row.oldest_age),
         threshold: threshold === null ? 0 : threshold,
         overLimit: row.over_limit === true,
@@ -276,6 +277,10 @@ export function queueState(row, now) {
 
     if (row.workers === 0) {
         return {kind: 'idle', label: 'No workers', detail: null};
+    }
+
+    if (row.quietWorkers === row.workers) {
+        return {kind: 'quiet', label: 'Workers quiet', detail: 'no heartbeat from its workers lately'};
     }
 
     return {kind: 'running', label: 'Running', detail: null};

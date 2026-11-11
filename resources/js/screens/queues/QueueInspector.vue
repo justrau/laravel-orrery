@@ -1,6 +1,7 @@
 <script>
     import Button from '../../components/ui/Button.vue';
     import WaitGauge from '../../components/ui/WaitGauge.vue';
+    import {workerState} from '../../shell/data.js';
     import {gaugePause, queueContinueApplies} from '../../support/pause.js';
     import {formatCount, formatHourMinuteZoned, formatLimit} from '../../support/time';
     import BacklogChart from './BacklogChart.vue';
@@ -185,7 +186,7 @@
                 return this.serving.map(worker => ({
                     key: worker.worker_id || worker.name,
                     name: worker.name,
-                    fresh: worker.heartbeat_fresh === true,
+                    state: workerState(worker, this.now),
                     job: currentJob(worker, this.now),
                 }));
             },
@@ -321,8 +322,8 @@
                     <div class="o-qi__caption" data-workers-title>{{ workersTitle }}</div>
                 </div>
                 <div v-for="worker in workerRows" :key="worker.key" class="o-worker" data-worker-row>
-                    <span class="o-worker__dot" :class="{'o-worker__dot--stale': !worker.fresh}"
-                          :title="worker.fresh ? 'Heartbeat in the last 60 s' : 'No recent heartbeat; a live lease keeps it listed'"></span>
+                    <span class="o-worker__dot" :class="`o-worker__dot--${worker.state.key}`" role="img"
+                          :aria-label="worker.state.label" :title="worker.state.label"></span>
                     <span class="o-worker__name" :title="worker.name">{{ worker.name }}</span>
                     <span class="o-worker__job" :title="worker.job ? worker.job.fullName : 'The current job is unknown'" data-worker-job>{{ worker.job ? worker.job.name : '—' }}</span>
                     <span class="o-worker__runtime" data-worker-runtime>{{ worker.job ? worker.job.runtime : '—' }}</span>
@@ -593,8 +594,12 @@
         width: 6px;
     }
 
-    .o-worker__dot--stale {
-        background-color: var(--color-paused);
+    .o-worker__dot--quiet {
+        background-color: var(--color-warning);
+    }
+
+    .o-worker__dot--unknown {
+        background-color: var(--color-text-tertiary);
     }
 
     .o-worker__name {
@@ -647,7 +652,8 @@
         white-space: nowrap;
     }
 
-    .o-pill--over { background-color: var(--color-warning-tint); color: var(--color-warning-text); }
+    .o-pill--over,
+    .o-pill--quiet { background-color: var(--color-warning-tint); color: var(--color-warning-text); }
     .o-pill--paused,
     .o-pill--unknown,
     .o-pill--idle { background-color: var(--color-subtle); color: var(--color-text-secondary); }

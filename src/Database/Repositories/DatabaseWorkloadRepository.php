@@ -27,7 +27,8 @@ use Justrau\Orrery\Workers\LiveWorkers;
  * Queue connections that share one jobs table give one row per queue
  * (WaitTime groups them): `connection` is the first of their names and
  * `connections` lists all of them. `processes` counts the live workers of all
- * of them, each once.
+ * of them, each once, and `quiet_processes` how many of those are quiet
+ * (LiveWorkers `state`).
  *
  * The queue state, added to each row:
  * - `oldest_age` and `threshold` from WaitTime, and `over_limit`
@@ -110,13 +111,14 @@ class DatabaseWorkloadRepository implements WorkloadRepository
     /**
      * Get the current workload of each queue.
      *
-     * @return array<int, array{name: string, connection: string, connections: list<string>, length: int|null, wait: int|null, processes: int, split_queues: null, oldest_age: float|null, threshold: int, over_limit: bool|null, running: int|null, in_per_min: float|null, out_per_min: float|null, rates_from: int, rates_to: int, pauses: list<array{scope: string, source: string, issued_at: float|null, issued_by: string|null, possible: bool}>, paused_unknown: bool, queue_cause_unknown: bool, native_unknown: bool, native_hint: string|null, backlog_unknown: bool, instrumented: bool, over_limit_since: int|null, over_limit_since_censored: bool}>
+     * @return array<int, array{name: string, connection: string, connections: list<string>, length: int|null, wait: int|null, processes: int, quiet_processes: int, split_queues: null, oldest_age: float|null, threshold: int, over_limit: bool|null, running: int|null, in_per_min: float|null, out_per_min: float|null, rates_from: int, rates_to: int, pauses: list<array{scope: string, source: string, issued_at: float|null, issued_by: string|null, possible: bool}>, paused_unknown: bool, queue_cause_unknown: bool, native_unknown: bool, native_hint: string|null, backlog_unknown: bool, instrumented: bool, over_limit_since: int|null, over_limit_since_censored: bool}>
      */
     public function get(): array
     {
         // One read of the live workers for every row, shared with the measurement.
         $workers = $this->workers->list();
         $measured = $this->measurements->measure($workers);
+        $quietWorkers = array_values(array_filter($workers, static fn (object $worker): bool => $worker->state === LiveWorkers::QUIET));
         $now = Clock::now();
 
         if ($measured === []) {
@@ -165,6 +167,7 @@ class DatabaseWorkloadRepository implements WorkloadRepository
                 'length' => $row['backlog'],
                 'wait' => $row['wait'],
                 'processes' => LiveWorkers::subscribed($workers, $row['connections'], $queue),
+                'quiet_processes' => LiveWorkers::subscribed($quietWorkers, $row['connections'], $queue),
                 'split_queues' => null,
                 'oldest_age' => $row['oldest_age'],
                 'threshold' => $row['threshold'],

@@ -8,7 +8,7 @@
  */
 
 import {pauseState} from '../support/pause.js';
-import {formatClockZoned, formatCompactCount, formatCount, formatHourMinuteZoned, relativeTime, toSeconds} from '../support/time.js';
+import {formatClockZoned, formatCompactCount, formatCount, formatDuration, formatHourMinuteZoned, relativeTime, toSeconds} from '../support/time.js';
 
 /** A failure group counts for attention when its last failure is this recent. */
 export const ATTENTION_FAILURE_SECONDS = 900;
@@ -917,6 +917,30 @@ export function heartbeatAge(worker, now) {
     const age = seen !== null && Number.isFinite(now) ? now - seen : toSeconds(worker && worker.seconds_ago);
 
     return age === null ? null : Math.max(0, age);
+}
+
+/**
+ * The dot of a listed worker from the server's `state` (`GET /api/workers`):
+ * `{key, label}`. `quiet` (amber) is a worker whose last heartbeat is older
+ * than two heartbeat intervals and that holds no live lease; the label
+ * names the heartbeat's age at `now`, so it goes on growing between reads.
+ * `live` keeps the green dot. A missing or other state is `unknown`, never
+ * guessed as live.
+ */
+export function workerState(worker, now) {
+    const state = worker && worker.state;
+
+    if (state === 'quiet') {
+        const age = heartbeatAge(worker, now);
+
+        return {key: 'quiet', label: age === null ? 'No recent heartbeat' : `No heartbeat for ${formatDuration(age)}`};
+    }
+
+    if (state === 'live') {
+        return {key: 'live', label: worker.heartbeat_fresh === false ? 'No fresh heartbeat: live through an active lease' : 'Fresh heartbeat'};
+    }
+
+    return {key: 'unknown', label: 'Worker state unknown'};
 }
 
 /**

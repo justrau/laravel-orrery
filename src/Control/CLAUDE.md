@@ -3,7 +3,7 @@
 ## Workers
 
 - Heartbeats (`Listeners\RecordWorkerHeartbeat`, `Workers\Heartbeats`) are written only in worker processes, on database connections: one `orrery_worker_heartbeats` row per `worker_id` (`host:pid:start`), at most once per `workers.heartbeat_seconds` (15), from `Looping`, `JobProcessing` and `pop()`. `WorkerStarting` writes nothing. A reservation whose queue differs from the last written `current_queue` is written at once, outside the throttle.
-- `queue:listen` children are grouped under their parent by host, ppid and the parent's start time. `Workers\LiveWorkers::list()` gives the live workers (a fresh heartbeat or an active lease).
+- `queue:listen` children are grouped under their parent by host, ppid and the parent's start time. `Workers\LiveWorkers::list()` gives the live workers (a fresh heartbeat or an active lease); each row's `state` is `quiet` when its heartbeat is older than two intervals and it has no active lease, else `live`.
 
 ## The pause model
 

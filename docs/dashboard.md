@@ -25,7 +25,7 @@
 - **Batches:** Laravel's job batches with their progress and member counts. Retry failed members starts a bulk run; "Cancel batch…" cancels an open batch.
 - **Job classes:** the completed, failed and pushed jobs and the average runtime per class over 15 or 60 minutes.
 - **Tags:** the monitored tags and their jobs.
-- **Workers:** the live workers and their current jobs. A worker is live when it wrote a heartbeat in the last 60 seconds (or in the last two `workers.heartbeat_seconds`, when that is longer) or holds a reservation that did not expire. The children of `queue:listen` show under their parent.
+- **Workers:** the live workers and their current jobs. A worker is live when it wrote a heartbeat in the last 60 seconds (or in the last two `workers.heartbeat_seconds`, when that is longer) or holds a reservation that did not expire. A live worker is **quiet** when its last heartbeat is older than two `workers.heartbeat_seconds` (30 seconds by default) and it holds no reservation that did not expire: it has an amber dot and says how long it has had no heartbeat, for example a worker that was killed with SIGKILL. A worker that runs a long job writes no heartbeat, but its reservation keeps it live. A quiet worker stays in the list until it is no longer live. The Overview and the Queues screen show "Workers quiet" for a queue whose every worker is quiet. The children of `queue:listen` show under their parent.
 
 The old paths `/`, `/dashboard`, `/metrics…`, `/monitoring…`, `/failed/<id>`, `/failed-legacy` and `/jobs/<type>…` redirect to these screens.
 

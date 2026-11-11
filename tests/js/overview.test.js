@@ -75,6 +75,15 @@ test('queueState: over limit before running, and running needs a live worker', (
     assert.deepEqual(queueState({...known, processes: 0}).pill, {key: 'idle', label: 'No workers'});
 });
 
+// Rejects: "Running" with a green dot for a queue whose every worker is quiet,
+// and "Workers quiet" while one worker is live. It would still pass a pill
+// that names the quiet count instead of the label.
+test('queueState: a queue whose every worker is quiet is not running', () => {
+    assert.deepEqual(queueState({...known, processes: 2, quiet_processes: 2}).pill, {key: 'quiet', label: 'Workers quiet'});
+    assert.deepEqual(queueState({...known, processes: 2, quiet_processes: 1}).pill, {key: 'running', label: 'Running'});
+    assert.deepEqual(queueState({...known, processes: 0, quiet_processes: 0}).pill, {key: 'idle', label: 'No workers'});
+});
+
 // Rejects: a pauses field that is not a list (or an invalid cause) read as a pause, or as known off.
 test('queueState reads only a list of causes as pauses', () => {
     assert.equal(queueState({pauses: true, processes: 1}).pause.paused, false);

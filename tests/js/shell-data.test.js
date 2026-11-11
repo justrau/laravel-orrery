@@ -9,6 +9,7 @@ import {
     degradationTitle,
     isShapeError,
     heartbeatAge,
+    workerState,
     listBody,
     objectBody,
     awaitingOperations,
@@ -1080,4 +1081,17 @@ test('degradationTitle says "at least" for truncated windows', () => {
     assert.equal(degradationTitle({recentWindows: 0}), null);
     assert.equal(degradationTitle(null), null);
     assert.equal(watcherHealth({...health(10), windows: [], truncated: true}, [], NOW).windowsTruncated, true);
+});
+
+// Rejects: a quiet worker shown with the green dot, a quiet label without
+// the heartbeat age, a missing state guessed as live, and the age frozen at
+// the read. It would still pass a label that rounds the age differently.
+test('workerState: amber for a quiet worker with the age of its heartbeat', () => {
+    assert.deepEqual(workerState({state: 'quiet', last_seen_at: NOW - 42}, NOW), {key: 'quiet', label: 'No heartbeat for 42 s'});
+    assert.deepEqual(workerState({state: 'quiet', last_seen_at: NOW - 42}, NOW + 30), {key: 'quiet', label: 'No heartbeat for 1 min 12 s'});
+    assert.deepEqual(workerState({state: 'quiet'}, NOW), {key: 'quiet', label: 'No recent heartbeat'});
+    assert.deepEqual(workerState({state: 'live', heartbeat_fresh: true, last_seen_at: NOW - 3}, NOW), {key: 'live', label: 'Fresh heartbeat'});
+    assert.deepEqual(workerState({state: 'live', heartbeat_fresh: false, active_leases: 1}, NOW), {key: 'live', label: 'No fresh heartbeat: live through an active lease'});
+    assert.deepEqual(workerState({heartbeat_fresh: true}, NOW), {key: 'unknown', label: 'Worker state unknown'});
+    assert.deepEqual(workerState(null, NOW), {key: 'unknown', label: 'Worker state unknown'});
 });

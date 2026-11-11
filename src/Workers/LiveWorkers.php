@@ -28,11 +28,17 @@ use Justrau\Orrery\Storage\PackageSession;
  *   `started_at` the parent start. Its `last_seen_at`, queues and options
  *   come from the newest child, `heartbeat_fresh` is true when a child is
  *   fresh, and `active_leases` sums the children.
+ * - `state` is `live` or `quiet`. A worker is quiet when its last heartbeat
+ *   is older than quietSeconds() and it holds no active lease: a killed
+ *   worker writes nothing, so it stays listed until the fresh window ends,
+ *   but it no longer looks healthy. A worker inside a long job writes no
+ *   heartbeat, and its lease keeps it live. `last_seen_at` is never null, so
+ *   the state is always known. A listen parent is live when a child is live.
  * - The times are epoch seconds.
  *
  * @phpstan-type WorkerRow object{worker_id: string, host: string, pid: int, ppid: ?int, started_at: float, mode: string,
  *     connection: string, subscribed_queues: list<string>, current_queue: ?string, options: array<string, mixed>,
- *     last_seen_at: float, heartbeat_fresh: bool, active_leases: int, children: list<object>}
+ *     last_seen_at: float, heartbeat_fresh: bool, active_leases: int, state: string, children: list<object>}
  */
 final class LiveWorkers
 {
@@ -51,6 +57,23 @@ final class LiveWorkers
 
     public const LISTEN = 'listen';
 
+    public const LIVE = 'live';
+
+    public const QUIET = 'quiet';
+
+    /**
+     * How old a heartbeat may be before a worker without an active lease is
+     * quiet: two `orrery.workers.heartbeat_seconds`. An interval of 0 (no
+     * throttle) takes the default interval, so a worker that writes on
+     * every loop is not quiet between two loops.
+     */
+    public static function quietSeconds(): float
+    {
+        $interval = RecordWorkerHeartbeat::interval();
+
+        return 2 * ($interval > 0 ? $interval : RecordWorkerHeartbeat::DEFAULT_INTERVAL);
+    }
+
     /** Laravel's DatabaseConnector fallback for a missing or null retry_after. */
     private const DEFAULT_RETRY_AFTER = 60;
 
@@ -63,6 +86,7 @@ final class LiveWorkers
     {
         $now = Clock::now();
         $fresh = $now - self::freshSeconds();
+        $quiet = $now - self::quietSeconds();
 
         /** @var list<WorkerHeartbeat> $heartbeats */
         $heartbeats = WorkerHeartbeat::query()->orderBy('host')->orderBy('pid')->orderBy('worker_id')->get()->all();
@@ -72,7 +96,7 @@ final class LiveWorkers
         $groups = [];
 
         foreach ($heartbeats as $heartbeat) {
-            $row = $this->row($heartbeat, (float) $heartbeat->last_seen_at >= $fresh, $leases[$heartbeat->worker_id] ?? 0);
+            $row = $this->row($heartbeat, (float) $heartbeat->last_seen_at >= $fresh, $leases[$heartbeat->worker_id] ?? 0, $quiet);
 
             if (! $row->heartbeat_fresh && $row->active_leases === 0) {
                 continue;
@@ -287,8 +311,10 @@ final class LiveWorkers
     /**
      * @return WorkerRow
      */
-    private function row(WorkerHeartbeat $heartbeat, bool $fresh, int $leases): object
+    private function row(WorkerHeartbeat $heartbeat, bool $fresh, int $leases, float $quiet): object
     {
+        $seen = Clock::stored($heartbeat->last_seen_at);
+
         $options = json_decode((string) $heartbeat->options, true);
 
         return (object) [
@@ -305,6 +331,7 @@ final class LiveWorkers
             'last_seen_at' => (float) $heartbeat->last_seen_at,
             'heartbeat_fresh' => $fresh,
             'active_leases' => $leases,
+            'state' => $leases === 0 && $seen < $quiet ? self::QUIET : self::LIVE,
             'children' => [],
         ];
     }
@@ -349,6 +376,11 @@ final class LiveWorkers
                 static fn (object $child): int => $child->active_leases,
                 $children,
             )),
+            'state' => in_array(self::LIVE, array_map(
+                /** @param  WorkerRow  $child */
+                static fn (object $child): string => $child->state,
+                $children,
+            ), true) ? self::LIVE : self::QUIET,
             'children' => $children,
         ];
     }

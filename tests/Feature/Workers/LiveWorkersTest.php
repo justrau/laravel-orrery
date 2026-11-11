@@ -21,7 +21,7 @@ final class LiveWorkersTest extends ControllerTest
     /** The fields of every list() row. */
     private const FIELDS = [
         'worker_id', 'host', 'pid', 'ppid', 'started_at', 'mode', 'connection', 'subscribed_queues',
-        'current_queue', 'options', 'last_seen_at', 'heartbeat_fresh', 'active_leases', 'children',
+        'current_queue', 'options', 'last_seen_at', 'heartbeat_fresh', 'active_leases', 'state', 'children',
     ];
 
     /**

@@ -60,8 +60,9 @@ export function aliasesOf(row) {
  * 2. Backlog unknown (`backlog_unknown`: the backlog read failed);
  * 3. Over limit (a possible pause never hides it);
  * 4. "Possibly paused" or "Pause state unknown" (the pause is not known off);
- * 5. Workers unknown (no worker count), Running (a live worker), or No
- *    workers.
+ * 5. Workers unknown (no worker count), Workers quiet (every listed
+ *    worker is quiet: `quiet_processes` equals `processes`), Running (a
+ *    live worker), or No workers.
  *
  * `hint` names what Orrery's actions cannot lift (Laravel's global pause:
  * "Resume with php artisan queue:continue --all") and the notes of an
@@ -73,6 +74,7 @@ export function queueState(row) {
     const backlogUnknown = !!(row && row.backlog_unknown === true);
     const overLimit = !!(row && row.over_limit === true);
     const workers = num(row && row.processes);
+    const quiet = num(row && row.quiet_processes);
     const hints = [
         ...pauseCommands(pause).map(command => `Resume with ${command}`),
         ...pauseNotes(pause).filter(note => note !== 'pause state unknown' && note !== 'possibly paused (queue:pause)'),
@@ -93,6 +95,8 @@ export function queueState(row) {
         pill = {key: 'unknown', label: pause.possible.length ? pauseLabel(pause) : 'Pause state unknown'};
     } else if (workers === null) {
         pill = {key: 'unknown', label: 'Workers unknown'};
+    } else if (workers > 0 && quiet === workers) {
+        pill = {key: 'quiet', label: 'Workers quiet'};
     } else if (workers > 0) {
         pill = {key: 'running', label: 'Running'};
     } else {

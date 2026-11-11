@@ -23,6 +23,10 @@ class WorkersController extends Controller
      * failed read of the current jobs is reported, and every row then has
      * null.
      *
+     * `state` is `live` or `quiet`, on each row and on each child
+     * (LiveWorkers): quiet is a listed worker whose last heartbeat is older
+     * than two `workers.heartbeat_seconds` and that holds no active lease.
+     *
      * A failed read of the workers answers a JSON 503.
      *
      * @return array<int, array<string, mixed>>|JsonResponse

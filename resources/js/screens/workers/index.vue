@@ -1,6 +1,6 @@
 <script>
     import InspectorLayout from '../../shell/InspectorLayout.vue';
-    import {heartbeatAge} from '../../shell/data.js';
+    import {heartbeatAge, workerState} from '../../shell/data.js';
     import {live, setToolbar} from '../../shell/store';
     import {formatDuration, formatLocal, nowSeconds, relativeTime} from '../../support/time';
 
@@ -50,13 +50,18 @@
                 return new Set(this.workers.map(worker => worker.host)).size;
             },
 
+            quietCount() {
+                return this.workers.filter(worker => workerState(worker, this.now).key === 'quiet').length;
+            },
+
             subtitle() {
                 if (!this.ready) return this.error ? 'Workers unknown' : null;
 
                 const workers = `${this.workers.length} ${this.workers.length === 1 ? 'worker' : 'workers'}`;
+                const quiet = this.quietCount ? ` · ${this.quietCount} quiet` : '';
 
                 return this.workers.length
-                    ? `${workers} on ${this.hosts} ${this.hosts === 1 ? 'host' : 'hosts'} · a heartbeat in the last 60 s or a live lease`
+                    ? `${workers} on ${this.hosts} ${this.hosts === 1 ? 'host' : 'hosts'}${quiet} · a heartbeat in the last 60 s or a live lease`
                     : 'No live workers';
             },
         },
@@ -81,6 +86,10 @@
         },
 
         methods: {
+            state(worker) {
+                return workerState(worker, this.now);
+            },
+
             queues(worker) {
                 return (worker.queue || '').split(',').filter(Boolean).join(', ');
             },
@@ -142,9 +151,10 @@
 
             <div v-for="worker in workers" :key="worker.worker_id || worker.name" class="o-table__row" role="row">
                 <div class="o-col o-col--worker" role="cell">
-                    <span class="o-dot" :class="worker.heartbeat_fresh === false ? 'o-dot--lease' : 'o-dot--live'"
-                          :title="worker.heartbeat_fresh === false ? 'No fresh heartbeat: live through an active lease' : 'Fresh heartbeat'"></span>
+                    <span class="o-dot" :class="`o-dot--${state(worker).key}`" role="img"
+                          :aria-label="state(worker).label" :title="state(worker).label" data-worker-state></span>
                     <span class="o-mono" :title="worker.worker_id">{{ worker.name }}</span>
+                    <span v-if="state(worker).key === 'quiet'" class="o-quiet" data-worker-quiet>{{ state(worker).label }}</span>
                     <span v-if="worker.children && worker.children.length > 1" class="o-muted">{{ worker.children.length }} subprocesses seen</span>
                 </div>
                 <div class="o-col o-col--connection o-muted" role="cell">{{ worker.connection }}</div>
@@ -233,7 +243,13 @@
     }
 
     .o-dot--live { background-color: var(--color-success); }
-    .o-dot--lease { background-color: var(--color-warning); }
+    .o-dot--quiet { background-color: var(--color-warning); }
+    .o-dot--unknown { background-color: var(--color-text-tertiary); }
+
+    .o-quiet {
+        color: var(--color-warning-text);
+        font-size: var(--text-caption);
+    }
 
     .o-empty {
         border: 1px dashed var(--color-separator);

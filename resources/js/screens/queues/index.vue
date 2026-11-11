@@ -1223,7 +1223,8 @@
         line-height: 18px;
     }
 
-    .o-col-state[data-state-kind='over'] .o-state__label {
+    .o-col-state[data-state-kind='over'] .o-state__label,
+    .o-col-state[data-state-kind='quiet'] .o-state__label {
         color: var(--color-warning-text);
         font-weight: var(--font-weight-semibold);
     }
@@ -1249,6 +1250,7 @@
     }
 
     .o-state-icon--running { background-color: var(--color-success); border-radius: 50%; }
+    .o-state-icon--quiet { background-color: var(--color-warning); border-radius: 50%; }
     .o-state-icon--idle { background-color: var(--color-paused); border-radius: 50%; }
     .o-state-icon--over { border-bottom: 10px solid var(--color-warning); border-left: 6px solid transparent; border-right: 6px solid transparent; height: 0; width: 0; }
     .o-state-icon--paused { border-left: 2.5px solid var(--color-paused); border-right: 2.5px solid var(--color-paused); height: 9px; width: 3px; }

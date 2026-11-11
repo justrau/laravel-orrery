@@ -79,6 +79,7 @@
             <div class="o-qcard__name">{{ label }}</div>
             <div class="o-pill" :class="`o-pill--${state.pill.key}`" :title="state.pill.label" data-pill>
                 <span v-if="state.pill.key === 'running'" class="o-pill__dot"></span>
+                <span v-else-if="state.pill.key === 'quiet'" class="o-pill__dot o-pill__dot--quiet"></span>
                 <icon v-else-if="state.pill.key === 'over'" name="warning-small" :size="10" />
                 <icon v-else-if="state.pill.key === 'paused'" name="paused-small" :size="12" />
                 <span class="o-pill__text">{{ state.pill.label }}</span>
@@ -207,6 +208,13 @@
     }
 
     .o-pill--over .o-icon { color: var(--color-warning); }
+
+    .o-pill--quiet {
+        color: var(--color-warning-text);
+        padding-inline: 0;
+    }
+
+    .o-pill__dot--quiet { background-color: var(--color-warning); }
 
     .o-pill--paused,
     .o-pill--unknown,
