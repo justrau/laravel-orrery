@@ -29,7 +29,7 @@ class WorkerHeartbeatTest extends ControllerTest
         $this->assertNull($row->current_queue, 'an idle loop is no reservation');
         $this->assertSame('default', $row->subscribed_queues);
         $this->assertSame('daemon', $row->mode);
-        $this->assertSame('{}', $row->options);
+        $this->assertSame('{"orrery_heartbeat_seconds":15}', $row->options, 'the options hold the writer\'s interval');
         $this->assertGreaterThan(0, (float) $row->last_seen_at);
         $this->assertSame((int) getmypid(), (int) $row->pid);
         $this->assertSame(sprintf('%s:%d:%.6F', $row->host, getmypid(), (float) $row->started_at), $row->worker_id);
@@ -139,7 +139,7 @@ class WorkerHeartbeatTest extends ControllerTest
         $children = array_combine(array_column($workers, 'name'), array_map(static fn (array $worker): int => count($worker['children']), $workers));
         ksort($children);
 
-        $this->assertSame(['host-a:1' => 0, 'host-a:2' => 0, 'host-a:listen(10)' => 2, 'host-b:listen(10)' => 1], $children);
+        $this->assertSame(['host-a:1' => 0, 'host-a:2' => 0, 'host-a:listen(10)' => 1, 'host-b:listen(10)' => 1], $children, 'one row per parent, with only its newest child: queue:listen runs one child at a time');
     }
 
     public function test_workers_endpoint_is_empty_without_a_heartbeat(): void

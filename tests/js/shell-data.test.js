@@ -203,8 +203,19 @@ test('sidebarQueueGroups gives one section per set of connections, in order of f
         ['Queues · database, database-long', [['database:default', 'default'], ['database:mail', 'mail']]],
         ['Queues · legacy', [['legacy:audit', 'audit'], ['legacy:reports', 'reports']]],
     ]);
-    assert.deepEqual(groups.map(group => group.key), ['database-separate', 'database,database-long', 'legacy']);
+    assert.deepEqual(groups.map(group => group.key), ['database-separate', 'database\0database-long', 'legacy']);
     assert.deepEqual(sidebarQueueGroups(null), []);
+});
+
+// Rejects: a group key that joins the names with a comma, so the connections ['a,b'] and ['a', 'b'] share one section.
+test('sidebarQueueGroups keeps connection names that contain a comma apart', () => {
+    const groups = sidebarQueueGroups([
+        row({name: 'default', connection: 'a,b', connections: ['a,b']}),
+        row({name: 'default', connection: 'a', connections: ['a', 'b']}),
+    ]);
+
+    assert.equal(groups.length, 2);
+    assert.deepEqual(groups.map(group => group.queues.length), [1, 1]);
 });
 
 
@@ -1119,4 +1130,21 @@ test('workerState: amber for a quiet worker with the age of its heartbeat', () =
     assert.deepEqual(workerState({state: 'live', heartbeat_fresh: false, active_leases: 1}, NOW), {key: 'live', label: 'No fresh heartbeat: live through an active lease'});
     assert.deepEqual(workerState({heartbeat_fresh: true}, NOW), {key: 'unknown', label: 'Worker state unknown'});
     assert.deepEqual(workerState(null, NOW), {key: 'unknown', label: 'Worker state unknown'});
+});
+
+// Rejects: "Fresh heartbeat" for a worker that the lease alone keeps live (a
+// heartbeat older than its quiet window, still inside the listing window),
+// and the lease label for a heartbeat inside the window. It would still
+// pass a rule that ignores `active_leases` when the server says live.
+test('workerState: a live worker with an old heartbeat is live through its lease', () => {
+    const lease = {key: 'live', label: 'No fresh heartbeat: live through an active lease'};
+
+    assert.deepEqual(workerState({state: 'live', heartbeat_fresh: true, active_leases: 1, quiet_seconds: 35, last_seen_at: NOW - 45}, NOW), lease);
+    assert.deepEqual(workerState({state: 'live', heartbeat_fresh: true, active_leases: 1, quiet_seconds: 35, last_seen_at: NOW - 20}, NOW), {key: 'live', label: 'Fresh heartbeat'});
+    assert.deepEqual(workerState({state: 'live', heartbeat_fresh: true, active_leases: 1, last_seen_at: NOW - 45}, NOW), {key: 'live', label: 'Fresh heartbeat'});
+});
+
+// Rejects: an unknown state (a worker of an uninstrumented connection) drawn as quiet or live.
+test('workerState: an unknown state says so', () => {
+    assert.deepEqual(workerState({state: 'unknown', last_seen_at: NOW - 50}, NOW), {key: 'unknown', label: 'Worker state unknown'});
 });

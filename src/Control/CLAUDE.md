@@ -3,7 +3,9 @@
 ## Workers
 
 - Heartbeats (`Listeners\RecordWorkerHeartbeat`, `Workers\Heartbeats`) are written only in worker processes, on database connections: one `orrery_worker_heartbeats` row per `worker_id` (`host:pid:start`), at most once per `workers.heartbeat_seconds` (15), from `Looping`, `JobProcessing` and `pop()`. `WorkerStarting` writes nothing. A reservation whose queue differs from the last written `current_queue` is written at once, outside the throttle.
-- `queue:listen` children are grouped under their parent by host, ppid and the parent's start time. `Workers\LiveWorkers::list()` gives the live workers (a fresh heartbeat or an active lease); each row's `state` is `quiet` when its heartbeat is older than two intervals and it has no active lease, else `live`.
+- Each heartbeat row's `options` holds its writer's interval (`Heartbeats::INTERVAL_OPTION`, in the same upsert). `LiveWorkers::quietSeconds()` judges each row by its own write period (max of that interval, `sleep`, `rest`; 0 counts as 15): quiet after 2 periods + 5 s, listed until 25 s later (at least 60 s).
+- `queue:listen` children are grouped under their parent by host, ppid and the parent's start time; only the newest child (and older children with an active lease) show. `Workers\LiveWorkers::list()` gives the live workers (a fresh heartbeat or an active lease); each row's `state` is `live` (a lease or a heartbeat inside the quiet window), else `quiet` on an instrumented connection and `unknown` on an uninstrumented one.
+- `Listeners\ForgetStoppedWorker` deletes the worker's own row on `WorkerStopping` and on the outermost `CommandFinished` (a `--once` worker), never for a `queue:listen` child or after `JobTimedOut`.
 
 ## The pause model
 

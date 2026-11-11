@@ -11,6 +11,7 @@ import {
     readSidebarWidth,
     sidebarMaxWidth,
     sidebarWidthForKey,
+    sidebarWidthText,
     writeSidebarWidth,
 } from '../../resources/js/support/sidebar-width.js';
 
@@ -66,6 +67,7 @@ test('sidebarWidthForKey moves the width with the arrows, Shift for bigger steps
     assert.equal(sidebarWidthForKey(300, 'Home', false, 1600), SIDEBAR_MIN_WIDTH);
     assert.equal(sidebarWidthForKey(300, 'End', false, 1600), 480);
     assert.equal(sidebarWidthForKey(300, 'Tab', false, 1600), null);
+    assert.equal(sidebarWidthForKey(300, 'Enter', false, 1600), SIDEBAR_DEFAULT_WIDTH);
 });
 
 // Rejects: a stored width read without bounds, a broken value taken as a width, a storage that throws
@@ -87,4 +89,21 @@ test('readSidebarWidth and writeSidebarWidth persist the width and survive a thr
 
     assert.equal(readSidebarWidth(1600, throwing, ''), SIDEBAR_DEFAULT_WIDTH);
     assert.equal(writeSidebarWidth(320, throwing, ''), false);
+});
+
+// Rejects: a width change on a browser or system shortcut (Cmd, Ctrl or Alt
+// with an arrow, Home or End). It would still pass a rule that also ignores Shift.
+test('sidebarWidthForKey ignores the keys with Cmd, Ctrl or Alt', () => {
+    for (const modifier of [{metaKey: true}, {ctrlKey: true}, {altKey: true}]) {
+        for (const key of ['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Enter']) {
+            assert.equal(sidebarWidthForKey(300, key, false, 1600, modifier), null, `${key} ${JSON.stringify(modifier)}`);
+        }
+    }
+
+    assert.equal(sidebarWidthForKey(300, 'ArrowRight', false, 1600, {}), 308);
+});
+
+// Rejects: a value text without the unit.
+test('sidebarWidthText names the width in pixels', () => {
+    assert.equal(sidebarWidthText(236), '236 pixels');
 });

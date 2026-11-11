@@ -6,8 +6,10 @@ namespace Justrau\Orrery\Tests\Feature\Workers;
 
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Justrau\Orrery\Listeners\ForgetStoppedWorker;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\Feature\Jobs\BasicJob;
+use Justrau\Orrery\Tests\Support\Barrier;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
 use Justrau\Orrery\Tests\Support\WorkerProcess;
 use Justrau\Orrery\Tests\TestCase;
@@ -27,25 +29,29 @@ final class WorkerModesTest extends TestCase
     private const EVERY_POLL = ['ORRERY_HEARTBEAT_SECONDS' => '0'];
 
     /**
-     * Rejects: one worker row for separate --once processes.
+     * Rejects: one worker row for separate --once processes, and a --once
+     * worker whose row stays after it exits (it raises no WorkerStopping).
+     * Both workers hold before they delete their rows.
      */
     #[Group('shared-database')]
     public function test_independent_once_workers(): void
     {
         $env = $this->sharedEnvironment();
+        $barrier = Barrier::forTest();
+        $hold = $barrier->holdEnvironment(ForgetStoppedWorker::BEFORE_FORGET);
+        $rows = fn () => $this->mirror()->table('orrery_worker_heartbeats')->orderBy('pid')->get();
 
-        // Two --once workers of one parent (this process), one after the other, on an empty queue.
-        $first = WorkerProcess::start(['queue:work', 'database', '--once', '--sleep=0'], $env, self::EVERY_POLL);
-        self::assertSame(0, $first->waitForExit(60), $first->describe());
-        $second = WorkerProcess::start(['queue:work', 'database', '--once', '--sleep=0'], $env, self::EVERY_POLL);
-        self::assertSame(0, $second->waitForExit(60), $second->describe());
+        // Two --once workers of one parent (this process), on an empty queue.
+        $first = WorkerProcess::start(['queue:work', 'database', '--once', '--sleep=0'], $env, self::EVERY_POLL + $hold);
+        $barrier->await(ForgetStoppedWorker::BEFORE_FORGET.'.reached', 60, $first->abandonIfExited());
+        $second = WorkerProcess::start(['queue:work', 'database', '--once', '--sleep=0'], $env, self::EVERY_POLL + $hold);
+        $second->waitUntil(static fn (): bool => $rows()->count() === 2, 60, 'both --once workers wrote their rows');
 
-        $rows = $this->mirror()->table('orrery_worker_heartbeats')->orderBy('pid')->get();
         $expected = [$first->pid(), $second->pid()];
         sort($expected);
-        self::assertSame($expected, array_map('intval', $rows->pluck('pid')->all()), $first->describe().$second->describe());
-        self::assertSame(['once', 'once'], $rows->pluck('mode')->all());
-        self::assertSame([getmypid(), getmypid()], array_map('intval', $rows->pluck('ppid')->all()), 'both workers are children of this process');
+        self::assertSame($expected, array_map('intval', $rows()->pluck('pid')->all()), $first->describe().$second->describe());
+        self::assertSame(['once', 'once'], $rows()->pluck('mode')->all());
+        self::assertSame([getmypid(), getmypid()], array_map('intval', $rows()->pluck('ppid')->all()), 'both workers are children of this process');
 
         $workers = app(LiveWorkers::class)->list();
         self::assertCount(2, $workers, 'two --once workers of one parent were merged');
@@ -54,6 +60,11 @@ final class WorkerModesTest extends TestCase
             self::assertSame('once', $worker->mode);
             self::assertSame([], $worker->children);
         }
+
+        $barrier->arrive(ForgetStoppedWorker::BEFORE_FORGET.'.release');
+        self::assertSame(0, $first->waitForExit(60), $first->describe());
+        self::assertSame(0, $second->waitForExit(60), $second->describe());
+        self::assertSame(0, $rows()->count(), 'a --once worker kept its row after it exited');
     }
 
     /**
@@ -65,18 +76,24 @@ final class WorkerModesTest extends TestCase
         $env = $this->sharedEnvironment();
         Queue::connection('database')->push(new BasicJob, '', 'mail');
 
-        // The default heartbeat interval (15 s): no ORRERY_HEARTBEAT_SECONDS.
-        $worker = WorkerProcess::start(['queue:work', 'database', '--once', '--queue=mail', '--sleep=0', '--tries=1'], $env);
-        self::assertSame(0, $worker->waitForExit(60), $worker->describe());
+        // The default heartbeat interval (15 s): no ORRERY_HEARTBEAT_SECONDS. It holds before it deletes its row.
+        $barrier = Barrier::forTest();
+        $worker = WorkerProcess::start(['queue:work', 'database', '--once', '--queue=mail', '--sleep=0', '--tries=1'], $env, $barrier->holdEnvironment(ForgetStoppedWorker::BEFORE_FORGET));
+        $barrier->await(ForgetStoppedWorker::BEFORE_FORGET.'.reached', 60, $worker->abandonIfExited());
         self::assertSame(0, DB::table('jobs')->count(), 'the worker did not run the job: '.$worker->describe());
 
         $row = $this->mirror()->table('orrery_worker_heartbeats')->where('pid', $worker->pid())->sole();
         self::assertSame('mail', $row->current_queue, 'the once worker did not record the queue of its reservation');
         self::assertSame('once', $row->mode);
+
+        $barrier->arrive(ForgetStoppedWorker::BEFORE_FORGET.'.release');
+        self::assertSame(0, $worker->waitForExit(60), $worker->describe());
     }
 
     /**
-     * Rejects: one row per queue:listen child.
+     * Rejects: one row per queue:listen child, a child that deletes its row
+     * when it exits (the parent would leave the list between two children),
+     * and a parent that lists its exited children.
      */
     #[Group('shared-database')]
     public function test_real_queue_listen_children_are_grouped(): void
@@ -101,7 +118,9 @@ final class WorkerModesTest extends TestCase
         self::assertSame($listener->pid(), $parent->pid);
         self::assertNull($parent->ppid);
         self::assertSame(gethostname().':'.$listener->pid().':'.Clock::toDecimal((float) $rows[0]->parent_started_at), $parent->worker_id);
-        self::assertSame($rows->count(), count($parent->children));
+        self::assertCount(1, $parent->children, 'queue:listen runs one child at a time: only the newest is shown');
+        $newest = $rows->sortBy([['started_at', 'desc'], ['last_seen_at', 'desc']])->first();
+        self::assertSame((int) $newest->pid, $parent->children[0]->pid);
         self::assertSame(['default'], $parent->subscribed_queues);
         self::assertSame(1, app(LiveWorkers::class)->capacity('database', 'default'));
     }
@@ -127,6 +146,26 @@ final class WorkerModesTest extends TestCase
         self::assertSame(0, $live->capacity('database', 'default'));
 
         $worker->stop();
+    }
+
+    /**
+     * Rejects: a daemon that stops normally (here --stop-when-empty) and
+     * keeps its row, so it turns quiet instead of leaving the list.
+     */
+    #[Group('shared-database')]
+    public function test_a_daemon_that_stops_removes_its_row(): void
+    {
+        $env = $this->sharedEnvironment();
+        $barrier = Barrier::forTest();
+
+        $worker = WorkerProcess::start(['queue:work', 'database', '--stop-when-empty', '--sleep=0'], $env, self::EVERY_POLL + $barrier->holdEnvironment(ForgetStoppedWorker::BEFORE_FORGET));
+        $barrier->await(ForgetStoppedWorker::BEFORE_FORGET.'.reached', 60, $worker->abandonIfExited());
+        self::assertSame('daemon', $this->mirror()->table('orrery_worker_heartbeats')->where('pid', $worker->pid())->sole()->mode);
+
+        $barrier->arrive(ForgetStoppedWorker::BEFORE_FORGET.'.release');
+        self::assertSame(0, $worker->waitForExit(60), $worker->describe());
+        self::assertSame(0, $this->mirror()->table('orrery_worker_heartbeats')->count(), 'the stopped daemon kept its row');
+        self::assertSame([], app(LiveWorkers::class)->list());
     }
 
     private function sharedEnvironment(): TestEnvironment

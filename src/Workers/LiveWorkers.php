@@ -5,6 +5,7 @@ namespace Justrau\Orrery\Workers;
 use Illuminate\Container\Container;
 use Justrau\Orrery\Database\Models\WorkerHeartbeat;
 use Justrau\Orrery\Listeners\RecordWorkerHeartbeat;
+use Justrau\Orrery\Queue\Instrumentation;
 use Justrau\Orrery\Runtime\ProcessContext;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Storage\PackageSession;
@@ -25,35 +26,48 @@ use Justrau\Orrery\Storage\PackageSession;
  *   start is never grouped.
  * - The listen parent row: `mode` `listen`, `worker_id`
  *   `<host>:<ppid>:<parent start>`, `pid` the parent pid, `ppid` null,
- *   `started_at` the parent start. Its `last_seen_at`, queues and options
- *   come from the newest child, `heartbeat_fresh` is true when a child is
- *   fresh, and `active_leases` sums the children.
- * - `state` is `live` or `quiet`. A worker is quiet when its last heartbeat
- *   is older than quietSeconds() and it holds no active lease: a killed
- *   worker writes nothing, so it stays listed until the fresh window ends,
- *   but it no longer looks healthy. A worker inside a long job writes no
- *   heartbeat, and its lease keeps it live. `last_seen_at` is never null, so
- *   the state is always known. A listen parent is live when a child is live.
+ *   `started_at` the parent start. Its `last_seen_at`, queues, options and
+ *   `quiet_seconds` come from the newest child, `heartbeat_fresh` is true
+ *   when a child is fresh, and `active_leases` sums the children.
+ *   queue:listen runs one child at a time, so a child that started before
+ *   the newest child has exited: it is left out of `children`, unless it
+ *   holds an active lease.
+ * - Each row has its own windows, from the write period of its writer:
+ *   max(the writer's heartbeat interval, the row's `sleep` and `rest`
+ *   options), see quietSeconds(). An idle daemon writes once per loop, and
+ *   its loop waits `--sleep` (or `--rest` after a job), so a sleep longer
+ *   than the interval stretches the period.
+ * - `quiet_seconds` is the row's quiet window. `heartbeat_fresh` is true
+ *   while the heartbeat is younger than listedSeconds() of that window:
+ *   always at least QUIET_SHOWN_SECONDS longer, so a killed worker is quiet
+ *   for a while before it leaves the list.
+ * - `state` is `live`, `quiet` or `unknown`. A worker with an active lease
+ *   or a heartbeat inside its quiet window is live. Else it is quiet, when
+ *   its connection is instrumented (Queue\Instrumentation): a killed
+ *   worker writes nothing, so it stays listed for a while, but it no longer
+ *   looks healthy. On an uninstrumented connection (and on one that this
+ *   process does not know as a `database` queue connection) no reservation
+ *   names its worker, so a worker inside a long job and a dead worker look
+ *   the same: `unknown`. A listen parent is live when a shown child is live,
+ *   else unknown when one is unknown, else quiet.
+ * - The heartbeat time comes from the worker host's clock and is compared
+ *   with this host's clock: the hosts need synchronized clocks.
  * - The times are epoch seconds.
  *
  * @phpstan-type WorkerRow object{worker_id: string, host: string, pid: int, ppid: ?int, started_at: float, mode: string,
  *     connection: string, subscribed_queues: list<string>, current_queue: ?string, options: array<string, mixed>,
- *     last_seen_at: float, heartbeat_fresh: bool, active_leases: int, state: string, children: list<object>}
+ *     last_seen_at: float, heartbeat_fresh: bool, active_leases: int, quiet_seconds: float, state: string, children: list<object>}
  */
 final class LiveWorkers
 {
+    /** The least listing window. */
     public const FRESH_SECONDS = 60;
 
-    /**
-     * How old a heartbeat may be and still count as fresh: FRESH_SECONDS, or
-     * two heartbeat intervals when `orrery.workers.heartbeat_seconds` is
-     * longer than half of it (an idle worker writes once per
-     * interval, so a shorter window would drop it half of the time).
-     */
-    public static function freshSeconds(): int
-    {
-        return max(self::FRESH_SECONDS, (int) ceil(2 * RecordWorkerHeartbeat::interval()));
-    }
+    /** Added to two write periods: the time of the write itself and of a slow loop. */
+    public const QUIET_MARGIN_SECONDS = 5;
+
+    /** The least time between the quiet window and the end of the listing window. */
+    public const QUIET_SHOWN_SECONDS = 25;
 
     public const LISTEN = 'listen';
 
@@ -61,17 +75,60 @@ final class LiveWorkers
 
     public const QUIET = 'quiet';
 
+    public const UNKNOWN = 'unknown';
+
+    /**
+     * The listing window of a row without options of its own (the
+     * writer's interval from this process's configuration, no sleep):
+     * listedSeconds(quietSeconds()), rounded up. 60 s with the default
+     * interval of 15 s. The heartbeat sweep keeps the rows at least this
+     * long.
+     */
+    public static function freshSeconds(): int
+    {
+        return (int) ceil(self::listedSeconds(self::quietSeconds()));
+    }
+
     /**
      * How old a heartbeat may be before a worker without an active lease is
-     * quiet: two `orrery.workers.heartbeat_seconds`. An interval of 0 (no
-     * throttle) takes the default interval, so a worker that writes on
-     * every loop is not quiet between two loops.
+     * quiet: 2 × the write period + QUIET_MARGIN_SECONDS. The write period
+     * is the largest of the writer's interval, `sleep` and `rest` of the
+     * row's options. The writer's interval is the row's own
+     * Heartbeats::INTERVAL_OPTION, else `orrery.workers.heartbeat_seconds` of
+     * this process (a row of an older writer). An interval of 0 (a write on
+     * every loop) takes the default interval (15 s), as its period is not
+     * known. A queue:listen child and a --once worker store no sleep: their
+     * period is the interval.
+     *
+     * @param  array<string, mixed>  $options  the row's options
      */
-    public static function quietSeconds(): float
+    public static function quietSeconds(array $options = []): float
     {
-        $interval = RecordWorkerHeartbeat::interval();
+        $interval = self::number($options[Heartbeats::INTERVAL_OPTION] ?? null) ?? RecordWorkerHeartbeat::interval();
+        $period = max(
+            $interval > 0 ? $interval : RecordWorkerHeartbeat::DEFAULT_INTERVAL,
+            self::number($options['sleep'] ?? null) ?? 0.0,
+            self::number($options['rest'] ?? null) ?? 0.0,
+        );
 
-        return 2 * ($interval > 0 ? $interval : RecordWorkerHeartbeat::DEFAULT_INTERVAL);
+        return 2 * $period + self::QUIET_MARGIN_SECONDS;
+    }
+
+    /**
+     * The listing window of a row whose quiet window is $quiet: the larger
+     * of FRESH_SECONDS and $quiet + QUIET_SHOWN_SECONDS.
+     */
+    public static function listedSeconds(float $quiet): float
+    {
+        return max((float) self::FRESH_SECONDS, $quiet + self::QUIET_SHOWN_SECONDS);
+    }
+
+    /** A finite number of at least 0, else null. */
+    private static function number(mixed $value): ?float
+    {
+        return is_int($value) || is_float($value) || (is_string($value) && is_numeric($value))
+            ? (is_finite((float) $value) && (float) $value >= 0 ? (float) $value : null)
+            : null;
     }
 
     /** Laravel's DatabaseConnector fallback for a missing or null retry_after. */
@@ -80,13 +137,16 @@ final class LiveWorkers
     /**
      * One row per daemon or once worker, and one row per queue:listen parent with its children.
      *
+     * $uninstrumented names the uninstrumented connections
+     * (Instrumentation::uninstrumented()); null reads them.
+     *
+     * @param  list<string>|null  $uninstrumented
      * @return list<WorkerRow>
      */
-    public function list(): array
+    public function list(?array $uninstrumented = null): array
     {
         $now = Clock::now();
-        $fresh = $now - self::freshSeconds();
-        $quiet = $now - self::quietSeconds();
+        $instrumented = $this->instrumented($uninstrumented);
 
         /** @var list<WorkerHeartbeat> $heartbeats */
         $heartbeats = WorkerHeartbeat::query()->orderBy('host')->orderBy('pid')->orderBy('worker_id')->get()->all();
@@ -96,7 +156,7 @@ final class LiveWorkers
         $groups = [];
 
         foreach ($heartbeats as $heartbeat) {
-            $row = $this->row($heartbeat, (float) $heartbeat->last_seen_at >= $fresh, $leases[$heartbeat->worker_id] ?? 0, $quiet);
+            $row = $this->row($heartbeat, $now, $leases[$heartbeat->worker_id] ?? 0, isset($instrumented[(string) $heartbeat->connection]));
 
             if (! $row->heartbeat_fresh && $row->active_leases === 0) {
                 continue;
@@ -128,6 +188,28 @@ final class LiveWorkers
         );
 
         return $rows;
+    }
+
+    /**
+     * The `database` queue connections of this process that are
+     * instrumented, as keys.
+     *
+     * @param  list<string>|null  $uninstrumented
+     * @return array<string, true>
+     */
+    private function instrumented(?array $uninstrumented): array
+    {
+        $uninstrumented ??= array_column(Container::getInstance()->make(Instrumentation::class)->uninstrumented(), 'connection');
+        $connections = Container::getInstance()->make('config')->get('queue.connections', []);
+        $instrumented = [];
+
+        foreach (is_array($connections) ? $connections : [] as $name => $definition) {
+            if (is_array($definition) && ($definition['driver'] ?? null) === 'database' && ! in_array((string) $name, $uninstrumented, true)) {
+                $instrumented[(string) $name] = true;
+            }
+        }
+
+        return $instrumented;
     }
 
     /**
@@ -311,11 +393,19 @@ final class LiveWorkers
     /**
      * @return WorkerRow
      */
-    private function row(WorkerHeartbeat $heartbeat, bool $fresh, int $leases, float $quiet): object
+    private function row(WorkerHeartbeat $heartbeat, float $now, int $leases, bool $instrumented): object
     {
         $seen = Clock::stored($heartbeat->last_seen_at);
+        $decoded = json_decode((string) $heartbeat->options, true);
+        /** @var array<string, mixed> $options */
+        $options = is_array($decoded) ? $decoded : [];
+        $quiet = self::quietSeconds($options);
 
-        $options = json_decode((string) $heartbeat->options, true);
+        if ($leases > 0 || $seen >= $now - $quiet) {
+            $state = self::LIVE;
+        } else {
+            $state = $instrumented ? self::QUIET : self::UNKNOWN;
+        }
 
         return (object) [
             'worker_id' => (string) $heartbeat->worker_id,
@@ -327,11 +417,12 @@ final class LiveWorkers
             'connection' => (string) $heartbeat->connection,
             'subscribed_queues' => array_values(array_filter(explode(',', (string) $heartbeat->subscribed_queues), static fn (string $queue): bool => $queue !== '')),
             'current_queue' => $heartbeat->current_queue === null ? null : (string) $heartbeat->current_queue,
-            'options' => is_array($options) ? $options : [],
+            'options' => $options,
             'last_seen_at' => (float) $heartbeat->last_seen_at,
-            'heartbeat_fresh' => $fresh,
+            'heartbeat_fresh' => $seen >= $now - self::listedSeconds($quiet),
             'active_leases' => $leases,
-            'state' => $leases === 0 && $seen < $quiet ? self::QUIET : self::LIVE,
+            'quiet_seconds' => $quiet,
+            'state' => $state,
             'children' => [],
         ];
     }
@@ -343,6 +434,21 @@ final class LiveWorkers
     private function parentRow(string $key, array $members): object
     {
         $children = array_map(static fn (array $member): object => $member[1], $members);
+        // The child that started last runs now; an earlier child has exited, and is shown only while it holds a lease.
+        // A start from ps has whole seconds, so a tie goes to the later heartbeat: a child writes after the one before it exited.
+        $current = $children[0];
+
+        foreach ($children as $child) {
+            if ([$child->started_at, $child->last_seen_at, $child->worker_id] > [$current->started_at, $current->last_seen_at, $current->worker_id]) {
+                $current = $child;
+            }
+        }
+
+        $children = array_values(array_filter(
+            $children,
+            /** @param  WorkerRow  $child */
+            static fn (object $child): bool => $child === $current || $child->active_leases > 0,
+        ));
         usort(
             $children,
             /**
@@ -376,12 +482,27 @@ final class LiveWorkers
                 static fn (object $child): int => $child->active_leases,
                 $children,
             )),
-            'state' => in_array(self::LIVE, array_map(
+            'quiet_seconds' => $newest->quiet_seconds,
+            'state' => self::parentState(array_map(
                 /** @param  WorkerRow  $child */
                 static fn (object $child): string => $child->state,
                 $children,
-            ), true) ? self::LIVE : self::QUIET,
+            )),
             'children' => $children,
         ];
+    }
+
+    /**
+     * Live when a child is live, else unknown when a child is unknown, else quiet.
+     *
+     * @param  list<string>  $states
+     */
+    private static function parentState(array $states): string
+    {
+        return match (true) {
+            in_array(self::LIVE, $states, true) => self::LIVE,
+            in_array(self::UNKNOWN, $states, true) => self::UNKNOWN,
+            default => self::QUIET,
+        };
     }
 }

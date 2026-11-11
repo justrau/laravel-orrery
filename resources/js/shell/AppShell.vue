@@ -1,7 +1,7 @@
 <script>
     import Notice from '../components/ui/Notice.vue';
     import {modalOpen} from '../support/focus.js';
-    import {SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH, clampSidebarWidth, readSidebarWidth, sidebarMaxWidth, sidebarWidthForKey, writeSidebarWidth} from '../support/sidebar-width.js';
+    import {SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH, clampSidebarWidth, readSidebarWidth, sidebarMaxWidth, sidebarWidthForKey, sidebarWidthText, writeSidebarWidth} from '../support/sidebar-width.js';
     import {browserSeconds, noteServerTime, nowSeconds} from '../support/time.js';
     import Sidebar from './Sidebar.vue';
     import Toolbar from './Toolbar.vue';
@@ -30,8 +30,11 @@
      *
      * At 1024 px and wider, a handle on the sidebar's right edge changes its
      * width (support/sidebar-width.js): drag it, or focus it and use Left and
-     * Right (Shift for bigger steps), Home and End; a double click resets the
-     * default width. The width is stored per browser and sets the
+     * Right (Shift for bigger steps), Home and End; Enter or a double click
+     * resets the default width. The chosen width is stored per browser; the
+     * drawn width is the chosen one within the bounds of the window, so a
+     * window that was narrow and grows again gets the chosen width back. It
+     * sets the
      * `--container-sidebar` custom property through a style binding (the
      * CSSOM, which the Content Security Policy allows).
      */
@@ -48,7 +51,8 @@
                 shell,
                 now: nowSeconds(),
                 polls: 0,
-                sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
+                // The chosen width; sidebarWidth is it within the window's bounds.
+                sidebarChosen: SIDEBAR_DEFAULT_WIDTH,
                 viewport: typeof window !== 'undefined' ? window.innerWidth : null,
             };
         },
@@ -108,6 +112,14 @@
                 return this.shell.narrow ? null : {'--container-sidebar': `${this.sidebarWidth}px`};
             },
 
+            sidebarWidth() {
+                return clampSidebarWidth(this.sidebarChosen, this.viewport);
+            },
+
+            sidebarWidthText() {
+                return sidebarWidthText(this.sidebarWidth);
+            },
+
             sidebarMin() {
                 return SIDEBAR_MIN_WIDTH;
             },
@@ -144,10 +156,10 @@
             this.onKeydown = event => this.keydown(event);
             document.addEventListener('keydown', this.onKeydown);
 
-            this.sidebarWidth = readSidebarWidth(window.innerWidth);
+            this.sidebarChosen = readSidebarWidth(undefined);
+            this.viewport = window.innerWidth;
             this.onResize = () => {
                 this.viewport = window.innerWidth;
-                this.sidebarWidth = clampSidebarWidth(this.sidebarWidth, this.viewport);
             };
             window.addEventListener('resize', this.onResize);
 
@@ -193,7 +205,7 @@
                 const startWidth = this.sidebarWidth;
 
                 this.onResizeMove = move => {
-                    this.sidebarWidth = clampSidebarWidth(startWidth + move.clientX - startX, window.innerWidth);
+                    this.sidebarChosen = clampSidebarWidth(startWidth + move.clientX - startX, window.innerWidth);
                 };
                 this.onResizeEnd = () => {
                     this.endResize();
@@ -215,17 +227,17 @@
             },
 
             resizeKey(event) {
-                const width = sidebarWidthForKey(this.sidebarWidth, event.key, event.shiftKey, window.innerWidth);
+                const width = sidebarWidthForKey(this.sidebarWidth, event.key, event.shiftKey, window.innerWidth, event);
 
                 if (width === null) return;
 
                 event.preventDefault();
-                this.sidebarWidth = width;
+                this.sidebarChosen = width;
                 writeSidebarWidth(width);
             },
 
             resetSidebarWidth() {
-                this.sidebarWidth = clampSidebarWidth(SIDEBAR_DEFAULT_WIDTH, window.innerWidth);
+                this.sidebarChosen = SIDEBAR_DEFAULT_WIDTH;
                 writeSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
             },
 
@@ -351,8 +363,8 @@
                      :queue-groups="queueGroups" :queues-unknown="queuesUnknown" :health="healthSummary" :drawer="shell.narrow"
                      @navigate="closeNav" />
             <div v-if="!shell.narrow" class="o-shell__resize" role="separator" tabindex="0" aria-orientation="vertical"
-                 aria-label="Sidebar width" aria-controls="orrery-nav" :aria-valuenow="sidebarWidth" :aria-valuemin="sidebarMin" :aria-valuemax="sidebarMax"
-                 title="Drag to change the sidebar width; double-click to reset" data-sidebar-resize
+                 aria-label="Sidebar width" aria-controls="orrery-nav" :aria-valuenow="sidebarWidth" :aria-valuetext="sidebarWidthText" :aria-valuemin="sidebarMin" :aria-valuemax="sidebarMax"
+                 title="Drag to change the sidebar width; double-click or press Enter to reset" data-sidebar-resize
                  @pointerdown="startResize" @keydown="resizeKey" @dblclick="resetSidebarWidth"></div>
         </div>
 
@@ -400,8 +412,13 @@
     .o-shell__resize:focus-visible {
         background-color: var(--color-accent);
         background-clip: content-box;
-        outline: none;
         padding-inline: 3px;
+    }
+
+    /* The keyboard focus keeps a ring around the whole handle. */
+    .o-shell__resize:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+        outline-offset: -2px;
     }
 
     /* Below 1024 px the sidebar is a drawer over the content. */

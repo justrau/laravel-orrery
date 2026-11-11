@@ -61,7 +61,7 @@
                 const quiet = this.quietCount ? ` · ${this.quietCount} quiet` : '';
 
                 return this.workers.length
-                    ? `${workers} on ${this.hosts} ${this.hosts === 1 ? 'host' : 'hosts'}${quiet} · a heartbeat in the last 60 s or a live lease`
+                    ? `${workers} on ${this.hosts} ${this.hosts === 1 ? 'host' : 'hosts'}${quiet} · a recent heartbeat or a live lease`
                     : 'No live workers';
             },
         },
@@ -151,7 +151,8 @@
 
             <div v-for="worker in workers" :key="worker.worker_id || worker.name" class="o-table__row" role="row">
                 <div class="o-col o-col--worker" role="cell">
-                    <span class="o-dot" :class="`o-dot--${state(worker).key}`" role="img"
+                    <span v-if="state(worker).key === 'quiet'" class="o-dot o-dot--quiet" aria-hidden="true" data-worker-state></span>
+                    <span v-else class="o-dot" :class="`o-dot--${state(worker).key}`" role="img"
                           :aria-label="state(worker).label" :title="state(worker).label" data-worker-state></span>
                     <span class="o-mono" :title="worker.worker_id">{{ worker.name }}</span>
                     <span v-if="state(worker).key === 'quiet'" class="o-quiet" data-worker-quiet>{{ state(worker).label }}</span>

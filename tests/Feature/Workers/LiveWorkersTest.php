@@ -21,7 +21,7 @@ final class LiveWorkersTest extends ControllerTest
     /** The fields of every list() row. */
     private const FIELDS = [
         'worker_id', 'host', 'pid', 'ppid', 'started_at', 'mode', 'connection', 'subscribed_queues',
-        'current_queue', 'options', 'last_seen_at', 'heartbeat_fresh', 'active_leases', 'state', 'children',
+        'current_queue', 'options', 'last_seen_at', 'heartbeat_fresh', 'active_leases', 'quiet_seconds', 'state', 'children',
     ];
 
     /**
@@ -60,8 +60,8 @@ final class LiveWorkersTest extends ControllerTest
      * Rejects: a fixed 60-second fresh window with a longer heartbeat
      * interval, so an idle worker that writes once per 120 s is absent half
      * of the time, `processes` reads a known 0 and a healthy queue can raise
-     * a long-wait alert. It would still pass a window of three
-     * intervals instead of two.
+     * a long-wait alert. With 120 s: 2 × 120 + 5 quiet, 25 s more listed.
+     * It would still pass a window of three intervals instead of two.
      */
     public function test_the_fresh_window_follows_a_long_heartbeat_interval(): void
     {
@@ -71,7 +71,7 @@ final class LiveWorkersTest extends ControllerTest
         self::assertSame([], app(LiveWorkers::class)->list(), 'the default interval keeps the 60-second window');
 
         $this->app['config']->set('orrery.workers.heartbeat_seconds', 120);
-        self::assertSame(240, LiveWorkers::freshSeconds());
+        self::assertSame(270, LiveWorkers::freshSeconds());
         $rows = app(LiveWorkers::class)->list();
         self::assertCount(1, $rows, 'an idle worker within two heartbeat intervals is absent');
         self::assertTrue($rows[0]->heartbeat_fresh);
