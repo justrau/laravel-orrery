@@ -873,6 +873,58 @@ final class MatrixRunnerTest extends TestCase
     }
 
     /**
+     * Rejects: a default matrix without the MariaDB leg, MariaDB on every leg without --db (hours
+     * more, and CI legs without a MariaDB service), a MariaDB leg that skips the suite or the process
+     * groups, and a --db=mariadb that does not run MariaDB on each selected leg.
+     * Still passes: a MariaDB run that bin/test cannot start (the fake bin/test accepts every engine).
+     */
+    public function test_without_db_only_the_mariadb_leg_runs_on_mariadb(): void
+    {
+        $default = $this->matrix(['--dry-run', '--php=8.4,8.5', '--laravel=13', '--no-lowest']);
+
+        self::assertSame(0, $default['exit'], $default['stderr']);
+        self::assertStringContainsString('variants: same/none; engines: sqlite, mysql, pgsql; file runs: --schema=reuse', $default['stdout']);
+        self::assertStringContainsString('variants: same/none; engines: sqlite, mysql, pgsql, mariadb; file runs: --schema=fresh', $default['stdout']);
+        self::assertSame(2, substr_count($default['stdout'], ' mariadb '), 'one leg: its suite and its process groups');
+        self::assertStringContainsString("  - same/none mariadb suite\n  - same/none mariadb groups harness,process,process-control\n", $default['stdout']);
+
+        $chosen = $this->matrix(['--dry-run', '--php=8.4,8.5', '--laravel=13', '--no-lowest', '--db=sqlite,mariadb']);
+
+        self::assertSame(0, $chosen['exit'], $chosen['stderr']);
+        self::assertSame(2, substr_count($chosen['stdout'], 'engines: sqlite, mariadb;'));
+        self::assertStringNotContainsString(' mysql ', $chosen['stdout']);
+        self::assertStringContainsString('  - same/none mariadb suite (schema reuse)', $chosen['stdout']);
+    }
+
+    /**
+     * Rejects: a CI leg that adds MariaDB without --db (its job has no MariaDB service), and a
+     * --db=mariadb CI leg that runs MariaDB without --no-provision and the provisioned database.
+     * Still passes: a CI MariaDB run on another port (bin/test --no-provision sets the port).
+     */
+    public function test_the_ci_mode_runs_mariadb_only_when_db_names_it(): void
+    {
+        $token = str_repeat('cd', 16);
+        $env = ['CI' => 'true', 'ORRERY_TEST_DATABASE' => 'orrery_ci_123_mariadb', 'ORRERY_TEST_TOKEN' => $token];
+        $default = $this->matrix(['--ci', '--php=8.5', '--laravel=13', '--no-lowest'], $env);
+
+        self::assertSame(0, $default['exit'], $default['stdout'].$default['stderr']);
+        self::assertNotContains('mariadb', array_column($this->callsOf('bin/test'), 'engine'));
+
+        $run = $this->matrix(['--ci', '--php=8.5', '--laravel=13', '--no-lowest', '--db=mariadb'], $env);
+
+        self::assertSame(0, $run['exit'], $run['stdout'].$run['stderr']);
+        $mariadb = array_values(array_filter($this->callsOf('bin/test'), static fn (array $call): bool => $call['engine'] === 'mariadb'));
+        self::assertCount(2, $mariadb);
+
+        foreach ($mariadb as $call) {
+            self::assertSame(['--no-provision', '--schema=fresh', '--timeout=4800'], $call['wrapper'], $call['run']);
+            self::assertSame('orrery_ci_123_mariadb', $call['env']['ORRERY_TEST_DATABASE'] ?? null);
+            self::assertSame($token, $call['env']['ORRERY_TEST_TOKEN'] ?? null);
+            self::assertSame('mariadb', $call['env']['ORRERY_EXPECT_DRIVER'] ?? null);
+        }
+    }
+
+    /**
      * @return iterable<string, array{0: list<string>, 1: list<string>, 2: list<string>}>
      */
     public static function scriptCarriers(): iterable

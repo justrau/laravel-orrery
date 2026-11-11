@@ -1137,9 +1137,10 @@ final class TestDbLogicTest extends TestCase
         self::assertSame('new', $cold['json']['generation']);
         $token = $cold['json']['token'];
         self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $token);
-        self::assertSame(['ps', 'up', 'read_marker', 'read_marker', 'write_marker', 'write_marker'], self::operations(self::fakeCalls($this->registry)));
+        self::assertSame(['ps', 'up', 'read_marker', 'read_marker', 'read_marker', 'write_marker', 'write_marker', 'write_marker'], self::operations(self::fakeCalls($this->registry)));
         self::assertSame($token, self::fakeState($this->registry)['services']['mysql']['marker']);
         self::assertSame($token, self::fakeState($this->registry)['services']['postgres']['marker']);
+        self::assertSame($token, self::fakeState($this->registry)['services']['mariadb']['marker']);
         self::assertSame($token, self::registryData($this->registry)['token']);
 
         $before = count(self::fakeCalls($this->registry));
@@ -1147,7 +1148,7 @@ final class TestDbLogicTest extends TestCase
         self::assertSame(0, $again['exit'], $again['stderr']);
         self::assertSame('kept', $again['json']['generation']);
         self::assertSame($token, $again['json']['token']);
-        self::assertSame(['ps', 'up', 'read_marker', 'read_marker'], self::operations(array_slice(self::fakeCalls($this->registry), $before)));
+        self::assertSame(['ps', 'up', 'read_marker', 'read_marker', 'read_marker'], self::operations(array_slice(self::fakeCalls($this->registry), $before)));
 
         // A restart discarded the tmpfs data, including both markers.
         self::changeFakeState($this->registry, static function (array $state): array {
@@ -1344,7 +1345,7 @@ final class TestDbLogicTest extends TestCase
         // A free name: the command holds it for its own duration.
         $free = $this->runProcess([...$this->wrapper('bin/test-db'), 'create', 'orrery_free'], $nobody);
         self::assertSame(0, $free['exit'], $free['stderr']);
-        self::assertSame(['mysql', 'postgres'], $free['json']['services']);
+        self::assertSame(['mysql', 'postgres', 'mariadb'], $free['json']['services']);
         self::assertContains('orrery_free_mirror', self::fakeState($this->registry)['services']['postgres']['databases']);
         self::assertSame(0, $this->runProcess([...$this->wrapper('bin/test-db'), 'drop', 'orrery_free'], $nobody)['exit']);
         self::assertNotContains('orrery_free', self::fakeState($this->registry)['services']['postgres']['databases']);
@@ -2934,12 +2935,12 @@ final class TestDbLogicTest extends TestCase
 
         $recorded = [];
         $runner = static function (array $command, array $env, float $timeout) use (&$recorded): array {
-            $recorded[] = ['command' => $command, 'ports' => array_intersect_key($env, array_flip(['ORRERY_TEST_MYSQL_PORT', 'ORRERY_TEST_PGSQL_PORT', 'ORRERY_TEST_MYSQL_ALT_PORT', 'ORRERY_TEST_PGSQL_ALT_PORT']))];
+            $recorded[] = ['command' => $command, 'ports' => array_intersect_key($env, array_flip(['ORRERY_TEST_MYSQL_PORT', 'ORRERY_TEST_PGSQL_PORT', 'ORRERY_TEST_MARIADB_PORT', 'ORRERY_TEST_MYSQL_ALT_PORT', 'ORRERY_TEST_PGSQL_ALT_PORT']))];
 
             return [0, in_array('ps', $command, true) ? '[]' : '', ''];
         };
         $file = '/nonexistent/compose.yaml';
-        $ports = ['mysql' => 33106, 'postgres' => 54336, 'mysql-alt' => 33107, 'pgsql-alt' => 54337];
+        $ports = ['mysql' => 33106, 'postgres' => 54336, 'mariadb' => 33108, 'mysql-alt' => 33107, 'pgsql-alt' => 54337];
         $ops = new DockerOps($file, $ports, $runner);
 
         $ops->up(false);
@@ -2956,10 +2957,42 @@ final class TestDbLogicTest extends TestCase
         ], array_column($recorded, 'command'));
 
         foreach ($recorded as $call) {
-            self::assertEquals(['ORRERY_TEST_MYSQL_PORT' => '33106', 'ORRERY_TEST_PGSQL_PORT' => '54336', 'ORRERY_TEST_MYSQL_ALT_PORT' => '33107', 'ORRERY_TEST_PGSQL_ALT_PORT' => '54337'], $call['ports']);
+            self::assertEquals(['ORRERY_TEST_MYSQL_PORT' => '33106', 'ORRERY_TEST_PGSQL_PORT' => '54336', 'ORRERY_TEST_MARIADB_PORT' => '33108', 'ORRERY_TEST_MYSQL_ALT_PORT' => '33107', 'ORRERY_TEST_PGSQL_ALT_PORT' => '54337'], $call['ports']);
         }
 
-        self::assertSame(['mysql', 'postgres', 'mysql-alt', 'pgsql-alt'], array_keys($services));
+        self::assertSame(['mysql', 'postgres', 'mariadb', 'mysql-alt', 'pgsql-alt'], array_keys($services));
+    }
+
+    /**
+     * Rejects: a MariaDB service operated with the `mysql` client (the MariaDB image has
+     * none, so every marker and database command would fail), and a MySQL service
+     * operated with the `mariadb` client.
+     * Still passes: a client that runs the SQL with another option set (the test reads the command only).
+     */
+    public function test_docker_ops_uses_the_client_of_each_mysql_family_service(): void
+    {
+        require_once self::testdbPath();
+
+        $recorded = [];
+        $runner = static function (array $command, array $env, float $timeout) use (&$recorded): array {
+            $recorded[] = $command;
+
+            return [0, str_repeat('a', 32)."\n", ''];
+        };
+        $ports = ['mysql' => 33106, 'postgres' => 54336, 'mariadb' => 33108, 'mysql-alt' => 33107, 'pgsql-alt' => 54337];
+        $ops = new DockerOps('/nonexistent/compose.yaml', $ports, $runner);
+
+        foreach (['mariadb' => 'mariadb', 'mysql' => 'mysql', 'mysql-alt' => 'mysql'] as $service => $client) {
+            $recorded = [];
+            self::assertSame(str_repeat('a', 32), $ops->readMarker($service), $service);
+            $ops->createDatabases($service, ['orrery_client']);
+
+            foreach ($recorded as $command) {
+                $index = array_search($service, $command, true);
+                self::assertIsInt($index, $service);
+                self::assertSame($client, $command[$index + 1], $service);
+            }
+        }
     }
 
     /**
@@ -3097,6 +3130,33 @@ final class TestDbLogicTest extends TestCase
         $services = self::fakeState($this->registry)['services'];
         self::assertSame(['orrery_marker'], $services['mysql']['databases']);
         self::assertSame(['orrery_marker'], $services['mysql-alt']['databases']);
+    }
+
+    /**
+     * Rejects: a MariaDB admission that leaves its databases on another service or outlives its
+     * lease, and an --alt MariaDB admission that silently runs without an alt server.
+     * Still passes: a MariaDB lease on a server of another version (the fake has no versions).
+     */
+    public function test_a_mariadb_admission_uses_only_the_mariadb_service_and_refuses_alt(): void
+    {
+        $supervisor = $this->spawnSleeper();
+
+        $alt = $this->testdb(['admit', 'run_1_0000000a', (string) $supervisor['pid'], $supervisor['start'], 'orrery_maria', '--generated', '--engine=mariadb', '--alt'], $this->fakeEnv($this->registry));
+        self::assertSame(64, $alt['exit'], $alt['stderr']);
+        self::assertStringContainsString('has no alt server', $alt['stderr']);
+
+        $admit = $this->testdb(['admit', 'run_1_0000000a', (string) $supervisor['pid'], $supervisor['start'], 'orrery_maria', '--generated', '--engine=mariadb'], $this->fakeEnv($this->registry));
+        self::assertSame(0, $admit['exit'], $admit['stderr']);
+
+        $services = self::fakeState($this->registry)['services'];
+        self::assertSame(['orrery_marker', 'orrery_maria', 'orrery_maria_mirror'], $services['mariadb']['databases']);
+        self::assertSame(['orrery_marker'], $services['mysql']['databases']);
+        self::assertSame(self::registryData($this->registry)['token'], $services['mariadb']['marker']);
+
+        $release = $this->testdb(['release', 'run_1_0000000a'], $this->fakeEnv($this->registry));
+        self::assertSame(0, $release['exit'], $release['stderr']);
+        self::assertSame(['mariadb' => ['orrery_maria', 'orrery_maria_mirror']], $release['json']['dropped']);
+        self::assertSame(['orrery_marker'], self::fakeState($this->registry)['services']['mariadb']['databases']);
     }
 
     /**
@@ -3245,7 +3305,7 @@ final class TestDbLogicTest extends TestCase
         $services = self::fakeState($this->registry)['services'];
         $token = self::registryData($this->registry)['token'];
 
-        foreach (['mysql' => 33106, 'postgres' => 54336, 'mysql-alt' => 33107, 'pgsql-alt' => 54337] as $service => $port) {
+        foreach (['mysql' => 33106, 'postgres' => 54336, 'mariadb' => 33108, 'mysql-alt' => 33107, 'pgsql-alt' => 54337] as $service => $port) {
             self::assertSame(['running', 'healthy', [$port], $token], [$services[$service]['state'], $services[$service]['health'], $services[$service]['ports'], $services[$service]['marker']], $service);
         }
 

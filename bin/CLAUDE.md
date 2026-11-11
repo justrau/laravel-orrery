@@ -25,13 +25,13 @@ bin/tia -- --stop-on-failure         # arguments after -- go to PHPUnit (not --f
 
 ## bin/test
 
-`bin/test <sqlite|mysql|pgsql> [--no-provision] [--sqlite-file] [--drop-database] [--alt] [--schema=<reuse|fresh>] [--timeout=<s>] [--slot-wait=<s>] [--php=<binary>] [--] [phpunit arguments]`
+`bin/test <sqlite|mysql|pgsql|mariadb> [--no-provision] [--sqlite-file] [--drop-database] [--alt] [--schema=<reuse|fresh>] [--timeout=<s>] [--slot-wait=<s>] [--php=<binary>] [--] [phpunit arguments]`
 
 - Put wrapper options directly after the engine.
 - `sqlite`: in-memory, no Docker. `sqlite --sqlite-file`: a SQLite file in WAL in the run's temporary directory (the sibling file `<file>.orrery.sqlite` in `same` mode); use it for the process tests.
-- `mysql`, `pgsql`: take a lease and the name lock, start the `orrery-testing` containers when needed, recreate `<base>` and `<base>_mirror`, run PHPUnit, release.
+- `mysql`, `pgsql`, `mariadb`: take a lease and the name lock, start the `orrery-testing` containers when needed, recreate `<base>` and `<base>_mirror`, run PHPUnit, release.
 - The base name is `ORRERY_TEST_DATABASE`; unset, `bin/test` generates `orrery_run_<8 hex>` and drops it. An explicit name stays unless `--drop-database`.
-- `--alt` also uses the second server (`mysql-alt` on 33107, `pgsql-alt` on 54337). `--group alt` alone runs nothing: add `--exclude-group orrery-no-exclusion`.
+- `--alt` also uses the second server (`mysql-alt` on 33107, `pgsql-alt` on 54337). MariaDB has no alt server. `--group alt` alone runs nothing: add `--exclude-group orrery-no-exclusion`.
 - `--schema`: default `reuse` for server leases and `--sqlite-file`, `fresh` for in-memory and `--no-provision`.
 - `--timeout`: a hard limit of the PHPUnit run (exit 124, naming the running test).
 - Passed through: `ORRERY_TEST_MIRROR`, `ORRERY_TEST_PREFIX`, `ORRERY_TEST_PG_POOLED=1`, `ORRERY_TEST_SQLITE_JOURNAL=delete` (rollback mode; the whole suite there is only a diagnostic, because classes that rely on automatic reads fail by design).
@@ -40,17 +40,17 @@ bin/tia -- --stop-on-failure         # arguments after -- go to PHPUnit (not --f
 
 ## The heavy-run slot
 
-One heavy run at a time on the machine: `bin/test mysql|pgsql` with a lease and `bin/matrix` (except `--ci`, `--dry-run`). It is a flock on `<registry>/slot.lock`, held by a helper until `bin/test` ends. A second heavy run waits (`--slot-wait`, default 7200 s; exit 72). The holder exports `ORRERY_SLOT_TOKEN` so nested runs enter. Never hold or delete `slot.lock`, `slot.json` or `slot-waiters/` by hand.
+One heavy run at a time on the machine: `bin/test mysql|pgsql|mariadb` with a lease and `bin/matrix` (except `--ci`, `--dry-run`). It is a flock on `<registry>/slot.lock`, held by a helper until `bin/test` ends. A second heavy run waits (`--slot-wait`, default 7200 s; exit 72). The holder exports `ORRERY_SLOT_TOKEN` so nested runs enter. Never hold or delete `slot.lock`, `slot.json` or `slot-waiters/` by hand.
 
 ## The ownership contract
 
 - Only `bin/lib/testdb.php` operates the containers, always as `docker compose --project-name orrery-testing --file docker/testing/compose.yaml`. No script touches another container. Do not start or stop this project by hand while a run holds a lease.
-- Ports: `127.0.0.1:33106` (MySQL), `127.0.0.1:54336` (Postgres), and the `alt` profile's 33107 and 54337. A foreign process on a port makes `bin/test-db up` fail (69).
+- Ports: `127.0.0.1:33106` (MySQL), `127.0.0.1:54336` (Postgres), `127.0.0.1:33108` (MariaDB, the latest LTS release; its image has only the `mariadb` client), and the `alt` profile's 33107 and 54337. `bin/test-db up` starts the three default servers. A foreign process on a port makes `bin/test-db up` fail (69).
 - Capacity: each server keeps its data in a tmpfs inside its memory limit (`ComposeCapacityTest`). When the Postgres tmpfs is full it refuses every connection, so drop each explicit database after its run. A test that seeds many rows must size itself (as `bin/benchmark-tick` does).
 - Endpoint proof: `orrery_marker` holds a token equal to the registry's; the harness checks it before the first migration.
 - The registry is `/tmp/orrery-testing-<uid>/` (mode 0700) for every checkout; `TMPDIR` does not change it.
 - Names match `^orrery_[a-z0-9_]{1,40}$`, not ending in `_mirror`; `orrery_marker` is reserved. A run locks its names; a second run on a held name fails at once (73). A database without a live lock is stale and is recreated.
-- The tests use the containers' admin accounts (`root`, `postgres`); the boundary is the container, the endpoint proof and the name locks. Databases are created and dropped only through `docker compose … exec`.
+- The tests use the containers' admin accounts (`root`, `postgres`, MariaDB `root`); the boundary is the container, the endpoint proof and the name locks. Databases are created and dropped only through `docker compose … exec`.
 
 ## One database name per run
 
@@ -62,7 +62,7 @@ Manages the containers and the registry; every command prints one JSON object. `
 
 ## bin/matrix
 
-Every supported PHP × Laravel × engine combination (8 legs, hours), serially on purpose: the machine is shared. Run it before a release; CI runs the same legs in parallel, nightly (`.github/workflows/tests.yml` with `--ci`). `--quick` is a three-leg preset. `--memory-only` runs only the in-memory SQLite runs of each leg (the quick CI tier). `--dry-run` prints the legs, units, databases and runs; use it first. `--ci` is for GitHub Actions only. Runs go to `.matrix/<run-id>/` (gitignored; `summary.md`, `summary.json`). Exit codes: 0 pass (listed known failures allowed), 1 a leg failed, 64 invalid arguments, 72 slot wait passed, 255 internal error.
+Every supported PHP × Laravel × engine combination (8 legs, hours). Without `--db` the engines are SQLite, MySQL and Postgres, and the MariaDB leg (`php8.5-laravel13`, `MARIADB_LEGS`) also runs on MariaDB; `--db=…,mariadb` runs it on every selected leg. With `--ci` MariaDB runs only when `--db` names it (the `mariadb` job of `tests.yml`). Serially on purpose: the machine is shared. Run it before a release; CI runs the same legs in parallel, nightly (`.github/workflows/tests.yml` with `--ci`). `--quick` is a three-leg preset. `--memory-only` runs only the in-memory SQLite runs of each leg (the quick CI tier). `--dry-run` prints the legs, units, databases and runs; use it first. `--ci` is for GitHub Actions only. Runs go to `.matrix/<run-id>/` (gitignored; `summary.md`, `summary.json`). Exit codes: 0 pass (listed known failures allowed), 1 a leg failed, 64 invalid arguments, 72 slot wait passed, 255 internal error.
 
 Schema modes: in-memory SQLite is always fresh. The file and server runs are fresh on the lowest legs and on php8.5-laravel13. The variant leg (php8.4-laravel12) runs its file runs fresh and its server runs in reuse; it has no separate reuse block. The other latest legs run in reuse. `--all-fresh` and `--ci` make every run fresh.
 

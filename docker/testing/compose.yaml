@@ -4,7 +4,7 @@
 # project. It always passes `--project-name orrery-testing --file <this file>`.
 # Do not start it by hand while a test run holds a lease.
 #
-# Both services keep their data in tmpfs, so a stop or a recreate discards
+# Every service keeps its data in tmpfs, so a stop or a recreate discards
 # every database, including the orrery_marker endpoint marker. The next
 # `bin/test-db up` then writes a new token.
 #
@@ -91,6 +91,39 @@ services:
       # TCP on purpose: the init server of the image listens on the socket
       # only, so the service is healthy only after the final server starts.
       test: ["CMD", "pg_isready", "--host=127.0.0.1", "--username=postgres", "--dbname=postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 120s
+      start_interval: 1s
+
+  mariadb:
+    # The latest MariaDB LTS release, for `bin/test mariadb`. Its data is in a
+    # 512 MB tmpfs under a 1g limit, as for mysql. MariaDB writes no binary
+    # log unless asked, and performance_schema is off by default; the flags
+    # keep both off and make the redo log, the log buffer and the buffer
+    # pool small, as for mysql. The image has the `mariadb` client and no
+    # `mysql` client.
+    image: mariadb:12.3
+    command:
+      - "--skip-log-bin"
+      - "--innodb-log-file-size=33554432"
+      - "--performance-schema=OFF"
+      - "--innodb-log-buffer-size=16777216"
+      - "--innodb-buffer-pool-size=67108864"
+    environment:
+      MARIADB_ROOT_PASSWORD: orrery
+    ports:
+      - "127.0.0.1:${ORRERY_TEST_MARIADB_PORT:-33108}:3306"
+    volumes:
+      - type: tmpfs
+        target: /var/lib/mysql
+        tmpfs:
+          size: 536870912
+    mem_limit: 1g
+    healthcheck:
+      # TCP on purpose, as for mysql: the init server listens on the socket only.
+      test: ["CMD", "mariadb-admin", "ping", "--host=127.0.0.1", "--user=root", "--password=orrery", "--silent"]
       interval: 5s
       timeout: 5s
       retries: 12

@@ -25,7 +25,8 @@
  *      bin/test with the leg's PHP binary per engine: the suite without the
  *      required groups, then the required groups (harness, process,
  *      process-control) explicitly with --group, on the selected engines
- *      (in-memory SQLite, MySQL, Postgres) and always on file SQLite (the
+ *      (in-memory SQLite, MySQL, Postgres, and MariaDB on MARIADB_LEGS or
+ *      with --db) and always on file SQLite (the
  *      suite and the required groups, so a test that runs only on a SQLite
  *      file runs too). Only the members of the shared-database group may
  *      skip, and only on in-memory SQLite. The schema mode of each run is in
@@ -68,7 +69,18 @@ require_once __DIR__.'/testdb.php';
 
 const PHP_VERSIONS = ['8.3', '8.4', '8.5'];
 const LARAVEL_MAJORS = [12, 13];
-const ENGINES = ['sqlite', 'mysql', 'pgsql'];
+const ENGINES = ['sqlite', 'mysql', 'pgsql', 'mariadb'];
+/** The engines of a leg without --db. MariaDB runs only on MARIADB_LEGS then. */
+const DEFAULT_ENGINES = ['sqlite', 'mysql', 'pgsql'];
+/** The engines of a server run (bin/test with a lease, or --no-provision in CI). */
+const SERVER_ENGINES = ['mysql', 'pgsql', 'mariadb'];
+/**
+ * The MariaDB leg: without --db, only these legs also run on MariaDB (the
+ * latest LTS release). Not with --ci: a CI job has only the service
+ * containers that it declares, so the MariaDB job of tests.yml passes
+ * --db=mariadb itself.
+ */
+const MARIADB_LEGS = ['php8.5-laravel13'];
 const MIRRORS = ['same', 'separate'];
 const TESTBENCH = [12 => '^10.0', 13 => '^11.0'];
 
@@ -199,6 +211,7 @@ final class Options
         public readonly bool $allFresh = false,
         public readonly bool $quick = false,
         public readonly bool $memoryOnly = false,
+        public readonly bool $dbGiven = false,
     ) {}
 
     /**
@@ -250,7 +263,7 @@ final class Options
             throw new UsageError('--memory-only runs in-memory SQLite only, so it takes no --db other than sqlite');
         }
 
-        $db = isset($flags['--memory-only']) ? ['sqlite'] : self::list($values['db'] ?? implode(',', ENGINES), ENGINES, 'db');
+        $db = isset($flags['--memory-only']) ? ['sqlite'] : self::list($values['db'] ?? implode(',', DEFAULT_ENGINES), ENGINES, 'db');
         $mirror = self::list($values['mirror'] ?? implode(',', MIRRORS), MIRRORS, 'mirror');
         $variants = self::list($values['variants'] ?? implode(',', VARIANTS), VARIANTS, 'variants');
 
@@ -308,6 +321,7 @@ final class Options
             isset($flags['--all-fresh']),
             isset($flags['--quick']),
             isset($flags['--memory-only']),
+            isset($values['db']),
         );
     }
 
@@ -498,7 +512,7 @@ final class Leg
 
     public function hasServerEngine(): bool
     {
-        return array_intersect($this->engines, ['mysql', 'pgsql']) !== [];
+        return array_intersect($this->engines, SERVER_ENGINES) !== [];
     }
 
     /**
@@ -721,13 +735,19 @@ final class Plan
             $serverFresh = $options->ci || $options->allFresh || $lowest || in_array($id, FRESH_LATEST, true);
             $fileFresh = $serverFresh || $isVariantLeg;
 
-            $hasServer = array_intersect($options->db, ['mysql', 'pgsql']) !== [];
+            $engines = $options->db;
+
+            if (! $options->dbGiven && ! $options->ci && ! $options->memoryOnly && in_array($id, MARIADB_LEGS, true)) {
+                $engines[] = 'mariadb';
+            }
+
+            $hasServer = array_intersect($engines, SERVER_ENGINES) !== [];
             $legs[] = new Leg(
                 $php,
                 $laravel,
                 $lowest,
                 $selected,
-                $options->db,
+                $engines,
                 $fileFresh ? SCHEMA_FRESH : SCHEMA_REUSE,
                 $serverFresh ? SCHEMA_FRESH : SCHEMA_REUSE,
                 $lowest || ($scripts[$php] ?? null) === $laravel,
@@ -1507,18 +1527,18 @@ final class Runner
                 throw new UsageError('--ci changes composer.json and vendor/ of this checkout in place, so it runs only where CI=true (GitHub Actions sets it)');
             }
 
-            $needsServer = array_intersect($this->options->db, ['mysql', 'pgsql']) !== [];
+            $needsServer = array_intersect($this->options->db, SERVER_ENGINES) !== [];
 
             if ($needsServer) {
                 $database = $this->env['ORRERY_TEST_DATABASE'] ?? '';
                 $token = $this->env['ORRERY_TEST_TOKEN'] ?? '';
 
                 if (preg_match('/^orrery_[a-z0-9_]{1,40}$/D', $database) !== 1 || str_ends_with($database, '_mirror') || $database === 'orrery_marker') {
-                    throw new UsageError('--ci with mysql or pgsql needs ORRERY_TEST_DATABASE: the provisioned base name (^orrery_[a-z0-9_]{1,40}$)');
+                    throw new UsageError('--ci with a server engine needs ORRERY_TEST_DATABASE: the provisioned base name (^orrery_[a-z0-9_]{1,40}$)');
                 }
 
                 if (preg_match('/^[0-9a-f]{32}$/D', $token) !== 1) {
-                    throw new UsageError('--ci with mysql or pgsql needs ORRERY_TEST_TOKEN: the 32-character hex token of the provisioned markers');
+                    throw new UsageError('--ci with a server engine needs ORRERY_TEST_TOKEN: the 32-character hex token of the provisioned markers');
                 }
 
                 $this->ci = ['database' => $database, 'token' => $token];
@@ -2601,7 +2621,7 @@ final class Summary
 final class MatrixCommand
 {
     public const USAGE = <<<'TXT'
-        Usage: bin/matrix [--php=8.3,8.4,8.5] [--laravel=12,13] [--db=sqlite,mysql,pgsql]
+        Usage: bin/matrix [--php=8.3,8.4,8.5] [--laravel=12,13] [--db=sqlite,mysql,pgsql,mariadb]
                           [--mirror=same,separate] [--variants=same/none,...]
                           [--no-lowest] [--no-latest] [--quick] [--all-fresh] [--memory-only]
                           [--dry-run] [--php-binary=<version>=<path>]... [--composer=<path>]
@@ -2615,7 +2635,10 @@ final class MatrixCommand
                    Laravel 12, ^11.0 for Laravel 13)
           lowest   --prefer-lowest --prefer-stable for each selected Laravel major on
                    PHP 8.3 (when 8.3 is selected); COMPOSER_NO_BLOCKING=1 for Composer only
-        Each leg runs mirror=same without a prefix on every selected engine. The
+        Each leg runs mirror=same without a prefix on every selected engine.
+        Without --db the engines are sqlite, mysql and pgsql, and the MariaDB leg
+        php8.5-laravel13 also runs on mariadb (not with --ci: the MariaDB job of
+        CI passes --db=mariadb). The
         latest PHP 8.4 x Laravel 12 leg (the variant leg) also runs separate,
         same+prefix and separate+prefix. --mirror selects the mirror modes of
         these variants.

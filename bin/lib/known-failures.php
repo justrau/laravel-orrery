@@ -113,14 +113,14 @@ final class TestIds
 
 final class Engines
 {
-    public const PATTERN = '/^(sqlite|mysql|pgsql)\/(same|separate)\/(prefix|none)$/D';
+    public const PATTERN = '/^(sqlite|mysql|pgsql|mariadb)\/(same|separate)\/(prefix|none)$/D';
 
-    public const ROW_PATTERN = '/^(sqlite|mysql|pgsql|\*)\/(same|separate|\*)\/(prefix|none|\*)$/D';
+    public const ROW_PATTERN = '/^(sqlite|mysql|pgsql|mariadb|\*)\/(same|separate|\*)\/(prefix|none|\*)$/D';
 
     public static function validate(string $engine): string
     {
         if (preg_match(self::PATTERN, $engine) !== 1) {
-            throw new InputError("invalid engine '{$engine}': use <sqlite|mysql|pgsql>/<same|separate>/<prefix|none>, for example sqlite/same/none");
+            throw new InputError("invalid engine '{$engine}': use <sqlite|mysql|pgsql|mariadb>/<same|separate>/<prefix|none>, for example sqlite/same/none");
         }
 
         return $engine;
@@ -300,7 +300,7 @@ final class Manifest
         }
 
         if (preg_match(Engines::ROW_PATTERN, $engine) !== 1) {
-            throw new InputError("{$name}:{$number}: invalid engine '{$engine}': use <sqlite|mysql|pgsql|*>/<same|separate|*>/<prefix|none|*>");
+            throw new InputError("{$name}:{$number}: invalid engine '{$engine}': use <sqlite|mysql|pgsql|mariadb|*>/<same|separate|*>/<prefix|none|*>");
         }
 
         if ($signature === '') {
@@ -1265,7 +1265,7 @@ final class CheckCommand
         Classifies the faults of one PHPUnit run against tests/known-failures.md,
         and checks that every test of the required groups ran (Spec A §4.8).
 
-          <engine>              <sqlite|mysql|pgsql>/<same|separate>/<prefix|none>
+          <engine>              <sqlite|mysql|pgsql|mariadb>/<same|separate>/<prefix|none>
           <inventory.txt>       [group] sections with the member test ids of each
                                 group (bin/matrix writes it from phpunit --list-tests-xml)
           --exit=<status>       PHPUnit's raw exit status (bin/test passes it through)

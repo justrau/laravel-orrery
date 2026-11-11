@@ -2,25 +2,26 @@
 #
 # Run the PHPUnit suite against one database engine.
 #
-#   bin/test <sqlite|mysql|pgsql> [--no-provision] [--sqlite-file] [--drop-database] [--alt] [--schema=<reuse|fresh>] [--timeout=<seconds>] [--slot-wait=<seconds>] [--php=<binary>] [--] [phpunit arguments...]
+#   bin/test <sqlite|mysql|pgsql|mariadb> [--no-provision] [--sqlite-file] [--drop-database] [--alt] [--schema=<reuse|fresh>] [--timeout=<seconds>] [--slot-wait=<seconds>] [--php=<binary>] [--] [phpunit arguments...]
 #
 #   sqlite                in-memory SQLite. No Docker and no registry.
 #   sqlite --sqlite-file  a SQLite file in the run's temporary directory,
 #                         removed after the run. No Docker and no registry.
-#   mysql, pgsql          take a lease and the name lock in the registry,
+#   mysql, pgsql, mariadb take a lease and the name lock in the registry,
 #                         recreate <base> and <base>_mirror in the orrery-testing
 #                         containers, run PHPUnit behind the startup gate, then
 #                         release. The base name is $ORRERY_TEST_DATABASE,
 #                         else a generated orrery_run_<8 hex> that is dropped at the end.
-#   --drop-database       (mysql, pgsql) the release drops an explicit database
+#   --drop-database       (server engines) the release drops an explicit database
 #                         too, as it drops a generated one: after the run's
 #                         processes are confirmed stopped, while the lease holds the name.
 #                         Without it, the release does not drop an explicit pair,
 #                         and bin/test prints one notice with the drop command.
-#   --no-provision        (mysql, pgsql; for CI) no Docker and no registry. It
+#   --no-provision        (server engines; for CI) no Docker and no registry. It
 #                         needs ORRERY_TEST_DATABASE and ORRERY_TEST_TOKEN.
-#   --alt                 (mysql, pgsql with a lease) also the second server of
-#                         the engine (the Compose profile alt: mysql-alt on
+#   --alt                 (mysql, pgsql with a lease; MariaDB has no alt server)
+#                         also the second server of the engine (the Compose
+#                         profile alt: mysql-alt on
 #                         127.0.0.1:33107, pgsql-alt on 127.0.0.1:54337). The
 #                         admission starts it only while no lease is live, else
 #                         it must already run (exit 71). It recreates <base> and
@@ -31,18 +32,18 @@
 #                         migrates and rolls back. reuse: one migration per
 #                         PHPUnit process; after each test the harness checks
 #                         the schema fingerprint and empties every table. The
-#                         default is reuse for mysql and pgsql with a lease and
+#                         default is reuse for the server engines with a lease and
 #                         for sqlite --sqlite-file, else fresh. In-memory
 #                         sqlite accepts only fresh. bin/matrix and CI use fresh.
 #   --timeout=<seconds>   the hard limit of the PHPUnit run; 0 turns it off. The
 #                         default: 600 for in-memory sqlite, 900 for
-#                         --sqlite-file, 2400 for mysql and pgsql in the reuse
+#                         --sqlite-file, 2400 for the server engines in the reuse
 #                         mode, 3600 in the fresh mode. PHPUnit writes an event
 #                         log (--log-events-text) in the run's directory. At the
 #                         limit, bin/test prints one line with the test that is
 #                         running, stops the run through its cleanup, and exits
 #                         124. PHPUnit gets the limit as ORRERY_RUN_TIMEOUT.
-#   --slot-wait=<seconds> (mysql, pgsql with a lease) the longest wait for the
+#   --slot-wait=<seconds> (server engines with a lease) the longest wait for the
 #                         heavy-run slot (default 7200; 0 fails at once). Such a
 #                         run takes the one machine-wide slot of the registry
 #                         before its admission; another heavy run waits and
@@ -62,7 +63,7 @@
 # The wrapper options come directly after the engine. The remaining arguments
 # go to PHPUnit.
 #
-# Every run has one owner record: its lease (mysql, pgsql), or a private record
+# Every run has one owner record: its lease (server engines), or a private record
 # in its temporary directory (the modes without a registry). PHPUnit runs in
 # its own process group. Before PHPUnit starts, that group joins the owner
 # record of this run and of every bin/test above it (ORRERY_OWNERS). The group's
@@ -112,7 +113,7 @@ command_text="bin/test $*"
 
 engine=${1:-}
 case "$engine" in
-    sqlite | mysql | pgsql) shift ;;
+    sqlite | mysql | pgsql | mariadb) shift ;;
     -h | --help)
         usage
         exit 0
@@ -155,16 +156,16 @@ while [ $# -gt 0 ]; do
 done
 
 if [ "$no_provision" = 1 ] && [ "$engine" = sqlite ]; then
-    die 64 "--no-provision applies to mysql and pgsql only"
+    die 64 "--no-provision applies to mysql, pgsql and mariadb only"
 fi
 if [ "$sqlite_file" = 1 ] && [ "$engine" != sqlite ]; then
     die 64 "--sqlite-file applies to sqlite only"
 fi
 if [ "$drop_database" = 1 ] && { [ "$engine" = sqlite ] || [ "$no_provision" = 1 ]; }; then
-    die 64 "--drop-database applies to mysql and pgsql with a lease, not to sqlite or --no-provision"
+    die 64 "--drop-database applies to mysql, pgsql and mariadb with a lease, not to sqlite or --no-provision"
 fi
-if [ "$alt" = 1 ] && { [ "$engine" = sqlite ] || [ "$no_provision" = 1 ]; }; then
-    die 64 "--alt applies to mysql and pgsql with a lease, not to sqlite or --no-provision"
+if [ "$alt" = 1 ] && { [ "$engine" = sqlite ] || [ "$engine" = mariadb ] || [ "$no_provision" = 1 ]; }; then
+    die 64 "--alt applies to mysql and pgsql with a lease, not to sqlite, mariadb or --no-provision"
 fi
 # Only --alt gives a run the alt server.
 unset ORRERY_TEST_ALT
@@ -184,7 +185,7 @@ case "$schema" in
     *) die 64 "--schema must be reuse or fresh, not '$schema'" ;;
 esac
 if [ "$schema" = reuse ] && [ "$engine" = sqlite ] && [ "$sqlite_file" = 0 ]; then
-    die 64 "--schema=reuse needs a database that lives longer than one test: use sqlite --sqlite-file, mysql or pgsql"
+    die 64 "--schema=reuse needs a database that lives longer than one test: use sqlite --sqlite-file, mysql, pgsql or mariadb"
 fi
 export ORRERY_TEST_SCHEMA=$schema
 
@@ -696,7 +697,7 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 trap 'exit 129' HUP
 
-# The private directory of this run: the startup gate (mysql, pgsql), or the
+# The private directory of this run: the startup gate (server engines), or the
 # owner record and the SQLite files (the modes without a registry).
 run_dir=$(mktemp -d "${TMPDIR:-/tmp}/orrery-run.XXXXXXXX")
 run_dir=$(cd "$run_dir" && pwd -P)
@@ -726,6 +727,7 @@ if [ "$engine" != sqlite ] && [ "$no_provision" = 0 ]; then
     export ORRERY_TEST_DRIVER=$engine
     export ORRERY_TEST_MYSQL_PORT=${ORRERY_TEST_MYSQL_PORT:-33106}
     export ORRERY_TEST_PGSQL_PORT=${ORRERY_TEST_PGSQL_PORT:-54336}
+    export ORRERY_TEST_MARIADB_PORT=${ORRERY_TEST_MARIADB_PORT:-33108}
     export ORRERY_TEST_PASSWORD=orrery
     unset ORRERY_TEST_CI ORRERY_TEST_SQLITE_FILE ORRERY_TEST_RUN_ID ORRERY_TEST_TOKEN
     alt_option=
@@ -837,6 +839,7 @@ else
     export ORRERY_TEST_DRIVER=$engine
     export ORRERY_TEST_MYSQL_PORT=${ORRERY_TEST_MYSQL_PORT:-33106}
     export ORRERY_TEST_PGSQL_PORT=${ORRERY_TEST_PGSQL_PORT:-54336}
+    export ORRERY_TEST_MARIADB_PORT=${ORRERY_TEST_MARIADB_PORT:-33108}
     export ORRERY_TEST_PASSWORD=${ORRERY_TEST_PASSWORD:-orrery}
     unset ORRERY_TEST_RUN_ID ORRERY_TEST_SQLITE_FILE
 fi

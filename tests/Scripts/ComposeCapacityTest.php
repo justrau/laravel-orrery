@@ -26,6 +26,7 @@ final class ComposeCapacityTest extends TestCase
     /** service => [tmpfs bytes, memory limit bytes] */
     private const CAPACITY = [
         'mysql' => [512 * self::MIB, 1024 * self::MIB],
+        'mariadb' => [512 * self::MIB, 1024 * self::MIB],
         'mysql-alt' => [512 * self::MIB, 1024 * self::MIB],
         'postgres' => [1024 * self::MIB, 1536 * self::MIB],
         'pgsql-alt' => [1024 * self::MIB, 1536 * self::MIB],
@@ -81,6 +82,25 @@ final class ComposeCapacityTest extends TestCase
             self::assertContains('--performance-schema=OFF', $command, $name);
             self::assertContains('--innodb-log-buffer-size=16777216', $command, $name);
             self::assertContains('--skip-log-bin', $command, $name);
+        }
+    }
+
+    /**
+     * Rejects: a MariaDB service that is not the LTS release that the docs and the
+     * harness name, that turns the binary log or performance_schema on, keeps the
+     * default log buffer or buffer pool, or publishes another port than the
+     * ownership contract's 33108 on 127.0.0.1.
+     * Still passes: a 12.3 tag that Docker Hub moves to a later 12.3 patch.
+     */
+    public function test_mariadb_runs_the_lts_release_small_on_its_own_port(): void
+    {
+        $service = self::services()['mariadb'];
+
+        self::assertSame('mariadb:12.3', $service['image']);
+        self::assertSame(['127.0.0.1:${ORRERY_TEST_MARIADB_PORT:-33108}:3306'], $service['ports']);
+
+        foreach (['--skip-log-bin', '--performance-schema=OFF', '--innodb-log-buffer-size=16777216', '--innodb-buffer-pool-size=67108864'] as $flag) {
+            self::assertContains($flag, $service['command']);
         }
     }
 
