@@ -6,11 +6,13 @@ namespace Justrau\Orrery\Tests\Controller;
 
 use ErrorException;
 use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Database\Events\QueryExecuted;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Str;
+use Justrau\Orrery\Http\Controllers\JobClassesController;
 use Justrau\Orrery\Monitoring\SampleCounts;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\Clock;
@@ -257,13 +259,14 @@ final class JobClassesControllerTest extends ControllerTest
     }
 
     /**
-     * The stored read stops after `dashboard.class_rows` rows, newest minute first.
+     * The stored read takes the whole budget of `dashboard.class_rows` rows, newest minute first.
      *
-     * Rejects: a read without a row bound (Gamma's minute is listed, `capped` false), a cut
-     * minute read as complete (M - 180 holds only part of its rows), the minutes before the
-     * cut counted as 0 instead of unknown, and `complete: true` for a capped sum.
-     * Still passes: a bound that counts only the `job` rows (the `total` rows here fit
-     * either way).
+     * Rejects: a read without a row bound in its SQL (a PHP-side cut reads every row; Gamma's
+     * minute is listed, `capped` false), a cut minute read as complete (M - 180 holds only part of
+     * its rows), the minutes before the cut counted as 0 instead of unknown, a scan that reads past
+     * the budget that the stored read used up (the current minute is then known), and
+     * `complete: true` for a capped sum.
+     * Still passes: a bound that counts only the `job` rows (the `total` rows here fit either way).
      */
     public function test_the_stored_read_is_bounded_and_says_at_least(): void
     {
@@ -282,16 +285,18 @@ final class JobClassesControllerTest extends ControllerTest
         $this->job('App\\Jobs\\Gamma', self::M - 180, completed: 9);
         $this->job(self::ALPHA, self::M - 240, completed: 7);
 
+        $limits = $this->boundedReads(fn () => $response = $this->getJson('/orrery/api/classes?minutes=5')->assertOk());
         $response = $this->getJson('/orrery/api/classes?minutes=5')->assertOk();
 
+        self::assertSame([7], $limits, 'one bounded read in SQL: the stored read; no budget is left for a scan');
         self::assertTrue($response->json('capped'));
         self::assertSame([
             ['name' => self::ALPHA, 'completed' => 4, 'failed' => 0, 'pushed' => null, 'runtime_avg_ms' => null, 'complete' => false],
             ['name' => 'App\\Jobs\\Beta', 'completed' => 0, 'failed' => 2, 'pushed' => null, 'runtime_avg_ms' => null, 'complete' => false],
         ], $response->json('classes'));
-        self::assertSame(['count' => 2, 'first' => self::M - 240, 'last' => self::M - 180], $response->json('unknown_minutes'));
+        self::assertSame(['count' => 3, 'first' => self::M - 240, 'last' => self::M], $response->json('unknown_minutes'), 'the cut minute, the minute before it, and the scanned minute without budget');
 
-        // Within the bound, the same read is complete.
+        // Within the budget, the same read is complete.
         $this->app['config']->set('orrery.dashboard.class_rows', 11);
         $response = $this->getJson('/orrery/api/classes?minutes=5')->assertOk();
 
@@ -301,36 +306,98 @@ final class JobClassesControllerTest extends ControllerTest
     }
 
     /**
-     * The scan of each kind stops after `dashboard.class_rows` groups, newest minute first.
+     * The scans share what the stored read left of the budget, in the order completions,
+     * failures, arrivals, newest minute first.
      *
-     * Rejects: a scan without a group bound, a cut minute read as complete (M - 60 holds only
-     * part of its groups), and a kind marked unknown when its own scan fit the bound (the
-     * failures here have no group, so they stay known).
+     * Rejects: a scan without a group bound in its SQL, a cut minute read as complete (M - 60
+     * holds only part of its groups), a later scan that reads although the budget is spent (its
+     * minutes are then known), and a budget per scan instead of one budget for the whole read.
      * Still passes: a bound on the number of distinct classes instead of groups.
      */
     public function test_the_scan_is_bounded_and_says_at_least(): void
     {
-        $this->app['config']->set('orrery.dashboard.class_rows', 2);
+        $this->app['config']->set('orrery.dashboard.class_rows', 4);
         $this->through(self::M - 120);
+        // The stored read uses 2 rows of the budget: the scans share the other 2.
+        $this->total(self::M - 240, 0);
+        $this->total(self::M - 180, 0);
         $this->row(self::ALPHA, 'a', 'completed', ['pushed_at' => self::M + 1.0, 'finished_at' => self::M + 2.0]);
         $this->row(self::ALPHA, 'a', 'completed', ['pushed_at' => self::M - 59.0, 'finished_at' => self::M - 58.0]);
         $this->row('App\\Jobs\\Beta', 'a', 'completed', ['pushed_at' => self::M - 59.0, 'finished_at' => self::M - 58.0]);
         $this->row(self::ALPHA, 'a', 'completed', ['pushed_at' => self::M - 119.0, 'finished_at' => self::M - 118.0]);
 
+        $limits = $this->boundedReads(fn () => $this->getJson('/orrery/api/classes?minutes=5')->assertOk());
         $response = $this->getJson('/orrery/api/classes?minutes=5')->assertOk();
 
+        self::assertSame([5, 3], $limits, 'the stored read, then the completions scan with what is left; the failures and arrivals have no budget left');
         self::assertTrue($response->json('capped'));
         self::assertSame(
             [['name' => self::ALPHA, 'completed' => 1, 'failed' => 0, 'pushed' => null, 'runtime_avg_ms' => null, 'complete' => false]],
             $response->json('classes'),
         );
-        self::assertSame(['count' => 4, 'first' => self::M - 240, 'last' => self::M - 60], $response->json('unknown_minutes'));
+        self::assertSame(['count' => 3, 'first' => self::M - 120, 'last' => self::M], $response->json('unknown_minutes'));
 
-        $this->app['config']->set('orrery.dashboard.class_rows', 4);
+        $this->app['config']->set('orrery.dashboard.class_rows', 12);
         $response = $this->getJson('/orrery/api/classes?minutes=5')->assertOk();
 
         self::assertFalse($response->json('capped'));
         self::assertSame([3, 1], array_column($response->json('classes'), 'completed'));
+    }
+
+    /**
+     * Rejects: a default budget that leaves out the `total` row of each minute or the three scans
+     * of the recount window, so a steady 500 classes in every minute of the longest window read as
+     * capped.
+     * Still passes: a default that is much larger than it needs to be (the test seeds the
+     * on-time case, not a lagging tick).
+     */
+    public function test_the_default_budget_reads_500_classes_in_every_minute_completely(): void
+    {
+        $through = self::M - SampleCounts::RECOUNT_SECONDS;
+        $this->through($through);
+        $first = self::M - 59 * 60;
+        $rows = [];
+
+        for ($minute = $first; $minute < $through; $minute += 60) {
+            $this->total($minute, 0);
+
+            for ($i = 0; $i < JobClassesController::CLASS_LIMIT; $i++) {
+                $rows[] = $this->jobRow(sprintf('App\\Jobs\\C%03d', $i), $minute, 1, 0, 0, 0, 1);
+            }
+        }
+
+        foreach (array_chunk($rows, 500) as $chunk) {
+            $this->mirror()->table(SampleCounts::TABLE)->insert($chunk);
+        }
+
+        $jobs = [];
+
+        for ($minute = $through; $minute <= self::M; $minute += 60) {
+            for ($i = 0; $i < JobClassesController::CLASS_LIMIT; $i++) {
+                foreach (['completed', 'failed'] as $status) {
+                    $at = Clock::toDecimal($minute + 1.0);
+                    $jobs[] = [
+                        'uuid' => strtolower((string) Str::uuid()), 'connection' => 'database', 'queue' => 'default', 'name' => sprintf('App\\Jobs\\C%03d', $i),
+                        'status' => $status, 'payload' => '{}', 'payload_bytes' => 2, 'updated_at' => $at, 'pushed_at' => $at, 'finished_at' => $at,
+                        'failed_at' => $status === 'failed' ? $at : null,
+                    ];
+                }
+            }
+        }
+
+        foreach (array_chunk($jobs, 200) as $chunk) {
+            $this->mirror()->table('orrery_jobs')->insert($chunk);
+        }
+
+        $response = $this->getJson('/orrery/api/classes?minutes=60')->assertOk();
+
+        self::assertSame(JobClassesController::DEFAULT_CLASS_ROWS, JobClassesController::rowLimit(), 'config/orrery.php ships the default');
+
+        self::assertFalse($response->json('capped'));
+        self::assertNull($response->json('unknown_minutes'));
+        self::assertFalse($response->json('truncated'));
+        self::assertCount(JobClassesController::CLASS_LIMIT, $response->json('classes'));
+        self::assertSame([66], array_values(array_unique(array_map(static fn (array $row): int => $row['completed'] + $row['failed'], $response->json('classes')))));
     }
 
     /**
@@ -603,6 +670,25 @@ final class JobClassesControllerTest extends ControllerTest
     private static function kinds(float $value): array
     {
         return ['completed' => $value, 'failed' => $value, 'pushed' => $value];
+    }
+
+    /**
+     * The LIMIT of each bounded read (ORDER BY … DESC LIMIT n) that $request sends, in order.
+     *
+     * @return list<int>
+     */
+    private function boundedReads(\Closure $request): array
+    {
+        $limits = [];
+        $this->app['events']->listen(QueryExecuted::class, static function (QueryExecuted $query) use (&$limits): void {
+            if (preg_match('/\bdesc limit (\d+)$/i', trim($query->sql), $match) === 1) {
+                $limits[] = (int) $match[1];
+            }
+        });
+
+        $request();
+
+        return $limits;
     }
 
     private function through(int $minute): void

@@ -40,10 +40,12 @@ use Throwable;
  *   (arrivalsKnown()).
  * - At most CLASS_LIMIT classes, by completed + failed desc, then the name
  *   in byte order; `truncated` is true when more had rows.
- * - The memory bound: the stored read and each scan read at most
- *   `dashboard.class_rows` rows (rowLimit()), newest minute first
- *   (SampleCoverage::of() $rowLimit). Job names that change per job then
- *   make the older minutes unknown, never a larger read: `capped` is true,
+ * - The memory bound: the stored read and the scans share one budget of
+ *   `dashboard.class_rows` rows (rowLimit(), default DEFAULT_CLASS_ROWS),
+ *   each newest minute first (SampleCoverage::of() $rowLimit). Job names
+ *   that change per job then make minutes unknown, never a larger read
+ *   (measured: about 55 MB at the default, with 80-character names, on
+ *   in-memory SQLite): `capped` is true,
  *   those minutes are in `unknown_minutes`, and every sum is "at least"
  *   (`complete` false). The listed classes are then the busiest of the
  *   minutes read, not of the whole window.
@@ -90,8 +92,19 @@ class JobClassesController extends Controller
 
     public const NAME_MAX_CHARACTERS = 512;
 
-    /** The default of orrery.dashboard.class_rows: CLASS_LIMIT classes in each minute of the longest window. */
-    public const DEFAULT_CLASS_ROWS = self::CLASS_LIMIT * self::MAX_CLASS_MINUTES;
+    /**
+     * The minutes that the classes read scans in the mirror rows while the
+     * counts are on time: the recount window and the current minute.
+     */
+    public const SCANNED_MINUTES = SampleCounts::RECOUNT_SECONDS / SampleCounts::MINUTE + 1;
+
+    /**
+     * The default of orrery.dashboard.class_rows, one budget for the whole
+     * read: CLASS_LIMIT classes in every minute of the longest window, read
+     * once in the stored minutes and three times (completions, failures,
+     * arrivals) in the scanned minutes, and the `total` row of each minute.
+     */
+    public const DEFAULT_CLASS_ROWS = self::CLASS_LIMIT * (self::MAX_CLASS_MINUTES + 2 * self::SCANNED_MINUTES) + self::MAX_CLASS_MINUTES;
 
     public const READ_OPERATION = 'http:classes';
 

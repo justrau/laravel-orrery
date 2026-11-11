@@ -65,13 +65,16 @@ use Justrau\Orrery\Storage\PackageSession;
  * So a trim that commits during a read can make a minute unknown, never a
  * covered undercount.
  *
- * A row bound ($rowLimit, the job classes): the stored read (2) and each
- * scan (3) read at most $rowLimit rows, newest minute first. When a read
- * has more, the minute of its first row past the bound and every earlier
- * minute are unknown for what that read decides (the stored counts, or the
- * scanned kind), so a bounded read is a lower bound, never a covered
- * undercount, and SampleWindow::$capped says so. The rows of a series that
- * changes its name per job stay within the bound.
+ * A row bound ($rowLimit, the job classes): one budget of $rowLimit rows
+ * for the whole call. The stored read (2) takes at most the budget, and each
+ * scan (3), in the order of $kinds, at most what is left, each newest minute
+ * first. When a read has more, the minute of its first row past its share
+ * and every earlier minute are unknown for what that read decides (the
+ * stored counts, or the scanned kind), and a scan with no budget left makes
+ * all its minutes unknown. So a bounded read is a lower bound, never a
+ * covered undercount, and SampleWindow::$capped says so. The rows of a
+ * series that changes its name per job stay within the bound, and the rows
+ * at or before a cut keep no label.
  *
  * Series are byte-exact: the stored rows by their digest, the scan grouped
  * by CAST(... AS BINARY) on MySQL (Postgres and SQLite compare bytes under
@@ -113,7 +116,7 @@ final class SampleCoverage
      * @param  'total'|'queue'|'job'  $scope
      * @param  array{connection?: string, queue?: string, name?: string}|null  $only
      * @param  list<'completed'|'failed'|'pushed'>  $kinds  the kinds to decide (see the class comment)
-     * @param  int|null  $rowLimit  the most rows of each read (see the class comment), or null for no bound
+     * @param  int|null  $rowLimit  the row budget of the call (see the class comment), or null for no bound
      */
     public function of(string $scope, ?array $only, int $from, int $to, array $kinds = SampleWindow::OUTCOMES, ?int $rowLimit = null): SampleWindow
     {
@@ -137,6 +140,7 @@ final class SampleCoverage
         // 2. The stored counts before M.
         $stored = $through === null || $through <= $from ? [] : $this->stored($session, $scope, $only, $from, min($to, $through), in_array('pushed', $kinds, true), $rowLimit);
         $storedCut = $stored['cut'] ?? null;
+        $budget = $rowLimit === null ? null : $rowLimit - ($stored['used'] ?? 0);
         Hooks::reach(self::AFTER_COVERAGE);
 
         // 3. The scan from M on (without M: the current minute only), within the trim horizons.
@@ -151,8 +155,21 @@ final class SampleCoverage
             $scanned[$kind] = [];
             $kindFrom = max($scanFrom, self::ceilMinute($horizons[$kind]));
 
-            if ($kindFrom < $to) {
-                [$scanned[$kind], $scanCuts[$kind]] = $this->scan($session, $kind, $scope, $only, $aliases, $kindFrom, $to, $labels, $rowLimit);
+            if ($kindFrom >= $to) {
+                continue;
+            }
+
+            if ($budget !== null && $budget <= 0) {
+                // No budget left: every minute of this scan is unknown.
+                $scanCuts[$kind] = $to - SampleCounts::MINUTE;
+
+                continue;
+            }
+
+            [$scanned[$kind], $scanCuts[$kind], $used] = $this->scan($session, $kind, $scope, $only, $aliases, $kindFrom, $to, $labels, $budget);
+
+            if ($budget !== null) {
+                $budget -= $used;
             }
         }
 
@@ -293,7 +310,7 @@ final class SampleCoverage
      *
      * @param  'total'|'queue'|'job'  $scope
      * @param  array{connection?: string, queue?: string, name?: string}|null  $only
-     * @return array{totals: array<int, array{pushed: bool}>, rows: array<int, array<string, Counts>>, labels: array<string, Label>, cut: ?int}
+     * @return array{totals: array<int, array{pushed: bool}>, rows: array<int, array<string, Counts>>, labels: array<string, Label>, cut: ?int, used: int}
      */
     private function stored(Connection $session, string $scope, ?array $only, int $from, int $to, bool $arrivals, ?int $rowLimit): array
     {
@@ -348,7 +365,13 @@ final class SampleCoverage
             $cut = (int) $past->minute;
         }
 
-        foreach ($read as $row) {
+        $used = $rowLimit === null ? $read->count() : min($read->count(), $rowLimit);
+        // Each row is freed once it is read, so the rows and their counts are not both held whole.
+        $items = $read->all();
+        unset($read, $past);
+
+        foreach ($items as $index => $row) {
+            unset($items[$index]);
             $minute = (int) $row->minute;
 
             if ($cut !== null && $minute <= $cut) {
@@ -381,7 +404,7 @@ final class SampleCoverage
             ];
         }
 
-        return ['totals' => $totals, 'rows' => $rows, 'labels' => $labels, 'cut' => $cut];
+        return ['totals' => $totals, 'rows' => $rows, 'labels' => $labels, 'cut' => $cut, 'used' => $used];
     }
 
     /**
@@ -398,7 +421,7 @@ final class SampleCoverage
      * @param  array{connection?: string, queue?: string, name?: string}|null  $only
      * @param  array<string, string>  $aliases
      * @param  array<string, Label>  $labels
-     * @return array{0: array<int, array<string, array<string, int>>>, 1: ?int}
+     * @return array{0: array<int, array<string, array<string, int>>>, 1: ?int, 2: int} the counts, the cut and the rows of the budget that it used
      */
     private function scan(Connection $session, string $kind, string $scope, ?array $only, array $aliases, int $from, int $to, array &$labels, ?int $rowLimit): array
     {
@@ -470,9 +493,20 @@ final class SampleCoverage
         $read = $query->get();
         $past = $rowLimit === null ? null : $read->get($rowLimit);
         $cut = $past === null ? null : (int) $past->bucket * SampleCounts::MINUTE;
+        $used = $rowLimit === null ? $read->count() : min($read->count(), $rowLimit);
+        // Each row is freed once it is read.
+        $items = $read->all();
+        unset($read, $past);
 
-        foreach ($read as $row) {
+        foreach ($items as $index => $row) {
+            unset($items[$index]);
             $minute = (int) $row->bucket * SampleCounts::MINUTE;
+
+            // The minutes at or before the cut are unknown: no counts, no label.
+            if ($cut !== null && $minute <= $cut) {
+                continue;
+            }
+
             [$series, $label] = self::seriesOf($scope, $row, $aliases);
 
             if ($series === null || ! self::matches($only, $label)) {
@@ -492,7 +526,7 @@ final class SampleCoverage
             $labels[$series] ??= $label;
         }
 
-        return [$result, $cut];
+        return [$result, $cut, $used];
     }
 
     /**
