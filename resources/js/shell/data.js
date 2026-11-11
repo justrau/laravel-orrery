@@ -52,7 +52,11 @@ export const SAMPLES_BEHIND_SECONDS = 600;
  * 4. 'unknown': the pause state is not known off;
  * 5. 'ready'.
  *
- * `pause` is the pauseState() of the row.
+ * `pause` is the pauseState() of the row. `label` is the queue name (the
+ * sidebar's section heading names the connections); `distinctLabel` adds
+ * the connection for a name on several connections, for a list without
+ * sections (the Overview cards). `connections` is the row's `connections`,
+ * else `[connection]`.
  */
 export function sidebarQueues(workload) {
     const rows = Array.isArray(workload) ? workload : [];
@@ -78,11 +82,17 @@ export function sidebarQueues(workload) {
                 state = 'unknown';
             }
 
+            const connections = Array.isArray(row.connections) && row.connections.length
+                ? row.connections.filter(name => typeof name === 'string')
+                : [row.connection];
+
             return {
                 key: `${row.connection}:${row.name}`,
                 connection: row.connection,
+                connections: connections.length ? connections : [row.connection],
                 queue: row.name,
-                label: duplicate ? `${row.name} (${row.connection})` : row.name,
+                label: row.name,
+                distinctLabel: duplicate ? `${row.name} (${row.connection})` : row.name,
                 ready: toSeconds(row.length),
                 oldestAge: toSeconds(row.oldest_age),
                 overLimit,
@@ -91,6 +101,29 @@ export function sidebarQueues(workload) {
                 state,
             };
         });
+}
+
+/**
+ * The sidebar's queue sections: one per set of `connections` (the
+ * connections that share one jobs table), in the order of first appearance
+ * in the workload answer. Each is `{key, connections, heading, queues}`,
+ * with the heading "Queues · database, database-long" and the
+ * sidebarQueues() entries of the section.
+ */
+export function sidebarQueueGroups(workload) {
+    const groups = new Map();
+
+    for (const queue of sidebarQueues(workload)) {
+        const key = queue.connections.join(',');
+
+        if (!groups.has(key)) {
+            groups.set(key, {key, connections: queue.connections, heading: `Queues · ${queue.connections.join(', ')}`, queues: []});
+        }
+
+        groups.get(key).queues.push(queue);
+    }
+
+    return [...groups.values()];
 }
 
 /**

@@ -17,7 +17,9 @@
      *   of the past hour as its badge);
      * - Jobs: Pending, Running, Completed, Failed and Stuck, each a tab of the
      *   Jobs list with that tab's own count (shell/data.js jobNavItems());
-     * - the database queues, then Batches, Tags, Job classes and Workers.
+     * - the database queues, one section per set of connections that share
+     *   a jobs table ("Queues · database, database-long",
+     *   sidebarQueueGroups()), then Batches, Tags, Job classes and Workers.
      *
      * Below 1024 px AppShell shows it as a drawer (`drawer`): it emits
      * `navigate` when a link is followed, so the drawer closes.
@@ -31,7 +33,8 @@
             /** attentionCount() ({ count, atLeast, possible, unknown }), or null before the workload loaded. */
             attention: {type: Object, default: null},
             counts: {type: Object, default: () => ({})},
-            queues: {type: Array, default: () => []},
+            /** sidebarQueueGroups(): one section per set of connections that share a jobs table. */
+            queueGroups: {type: Array, default: () => []},
             /** The workload never loaded: the queue list is unknown, not empty. */
             queuesUnknown: {type: Boolean, default: false},
             health: {type: Object, default: null},
@@ -220,27 +223,33 @@
                 <span v-if="item.count" class="o-nav-item__count">{{ item.count }}</span>
             </router-link>
 
-            <div class="o-nav-section o-nav-section--split">
-                <router-link to="/queues" class="o-nav-section__link" :class="{'o-nav-section__link--active': $route.name === 'queues'}">Queues · database</router-link>
-                <span class="o-nav-section__aside">ready</span>
+            <div v-if="!queueGroups.length" class="o-nav-section o-nav-section--split">
+                <router-link to="/queues" class="o-nav-section__link" :class="{'o-nav-section__link--active': $route.name === 'queues'}">Queues</router-link>
             </div>
-            <router-link v-for="queue in queues" :key="queue.key" :to="queueTo(queue)" class="o-nav-item"
-                         :class="{'o-nav-item--active': queueActive(queue), 'o-nav-item--paused': queue.state === 'paused'}" :title="queueTitle(queue)">
-                <icon name="queue" class="o-nav-item__icon" />
-                <span class="o-nav-item__label">{{ queue.label }}</span>
-                <span v-if="queue.state === 'paused'" class="o-nav-item__state">
-                    <icon name="paused-small" :size="12" />
-                    <span>Paused</span>
-                </span>
-                <span v-else-if="queue.state === 'over'" class="o-pill o-pill--warning o-pill--icon">
-                    <icon name="warning-small" :size="10" class="o-pill__icon" />
-                    <span>{{ shortDuration(queue.oldestAge) }}{{ queue.pause.knownOff ? '' : '?' }}</span>
-                </span>
-                <span v-else-if="queue.backlogUnknown" class="o-nav-item__count">unknown</span>
-                <span v-else-if="queue.state === 'unknown'" class="o-nav-item__count">{{ queue.ready === null ? '—' : formatCountValue(queue.ready) }} ?</span>
-                <span v-else class="o-nav-item__count">{{ queue.ready === null ? '—' : formatCountValue(queue.ready) }}</span>
-            </router-link>
-            <div v-if="!queues.length" class="o-nav-empty">{{ queuesUnknown ? 'Queues unknown' : 'No database queues' }}</div>
+            <template v-for="(group, index) in queueGroups" :key="group.key">
+                <div class="o-nav-section o-nav-section--split" data-queue-group>
+                    <router-link to="/queues" class="o-nav-section__link" :class="{'o-nav-section__link--active': $route.name === 'queues'}"
+                                 :title="group.heading">{{ group.heading }}</router-link>
+                    <span v-if="index === 0" class="o-nav-section__aside">ready</span>
+                </div>
+                <router-link v-for="queue in group.queues" :key="queue.key" :to="queueTo(queue)" class="o-nav-item"
+                             :class="{'o-nav-item--active': queueActive(queue), 'o-nav-item--paused': queue.state === 'paused'}" :title="queueTitle(queue)">
+                    <icon name="queue" class="o-nav-item__icon" />
+                    <span class="o-nav-item__label">{{ queue.label }}</span>
+                    <span v-if="queue.state === 'paused'" class="o-nav-item__state">
+                        <icon name="paused-small" :size="12" />
+                        <span>Paused</span>
+                    </span>
+                    <span v-else-if="queue.state === 'over'" class="o-pill o-pill--warning o-pill--icon">
+                        <icon name="warning-small" :size="10" class="o-pill__icon" />
+                        <span>{{ shortDuration(queue.oldestAge) }}{{ queue.pause.knownOff ? '' : '?' }}</span>
+                    </span>
+                    <span v-else-if="queue.backlogUnknown" class="o-nav-item__count">unknown</span>
+                    <span v-else-if="queue.state === 'unknown'" class="o-nav-item__count">{{ queue.ready === null ? '—' : formatCountValue(queue.ready) }} ?</span>
+                    <span v-else class="o-nav-item__count">{{ queue.ready === null ? '—' : formatCountValue(queue.ready) }}</span>
+                </router-link>
+            </template>
+            <div v-if="!queueGroups.length" class="o-nav-empty">{{ queuesUnknown ? 'Queues unknown' : 'No database queues' }}</div>
 
             <div class="o-nav-section">Monitoring</div>
             <router-link v-for="item in monitoringItems" :key="item.key" :to="item.to" class="o-nav-item"
@@ -457,12 +466,17 @@
     .o-nav-section--split {
         align-items: baseline;
         display: flex;
+        gap: 8px;
         justify-content: space-between;
     }
 
     .o-nav-section__link {
         color: inherit;
+        min-width: 0;
+        overflow: hidden;
         text-decoration: none;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     .o-nav-section__link:hover,
@@ -472,6 +486,7 @@
     }
 
     .o-nav-section__aside {
+        flex-shrink: 0;
         font-weight: var(--font-weight-regular);
     }
 

@@ -46,6 +46,7 @@ import {
     shellAttention,
     shellHealth,
     sidebarQueues,
+    sidebarQueueGroups,
     STALE_TICK_SECONDS,
     watcherHealth,
     isRollbackOnlyWindow,
@@ -164,8 +165,9 @@ test('sidebarQueues orders the states: paused, unknown backlog, over, unknown pa
     assert.equal(nullOver.state, 'ready');
 });
 
-// Rejects: a label without the connection for a queue name on two connections, and rows without a name.
-test('sidebarQueues labels duplicate names with their connection and skips invalid rows', () => {
+// Rejects: a sidebar label with the connection (the section heading names it), an Overview label
+// without the connection for a queue name on two connections, and rows without a name.
+test('sidebarQueues labels by queue name, keeps a distinct label for duplicates, and skips invalid rows', () => {
     const queues = sidebarQueues([
         row({name: 'default'}),
         row({name: 'default', connection: 'other'}),
@@ -174,15 +176,37 @@ test('sidebarQueues labels duplicate names with their connection and skips inval
         null,
     ]);
 
-    assert.deepEqual(queues.map(queue => [queue.key, queue.label]), [
-        ['database:default', 'default (database)'],
-        ['other:default', 'default (other)'],
-        ['database:mail', 'mail'],
+    assert.deepEqual(queues.map(queue => [queue.key, queue.label, queue.distinctLabel]), [
+        ['database:default', 'default', 'default (database)'],
+        ['other:default', 'default', 'default (other)'],
+        ['database:mail', 'mail', 'mail'],
     ]);
     assert.deepEqual(sidebarQueues(null), []);
     assert.equal(queues[0].ready, 3);
     assert.equal(queues[0].oldestAge, 5);
 });
+
+// Rejects: one flat list, a group per connection name instead of per shared jobs table, groups sorted
+// by name instead of first appearance, and a row without `connections` dropped or merged into another
+// group. It would still pass another separator inside the heading's connection list.
+test('sidebarQueueGroups gives one section per set of connections, in order of first appearance', () => {
+    const groups = sidebarQueueGroups([
+        row({name: 'default', connection: 'database-separate', connections: ['database-separate']}),
+        row({name: 'default', connection: 'database', connections: ['database', 'database-long']}),
+        row({name: 'mail', connection: 'database', connections: ['database', 'database-long']}),
+        row({name: 'audit', connection: 'legacy'}),
+        row({name: 'reports', connection: 'legacy', connections: []}),
+    ]);
+
+    assert.deepEqual(groups.map(group => [group.heading, group.queues.map(queue => [queue.key, queue.label])]), [
+        ['Queues · database-separate', [['database-separate:default', 'default']]],
+        ['Queues · database, database-long', [['database:default', 'default'], ['database:mail', 'mail']]],
+        ['Queues · legacy', [['legacy:audit', 'audit'], ['legacy:reports', 'reports']]],
+    ]);
+    assert.deepEqual(groups.map(group => group.key), ['database-separate', 'database,database-long', 'legacy']);
+    assert.deepEqual(sidebarQueueGroups(null), []);
+});
+
 
 function recentGroup(age, extra = {}) {
     return {key: `g${age}`, count: 1, last_failed_at: NOW - age, ...extra};

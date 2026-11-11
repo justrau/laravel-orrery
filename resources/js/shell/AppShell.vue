@@ -4,7 +4,7 @@
     import {browserSeconds, noteServerTime, nowSeconds} from '../support/time.js';
     import Sidebar from './Sidebar.vue';
     import Toolbar from './Toolbar.vue';
-    import {SIDEBAR_BREAKPOINT, failuresPastHour, listBody, objectBody, mirroredCount, runningBatches, shellAttention, sidebarIsDrawer, sidebarQueues} from './data.js';
+    import {SIDEBAR_BREAKPOINT, failuresPastHour, listBody, objectBody, mirroredCount, runningBatches, shellAttention, sidebarIsDrawer, sidebarQueueGroups} from './data.js';
     import {BACKGROUND_HANDLES, LIVE_HANDLES, createLiveRefresher} from './poll.js';
     import {closeNav, live, liveWatcherHealth, setLiveRefresh, setNarrow, setPhone, shell} from './store.js';
 
@@ -52,8 +52,8 @@
                 return typeof Orrery !== 'undefined' && typeof Orrery.environment === 'string' ? Orrery.environment : null;
             },
 
-            queues() {
-                return sidebarQueues(this.live.workload);
+            queueGroups() {
+                return sidebarQueueGroups(this.live.workload);
             },
 
             /** The workload never loaded: the sidebar says "Queues unknown", not "No database queues". */
@@ -269,7 +269,7 @@
         <div v-show="!shell.narrow || shell.navOpen" id="orrery-nav" class="o-shell__nav"
              :role="drawerOpen ? 'dialog' : null" :aria-modal="drawerOpen ? 'true' : null" :aria-label="drawerOpen ? 'Navigation' : null">
             <sidebar :app-name="appName" :environment="environment" :attention="attention" :counts="sidebarCounts"
-                     :queues="queues" :queues-unknown="queuesUnknown" :health="healthSummary" :drawer="shell.narrow"
+                     :queue-groups="queueGroups" :queues-unknown="queuesUnknown" :health="healthSummary" :drawer="shell.narrow"
                      @navigate="closeNav" />
         </div>
 

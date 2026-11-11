@@ -10,6 +10,10 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 - **Quiet workers.** A listed worker whose last heartbeat is older than two `workers.heartbeat_seconds` (30 seconds by default), and that holds no live reservation, is now quiet: the Workers screen and the queue inspector show it with an amber dot and "No heartbeat for …" instead of the green dot, and the Overview and the Queues screen show "Workers quiet" for a queue whose every worker is quiet. Before, a worker killed with SIGKILL looked healthy until it left the list. `GET /orrery/api/workers` adds `state` (`live` or `quiet`) to each row and child, and `GET /orrery/api/workload` adds `quiet_processes` to each queue.
 
+### Changed
+
+- **The sidebar groups the queues by jobs table.** Each set of connections that share one jobs table has its own section, headed with the connection names ("Queues · database, database-long"), and a queue shows only its name. Before, one section was headed "Queues · database" after the queue driver, which read like a connection named `database`, and a queue name on two connections showed as "default (database)".
+
 ## [0.3.0] - 2026-11-11
 
 ### Added

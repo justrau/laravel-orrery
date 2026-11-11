@@ -195,7 +195,7 @@
             },
 
             queueEntries() {
-                const labels = new Map(sidebarQueues(this.workload).map(entry => [entry.key, entry.label]));
+                const labels = new Map(sidebarQueues(this.workload).map(entry => [entry.key, entry.distinctLabel]));
 
                 return (Array.isArray(this.workload) ? this.workload : [])
                     .filter(row => row && typeof row.name === 'string' && typeof row.connection === 'string')
