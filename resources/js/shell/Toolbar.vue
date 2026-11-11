@@ -78,7 +78,7 @@
         </button>
 
         <div class="o-toolbar__title">
-            <h1 class="o-toolbar__heading">{{ title }}</h1>
+            <h1 class="o-toolbar__heading" tabindex="-1">{{ title }}</h1>
             <div v-if="subtitle" class="o-toolbar__subtitle" :title="subtitle">{{ subtitle }}</div>
         </div>
 
@@ -147,6 +147,11 @@
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    /* The shell focuses the heading after a held navigation (AppShell holdChanged()); only the Tab key's focus shows a ring. */
+    .o-toolbar__heading:focus:not(:focus-visible) {
+        outline: none;
     }
 
     .o-toolbar__subtitle {

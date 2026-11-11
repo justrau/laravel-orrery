@@ -244,3 +244,30 @@ test('errors.js installs its interceptors on the client', async (t) => {
     assert.equal(refused.__CANCEL__, true);
     assert.equal(calls.length, 2, 'the read in the terminal state never went out');
 });
+
+// Rejects: a client that tells no listener about a request (the held navigation would never wait for the next
+// screen's reads), tells it after the request settled, or keeps a listener after its removal.
+// Still passes: a client that also tells the listener about a request that an interceptor skips (it settles too).
+test('onRequest tells each listener about every new request at once, until it is removed', async () => {
+    const {fetch} = fakeFetch();
+    const http = createHttp({fetch});
+    const seen = [];
+    const remove = http.onRequest(promise => seen.push(promise));
+
+    const first = http.get('/orrery/api/workload');
+
+    assert.equal(seen.length, 1, 'told synchronously, before the answer');
+    assert.equal(typeof seen[0].then, 'function');
+    await first;
+    await seen[0];
+
+    remove();
+    await http.post('/orrery/api/control', {});
+    assert.equal(seen.length, 1);
+
+    // A listener that throws never breaks the request.
+    http.onRequest(() => {
+        throw new Error('listener');
+    });
+    assert.equal((await http.get('/orrery/api/workers')).status, 200);
+});

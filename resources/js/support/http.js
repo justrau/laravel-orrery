@@ -22,6 +22,11 @@
  *   rejected)` runs the last one added first, `interceptors.response.use()`
  *   the first one added first, and a request interceptor that rejects skips
  *   the request and reaches the response interceptors' `rejected`.
+ * - `onRequest(listener)` calls the listener with the promise of every new
+ *   request, synchronously when the request starts (the shell's held
+ *   navigation waits for the reads that a new screen starts,
+ *   support/navigation.js); it returns the removal. A listener that throws
+ *   never breaks the request.
  */
 
 /** The Accept header that axios sent. */
@@ -95,6 +100,7 @@ function parseBody(text) {
 export function createHttp({headers: instanceHeaders = {}, fetch: fetchImpl = (...args) => globalThis.fetch(...args)} = {}) {
     const requestHandlers = [];
     const responseHandlers = [];
+    const listeners = new Set();
 
     async function dispatch(config) {
         const own = config.signal;
@@ -166,6 +172,14 @@ export function createHttp({headers: instanceHeaders = {}, fetch: fetchImpl = (.
 
         for (const [fulfilled, rejected] of responseHandlers) chain = chain.then(fulfilled, rejected);
 
+        for (const listener of listeners) {
+            try {
+                listener(chain);
+            } catch (error) {
+                // A listener never breaks a request.
+            }
+        }
+
         return chain;
     }
 
@@ -179,6 +193,11 @@ export function createHttp({headers: instanceHeaders = {}, fetch: fetchImpl = (.
             response: {use: use(responseHandlers)},
         },
         request,
+        onRequest(listener) {
+            listeners.add(listener);
+
+            return () => listeners.delete(listener);
+        },
         get: (url, config = {}) => request({...config, url, method: 'get'}),
         delete: (url, config = {}) => request({...config, url, method: 'delete'}),
         post: (url, data, config = {}) => request({...config, url, method: 'post', data}),
