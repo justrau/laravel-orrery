@@ -38,7 +38,9 @@ test('a prefetched GET is taken once, by the same path and params, within the TT
     const cache = createPrefetchCache({now: time.now});
     const answer = Promise.resolve({data: 1});
 
-    cache.put('/orrery/api/jobs', {status: 'failed'}, [], answer);
+    const entry = cache.put('/orrery/api/jobs', {status: 'failed'}, [], answer);
+
+    cache.arm([entry]);
 
     assert.equal(cache.take('post', '/orrery/api/jobs', {status: 'failed'}), null, 'never for a write');
     assert.equal(cache.take('get', '/orrery/api/jobs', {status: 'pending'}), null);
@@ -48,7 +50,7 @@ test('a prefetched GET is taken once, by the same path and params, within the TT
 
     const late = Promise.resolve({data: 2});
 
-    cache.put('/orrery/api/jobs', {}, [], late);
+    cache.arm([cache.put('/orrery/api/jobs', {}, [], late)]);
     await settle();
     time.add(PREFETCH_TTL_MS + 1);
     assert.equal(cache.take('get', '/orrery/api/jobs', {}), null, 'expired after it settled');
@@ -64,7 +66,7 @@ test('an answer in flight stays until it settles', async () => {
         resolve = yes;
     });
 
-    cache.put('/orrery/api/workload', {}, [], pending);
+    cache.arm([cache.put('/orrery/api/workload', {}, [], pending)]);
     time.add(PREFETCH_TTL_MS * 5);
     assert.equal(cache.take('get', '/orrery/api/workload', {}), pending);
     resolve({data: []});
@@ -78,7 +80,7 @@ test('a failed prefetch is dropped', async () => {
     const failed = Promise.reject(new Error('503'));
 
     failed.catch(() => {});
-    cache.put('/orrery/api/control', {}, [], failed);
+    cache.arm([cache.put('/orrery/api/control', {}, [], failed)]);
     await settle();
     assert.equal(cache.take('get', '/orrery/api/control', {}), null);
 });
@@ -92,9 +94,37 @@ test('discard removes the entries of a cancelled navigation and aborts them', ()
     const entry = cache.put('/orrery/api/tags', {}, [], new Promise(() => {}), () => aborted++);
     const other = cache.put('/orrery/api/batches', {}, [], new Promise(() => {}));
 
+    cache.arm([entry, other]);
+
     cache.discard([entry]);
     assert.equal(aborted, 1);
     assert.equal(cache.take('get', '/orrery/api/tags', {}), null);
     assert.notEqual(cache.take('get', '/orrery/api/batches', {}), null);
     assert.ok(other);
+});
+
+// Rejects: an entry that a request can take before its navigation committed (the old screen's poll or the shell's
+// own poll of the same read would take the next screen's prefetch).
+// Still passes: an arm that also restarts the TTL (not observed).
+test('an entry can be taken only after it is armed', () => {
+    const cache = createPrefetchCache();
+    const entry = cache.put('/orrery/api/batches', {}, [], new Promise(() => {}));
+
+    assert.equal(cache.take('get', '/orrery/api/batches', {}), null, 'not before the commit');
+    cache.arm([entry]);
+    assert.equal(cache.take('get', '/orrery/api/batches', {}), entry.promise);
+});
+
+// Rejects: a second prefetch of the same read that leaves the older untaken one in place (the screen would take
+// the older answer), or that does not abort it.
+test('a new prefetch of the same read replaces the untaken older one', () => {
+    const cache = createPrefetchCache();
+    let aborted = 0;
+    const older = cache.put('/orrery/api/tags', {tag: 'a'}, [], new Promise(() => {}), () => aborted++);
+    const newer = cache.put('/orrery/api/tags', {tag: 'a'}, [], new Promise(() => {}));
+
+    cache.arm([older, newer]);
+    assert.equal(aborted, 1);
+    assert.equal(cache.take('get', '/orrery/api/tags', {tag: 'a'}), newer.promise);
+    assert.equal(cache.take('get', '/orrery/api/tags', {tag: 'a'}), null);
 });

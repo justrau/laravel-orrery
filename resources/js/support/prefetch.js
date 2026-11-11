@@ -6,6 +6,12 @@
  *
  * - Only GET. An entry is taken once; a later read (a poll) goes to the
  *   network.
+ * - An entry can be taken only once it is armed: the guard arms the entries
+ *   of a navigation when it commits (support/navigation.js). So a read that
+ *   starts before (the old screen's poll, the shell's poll of the same
+ *   read) never takes the next screen's answer.
+ * - A new prefetch of the same read replaces and aborts an untaken older
+ *   one.
  * - An entry in flight stays until it settles; a settled one stays
  *   PREFETCH_TTL_MS. A failed prefetch is dropped at once: its error went
  *   through the prefetch's own error handling, so the screen reads again and
@@ -48,8 +54,9 @@ export function paramsMatch(stored, asked, timeKeys = []) {
 
 /**
  * A cache: `put(url, params, timeKeys, promise, abort)` adds an entry and
- * returns it; `take(method, url, params)` gives the matching promise once,
- * or null; `discard(entries)` removes and aborts entries; `clear()`.
+ * returns it; `arm(entries)` makes entries takeable; `take(method, url,
+ * params)` gives the matching armed promise once, or null;
+ * `discard(entries)` removes and aborts entries; `clear()`.
  */
 export function createPrefetchCache({now = () => Date.now(), ttlMs = PREFETCH_TTL_MS} = {}) {
     let entries = [];
@@ -65,8 +72,15 @@ export function createPrefetchCache({now = () => Date.now(), ttlMs = PREFETCH_TT
 
     return {
         put(url, params, timeKeys, promise, abort = null) {
-            const entry = {url, params: {...(params || {})}, timeKeys: Array.isArray(timeKeys) ? timeKeys : [], promise, abort, settledAt: null};
+            const entry = {url, params: {...(params || {})}, timeKeys: Array.isArray(timeKeys) ? timeKeys : [], promise, abort, settledAt: null, armed: false};
 
+            entries
+                .filter(other => other.url === url && paramsMatch(other.params, entry.params, []))
+                .forEach(other => {
+                    remove(other);
+
+                    if (typeof other.abort === 'function') other.abort();
+                });
             entries.push(entry);
             promise.then(
                 () => {
@@ -83,13 +97,19 @@ export function createPrefetchCache({now = () => Date.now(), ttlMs = PREFETCH_TT
 
             prune();
 
-            const entry = entries.find(candidate => candidate.url === url && paramsMatch(candidate.params, params, candidate.timeKeys));
+            const entry = entries.find(candidate => candidate.armed && candidate.url === url && paramsMatch(candidate.params, params, candidate.timeKeys));
 
             if (!entry) return null;
 
             remove(entry);
 
             return entry.promise;
+        },
+
+        arm(list) {
+            (Array.isArray(list) ? list : []).forEach(entry => {
+                entry.armed = true;
+            });
         },
 
         discard(list) {

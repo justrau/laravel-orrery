@@ -22,6 +22,8 @@
  *   (beforeResolve), so it still works.
  */
 
+import {NavigationFailureType, isNavigationFailure} from 'vue-router';
+
 /** The longest wait for the next screen's first data, in ms. */
 export const HOLD_TIMEOUT_MS = 1600;
 
@@ -139,13 +141,17 @@ export function createNavigationHold({
 
 /**
  * The guard of the held navigation, a function for router.beforeResolve():
- * `(to, from)` resolves true to commit, false for a navigation that a newer
- * one superseded. `load(to)` gives the route's requests, `prefetch(requests)`
+ * `(to, from)` always resolves true. A navigation that a newer one
+ * superseded has its reads discarded, and vue-router cancels it itself
+ * (NAVIGATION_CANCELLED), because a newer navigation is pending. `load(to)` gives the route's requests, `prefetch(requests)`
  * starts them and returns entries with a `promise`, `discard(entries)`
  * drops the entries of a superseded navigation. `guard.supersede()` (for
  * router.beforeEach()) ends a waiting hold: the last navigation wins.
  */
-export function createNavigationGuard({hold, load, prefetch, discard}) {
+export function createNavigationGuard({hold, load, prefetch, discard, arm = () => {}}) {
+    // The navigation that waits or just passed the guard, with its entries; armed when it commits.
+    let pending = null;
+
     const guard = async (to, from) => {
         if (!shouldHold(from, to)) return true;
 
@@ -161,18 +167,59 @@ export function createNavigationGuard({hold, load, prefetch, discard}) {
 
         const token = hold.begin();
         const entries = prefetch(requests);
+        const own = {to, entries};
+
+        pending = own;
+
         const outcome = await hold.wait(token, entries.map(entry => entry.promise));
 
-        if (outcome === 'ready' || outcome === 'timeout') return true;
+        if (outcome !== 'ready' && outcome !== 'timeout') {
+            // Superseded: drop its reads. Still true, never false: vue-router then marks it cancelled
+            // (a newer navigation is pending); a false would abort it, and on Back or Forward vue-router
+            // would move the history again, so the URL and the screen would part.
+            discard(entries);
 
-        discard(entries);
+            if (pending === own) pending = null;
+        }
 
-        return false;
+        return true;
     };
 
-    guard.supersede = () => hold.cancel();
+    // Returns nothing: a router.beforeEach() that returned false would abort the new navigation.
+    guard.supersede = () => {
+        hold.cancel();
+    };
+
+    /** router.afterEach(): the entries of a navigation that committed can now be taken by its screen. */
+    guard.committed = (to, failure) => {
+        // A click on the current screen's link during a hold: vue-router reports it as duplicated and runs no
+        // beforeEach, but it gives up the held navigation, so the hold ends too.
+        if (isNavigationFailure(failure, NavigationFailureType.duplicated)) {
+            hold.cancel();
+
+            return;
+        }
+
+        const own = pending;
+
+        pending = null;
+
+        if (!own || failure || own.to !== to) return;
+
+        arm(own.entries);
+    };
 
     return guard;
+}
+
+/**
+ * The `inert` attribute of the routed content (and the screen's toolbar
+ * controls) for the hold state `{held}`: true while a navigation is held,
+ * so the old screen cannot start a write after its leave guard passed;
+ * null (no attribute) otherwise. The sidebar stays usable.
+ */
+export function inertWhileHeld(state) {
+    return state && state.held ? true : null;
 }
 
 /**

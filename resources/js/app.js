@@ -65,10 +65,12 @@ installTagGuard(router);
 // with the URL and the sidebar, until the next screen's first reads have
 // answered (at most HOLD_TIMEOUT_MS). The reads are prefetched through
 // $http, and the screen's own first GET takes each answer once. A newer
-// navigation supersedes a waiting one. The progress bar of the shell reads
-// the store's `navigation`.
+// navigation supersedes a waiting one. The prefetched answers can be taken
+// only after the navigation commits. The shell's progress bar and the inert
+// content read the store's `navigation`.
 const hold = createNavigationHold({
     onChange: state => {
+        navigation.held = state.held;
         navigation.progress = state.progress;
     },
 });
@@ -77,6 +79,7 @@ const navigationGuard = createNavigationGuard({
     load: to => to.meta.load(to, { now: nowSeconds(), live }),
     prefetch: requests => requests.map(request => http.prefetch(window.Orrery.basePath + request.url, request.params, request.timeKeys || [], { handles: BACKGROUND_HANDLES })),
     discard: entries => prefetchCache.discard(entries),
+    arm: entries => prefetchCache.arm(entries),
 });
 
 router.beforeEach(to => {
@@ -84,6 +87,9 @@ router.beforeEach(to => {
     navigation.title = to.meta && typeof to.meta.title === 'string' ? to.meta.title : null;
 });
 router.beforeResolve(navigationGuard);
+// The committed navigation's prefetched answers become takeable by its screen; a duplicated
+// navigation (the current screen's link during a hold) gives the hold up.
+router.afterEach((to, from, failure) => navigationGuard.committed(to, failure));
 
 // A screen sets its toolbar text when it mounts. A new screen starts from the
 // route's title. Routes that render the same component (/queues and

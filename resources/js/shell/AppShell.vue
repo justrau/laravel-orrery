@@ -2,7 +2,7 @@
     import Notice from '../components/ui/Notice.vue';
     import {modalOpen} from '../support/focus.js';
     import {SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH, clampSidebarWidth, readSidebarWidth, sidebarMaxWidth, sidebarWidthForKey, sidebarWidthText, writeSidebarWidth} from '../support/sidebar-width.js';
-    import {focusLost, routeScreen} from '../support/navigation.js';
+    import {focusLost, inertWhileHeld, routeScreen} from '../support/navigation.js';
     import {browserSeconds, noteServerTime, nowSeconds} from '../support/time.js';
     import Sidebar from './Sidebar.vue';
     import Toolbar from './Toolbar.vue';
@@ -134,6 +134,11 @@
 
             sidebarMax() {
                 return sidebarMaxWidth(this.viewport);
+            },
+
+            /** The routed content while a navigation is held: inert, so the old screen starts no write. */
+            heldInert() {
+                return inertWhileHeld(this.navigation);
             },
 
             /** The drawer is open over the content: a modal dialog, the rest inert. */
@@ -405,7 +410,10 @@
                         detail="Queued jobs may not be processed unless your worker uses the --force option." />
             </div>
 
-            <router-view />
+            <!-- display: contents, so the screens lay out as before; inert while a navigation is held. -->
+            <div class="o-shell__screen" :inert="heldInert" data-routed-content>
+                <router-view />
+            </div>
         </div>
     </div>
 </template>
@@ -506,6 +514,10 @@
             opacity: 0.7;
             width: 100%;
         }
+    }
+
+    .o-shell__screen {
+        display: contents;
     }
 
     .o-shell__maintenance {

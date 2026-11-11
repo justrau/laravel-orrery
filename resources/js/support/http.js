@@ -25,8 +25,9 @@
  * - `prefetch(url, params, timeKeys, config)` starts a GET for the next
  *   screen of a held navigation (support/navigation.js) and keeps it in the
  *   client's `prefetchCache` (support/prefetch.js): the first `get()` of the
- *   same read takes that answer once instead of fetching again. It returns
- *   the cache entry, with `abort()`.
+ *   same read takes that answer once instead of fetching again; a failure of
+ *   a taken answer runs the response handlers again with the taker's
+ *   config. It returns the cache entry, with `abort()`.
  */
 
 /** The Accept header that axios sent. */
@@ -162,13 +163,31 @@ export function createHttp({headers: instanceHeaders = {}, fetch: fetchImpl = (.
         throw requestError(`Request failed with status code ${response.status}`, response.status < 500 ? 'ERR_BAD_REQUEST' : 'ERR_BAD_RESPONSE', config, answer);
     }
 
+    /**
+     * A taken prefetch that failed: the error goes through the response
+     * handlers again with the taker's config, so its `handles` decide the
+     * alert (errors.js) as for the screen's own read. The prefetch itself
+     * ran them with its own (silent) handles.
+     */
+    function rejectAs(error, config) {
+        if (error && typeof error === 'object') error.config = config;
+
+        let chain = Promise.reject(error);
+
+        for (const [, rejected] of responseHandlers) {
+            if (rejected) chain = chain.catch(rejected);
+        }
+
+        return chain;
+    }
+
     function request(config) {
         const method = String(config.method || 'get').toLowerCase();
 
         if (prefetchCache && config.prefetch !== true) {
             const taken = prefetchCache.take(method, config.url, config.params);
 
-            if (taken) return taken;
+            if (taken) return taken.catch(error => rejectAs(error, {...config, method}));
         }
 
         let chain = Promise.resolve({...config, method: String(config.method || 'get').toLowerCase()});

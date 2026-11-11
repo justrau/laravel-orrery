@@ -259,6 +259,7 @@ test('prefetch: the first GET of the same read takes the prefetched answer, once
 
     assert.equal(typeof entry.abort, 'function');
     await entry.promise;
+    cache.arm([entry]);
     assert.equal(calls.length, 1);
 
     const first = await http.get('/orrery/api/jobs', {params: {per_page: 5, status: 'failed'}});
@@ -269,7 +270,7 @@ test('prefetch: the first GET of the same read takes the prefetched answer, once
     await http.get('/orrery/api/jobs', {params: {per_page: 5, status: 'failed'}});
     assert.equal(calls.length, 2, 'a poll goes to the network');
 
-    http.prefetch('/orrery/api/control', {});
+    cache.arm([http.prefetch('/orrery/api/control', {})]);
     await http.post('/orrery/api/control', {});
     assert.equal(calls.at(-1).init.method, 'POST', 'a write never takes a prefetched answer');
     assert.equal(calls.length, 4);
@@ -283,4 +284,30 @@ test('prefetch: abort cancels the request', async () => {
 
     entry.abort();
     assert.equal((await rejection(entry.promise)).code, 'ERR_CANCELED');
+});
+
+// Rejects: a taken prefetch whose failure reaches the error handling only with the prefetch's own handles (a screen
+// read that raises an alert on a timeout would then stay silent), or one that runs it only once.
+// Still passes: a client that also runs the success handlers again (they return the answer unchanged).
+test('prefetch: a taken prefetch that fails runs the error handling again with the screen\'s handles', async () => {
+    const {fetch} = fakeFetch(() => new Response('{}', {status: 503}));
+    const cache = createPrefetchCache();
+    const http = createHttp({fetch, prefetchCache: cache});
+    const seen = [];
+
+    http.interceptors.response.use(response => response, error => {
+        seen.push(error.config.handles);
+
+        return Promise.reject(error);
+    });
+
+    const entry = http.prefetch('/orrery/api/jobs', {status: 'failed'}, [], {handles: 'prefetch'});
+
+    cache.arm([entry]);
+
+    const error = await rejection(http.get('/orrery/api/jobs', {params: {status: 'failed'}, handles: 'screen'}));
+
+    assert.equal(error.response.status, 503);
+    assert.deepEqual(seen, ['prefetch', 'screen']);
+    assert.equal(error.config.url, '/orrery/api/jobs');
 });

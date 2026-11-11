@@ -4,6 +4,7 @@
 
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {createMemoryHistory, createRouter} from 'vue-router';
 
 import {
     HOLD_TIMEOUT_MS,
@@ -11,6 +12,7 @@ import {
     createNavigationGuard,
     createNavigationHold,
     focusLost,
+    inertWhileHeld,
     routeScreen,
     shouldHold,
 } from '../../resources/js/support/navigation.js';
@@ -181,6 +183,7 @@ function guardWith(timers) {
     const hold = createNavigationHold(timers);
     const started = [];
     const discarded = [];
+    const armed = [];
     const guard = createNavigationGuard({
         hold,
         load: to => to.meta.load(to),
@@ -193,9 +196,10 @@ function guardWith(timers) {
             return entry;
         }),
         discard: entries => discarded.push(...entries),
+        arm: entries => armed.push(...entries),
     });
 
-    return {hold, guard, started, discarded};
+    return {hold, guard, started, discarded, armed};
 }
 
 // Rejects: a guard that commits before the first data arrived, that blocks on a failed read, or that holds the
@@ -232,17 +236,140 @@ test('the guard commits at the timeout and leaves the read in flight for the scr
     assert.deepEqual(discarded, [], 'the screen takes the read when it answers');
 });
 
-// Rejects: an older navigation that still commits after a newer one began (the last navigation wins), or whose
-// prefetched answers stay in the cache for a later screen.
+// Rejects: a superseded guard that returns false (vue-router then aborts it and, for Back and Forward, moves the
+// history back: the URL and the screen part), or whose prefetched answers stay for a later screen.
 // Still passes: a guard that also aborts the request (the cache's discard does).
-test('a newer navigation cancels the older one and discards its reads', async () => {
+test('a newer navigation supersedes the older one: its reads are discarded, and the router cancels it', async () => {
     const timers = fakeTimers();
     const {guard, started, discarded} = guardWith(timers);
     const older = guard(route(Jobs), route(Overview));
 
     guard.supersede();
-    assert.equal(await older, false);
+    assert.equal(await older, true);
     assert.deepEqual(discarded, [started[0]]);
+});
+
+// Rejects: entries that a request can take before the navigation committed (an old screen's poll would take the
+// next screen's prefetch), or entries of a cancelled navigation that are armed when another one commits.
+test('the entries of a navigation become takeable only when it commits', async () => {
+    const timers = fakeTimers();
+    const {guard, started, armed} = guardWith(timers);
+    const jobs = route(Jobs);
+    const pending = guard(jobs, route(Overview));
+
+    started[0].answer.resolve({});
+    assert.equal(await pending, true);
+    assert.deepEqual(armed, [], 'not before the commit');
+    guard.committed(jobs, null);
+    assert.deepEqual(armed, [started[0]]);
+
+    const failedTo = route(Overview);
+    const next = guard(failedTo, jobs);
+
+    started[1].answer.resolve({});
+    await next;
+    guard.committed(failedTo, {type: 4});
+    assert.equal(armed.length, 1, 'a failed navigation arms nothing');
+});
+
+/** A real router (vue-router, memory history) with the guard installed as app.js installs it. */
+function realRouter() {
+    const answers = [];
+    const load = () => [{url: '/api/x', params: {}}];
+    const routes = ['/x', '/y', '/z'].map(path => ({path, component: {name: path}, meta: {load}}));
+    const history = createMemoryHistory();
+    const router = createRouter({history, routes});
+    const hold = createNavigationHold({timeoutMs: 5000});
+    const guard = createNavigationGuard({
+        hold,
+        load: to => to.meta.load(to),
+        prefetch: requests => requests.map(() => {
+            const answer = deferred();
+
+            answers.push(answer);
+
+            return {promise: answer.promise};
+        }),
+        discard: () => {},
+        arm: () => {},
+    });
+
+    router.beforeEach(() => guard.supersede());
+    router.beforeResolve(guard);
+    router.afterEach((to, from, failure) => guard.committed(to, failure));
+
+
+    const answerAll = () => answers.forEach(answer => answer.resolve({}));
+
+    return {router, history, answerAll, hold};
+}
+
+// Rejects: a guard that aborts a superseded Back (vue-router moves the history again and the URL ends on another
+// route than the screen), or pushes during a hold that end anywhere but on the last one.
+// Still passes: a router that ends on the same route through other steps.
+test('with a real router, a double Back during a hold and A, B, C pushes end on the last route, URL and screen alike', async () => {
+    const {router, history, answerAll} = realRouter();
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+    const finish = async () => {
+        for (let round = 0; round < 5; round++) {
+            await wait(5);
+            answerAll();
+        }
+
+        await wait(10);
+    };
+
+    await router.push('/x');
+    router.push('/y');
+    await finish();
+    router.push('/z');
+    await finish();
+    assert.equal(router.currentRoute.value.fullPath, '/z');
+    assert.equal(history.location, '/z');
+
+    // Two Back presses while the first one waits for its data.
+    router.back();
+    await wait(2);
+    router.back();
+    await finish();
+    assert.equal(router.currentRoute.value.fullPath, '/x');
+    assert.equal(history.location, router.currentRoute.value.fullPath);
+
+    // A, B, C: B waits, C supersedes it.
+    router.push('/y');
+    await wait(2);
+    router.push('/z');
+    await finish();
+    assert.equal(router.currentRoute.value.fullPath, '/z');
+    assert.equal(history.location, '/z');
+});
+
+// Rejects: a click on the current screen's link during a hold that supersedes nothing (vue-router reports it as
+// duplicated and runs no beforeEach), so the held navigation still commits.
+test('with a real router, the current screen\'s link during a hold gives up the held navigation', async () => {
+    const {router, history, answerAll, hold} = realRouter();
+    const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+    await router.push('/x');
+    const held = router.push('/y');
+
+    await wait(2);
+    assert.equal(hold.state().held, true);
+    await router.push('/x');
+    assert.equal(hold.state().held, false, 'the hold and its bar end at once');
+    answerAll();
+    await held;
+    await wait(10);
+    assert.equal(router.currentRoute.value.fullPath, '/x');
+    assert.equal(history.location, '/x');
+});
+
+// Rejects: a rule that leaves the old screen usable during a hold (it could start a write after its leave guard
+// passed), or one that blocks it after the hold.
+test('inertWhileHeld: the routed content is inert only while a navigation is held', () => {
+    assert.equal(inertWhileHeld({held: true}), true);
+    assert.equal(inertWhileHeld({held: false}), null);
+    assert.equal(inertWhileHeld(null), null);
 });
 
 // Rejects: a load that throws and so breaks the navigation.

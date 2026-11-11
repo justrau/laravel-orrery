@@ -1,7 +1,8 @@
 <script>
     import Icon from '../components/ui/Icon.vue';
     import {liveIndicator} from './data.js';
-    import {inspectorVisible, live, liveFailed, shell, toggleInspector, toggleNav} from './store.js';
+    import {inertWhileHeld} from '../support/navigation.js';
+    import {inspectorVisible, live, liveFailed, navigation, shell, toggleInspector, toggleNav} from './store.js';
 
     /**
      * The toolbar of the shell: the screen
@@ -24,7 +25,7 @@
         },
 
         data() {
-            return {shell, live};
+            return {shell, live, navigation};
         },
 
         computed: {
@@ -38,6 +39,11 @@
 
             liveState() {
                 return liveIndicator(this.live.at, this.now, liveFailed());
+            },
+
+            /** The screen's controls are inert while a navigation is held, as its content is. */
+            controlsInert() {
+                return inertWhileHeld(this.navigation);
             },
 
             inspectorShown() {
@@ -82,7 +88,7 @@
             <div v-if="subtitle" class="o-toolbar__subtitle" :title="subtitle">{{ subtitle }}</div>
         </div>
 
-        <div id="orrery-toolbar-controls" class="o-toolbar__controls"></div>
+        <div id="orrery-toolbar-controls" class="o-toolbar__controls" :inert="controlsInert"></div>
 
         <div class="o-toolbar__live" :class="`o-toolbar__live--${liveState.tone}`" :title="liveState.title">
             <span class="o-toolbar__dot"></span>
