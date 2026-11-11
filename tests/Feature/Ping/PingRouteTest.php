@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Ping;
 
 use Justrau\Orrery\Database\Schema\PackageSchema;
+use Justrau\Orrery\Monitoring\LongWaitMeasured;
 use Justrau\Orrery\Orrery;
 use Justrau\Orrery\Storage\Clock;
 
@@ -22,7 +23,7 @@ final class PingRouteTest extends PingTestCase
             $app['config']->set('orrery.ping.token', null);
         }
 
-        if ($this->name() === 'test_long_waits_fail_only_when_enabled_and_not_paused') {
+        if (str_starts_with($this->name(), 'test_long_waits_') && $this->name() !== 'test_long_waits_are_not_checked_by_default') {
             $app['config']->set('orrery.ping.long_waits', true);
         }
 
@@ -314,6 +315,37 @@ final class PingRouteTest extends PingTestCase
         self::assertTrue($response->json('checks.tick.ok'), 'only the observations fail');
     }
 
+    /**
+     * Rejects: an observations check that counts the drops of a web request (a dashboard read past its statement
+     * timeout, the ping's own failed reads) or of a tick (a skipped phase): only a worker's window counts.
+     * Still passes: a check that misses a dropped dispatch observation of a web request (documented: those windows
+     * also count failed reads, so they cannot be told apart).
+     */
+    public function test_only_worker_windows_count_as_dropped_observations(): void
+    {
+        $this->window('web', 4, startedAgo: 30, errorAgo: 30, process: 'web:1');
+        $this->window('tick', 2, startedAgo: 30, endedAgo: 20, errorAgo: 30, process: 'tick:1');
+        $this->window('cli', 1, startedAgo: 30, endedAgo: 20, process: 'cli:1');
+        $this->ping()->assertOk();
+
+        $this->window('worker', 3, startedAgo: 30, errorAgo: 30, process: 'worker:1');
+        $response = $this->ping()->assertStatus(503);
+        self::assertSame(['ok' => false, 'reason' => 'dropped', 'dropped' => 3, 'at_least' => false], $response->json('checks.observations'));
+    }
+
+    /**
+     * Rejects: an open window of a killed worker (no end, start and last error long ago) that fails the ping until
+     * retention deletes it days later, and an open window that is still dropping that passes.
+     */
+    public function test_an_orphaned_open_window_does_not_fail_the_ping(): void
+    {
+        $this->window('worker', 5, startedAgo: 86400, errorAgo: 86000, process: 'worker:killed');
+        $this->ping()->assertOk();
+
+        $this->window('worker', 2, startedAgo: 86400, errorAgo: 30, process: 'worker:live');
+        $this->ping()->assertStatus(503)->assertJsonPath('checks.observations.dropped', 2);
+    }
+
     public function test_an_old_closed_window_with_drops_passes(): void
     {
         $this->mirror()->table('orrery_health_events')->insert([
@@ -331,6 +363,7 @@ final class PingRouteTest extends PingTestCase
      */
     public function test_long_waits_fail_only_when_enabled_and_not_paused(): void
     {
+        $this->measured();
         $this->ping()->assertOk()->assertJsonPath('checks.long_waits', ['ok' => true]);
 
         $this->overLimit('database', 'default');
@@ -339,6 +372,48 @@ final class PingRouteTest extends PingTestCase
 
         $this->artisan('orrery:pause')->assertExitCode(0);
         $this->ping()->assertOk();
+    }
+
+    /**
+     * Rejects: a long-wait check that passes once the measurement turned unknown: the incident's last_seen stops
+     * moving while the phase throws MeasurementIncomplete, so the incident alone would read as over.
+     */
+    public function test_long_waits_are_unknown_once_the_measurement_fails(): void
+    {
+        $this->overLimit(lastSeenAgo: 20);
+        $this->measured();
+        $this->ping()->assertStatus(503)->assertJsonPath('checks.long_waits.reason', 'over_limit');
+
+        // The next runs could not measure: the incident is old, and the last run had unknown rows.
+        $this->overLimit(lastSeenAgo: 320);
+        $this->measured(ago: 10, complete: false, completeAgo: 320);
+        $this->ping()->assertStatus(503)->assertJsonPath('checks.long_waits', ['ok' => false, 'reason' => 'unknown']);
+    }
+
+    /**
+     * Rejects: a queue that was unknown from the first run (no complete measurement ever) that passes.
+     */
+    public function test_long_waits_are_unknown_without_a_complete_measurement(): void
+    {
+        $this->measured(ago: 10, complete: false, completeAgo: null);
+        $this->ping()->assertStatus(503)->assertJsonPath('checks.long_waits', ['ok' => false, 'reason' => 'unknown']);
+
+        $this->mirror()->table('orrery_settings')->where('key', LongWaitMeasured::KEY)->delete();
+        $this->ping()->assertStatus(503)->assertJsonPath('checks.long_waits', ['ok' => false, 'reason' => 'unknown']);
+    }
+
+    /**
+     * Rejects: a long-wait check that trusts an old complete measurement when the ticks since died before the phase
+     * (the tick itself is fresh: observer_tick_at is written at the tick's start).
+     */
+    public function test_long_waits_are_unknown_when_the_ticks_end_before_the_phase(): void
+    {
+        $this->tickAgo(10);
+        $this->measured(ago: 400, complete: true, completeAgo: 400);
+
+        $response = $this->ping()->assertStatus(503);
+        self::assertSame(['ok' => false, 'reason' => 'unknown'], $response->json('checks.long_waits'));
+        self::assertTrue($response->json('checks.tick.ok'));
     }
 
     public function test_long_waits_are_not_checked_by_default(): void

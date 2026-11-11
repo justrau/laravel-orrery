@@ -11,6 +11,7 @@ use Justrau\Orrery\Maintenance\RunsPastDeadline;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Monitoring\FailureSpikes;
 use Justrau\Orrery\Monitoring\LongWaitIncidents;
+use Justrau\Orrery\Monitoring\LongWaitMeasured;
 use Justrau\Orrery\Monitoring\MeasurementIncomplete;
 use Justrau\Orrery\Monitoring\TickMeasurement;
 use Justrau\Orrery\Monitoring\WaitTime;
@@ -60,6 +61,9 @@ final class LongWaitPhase implements RunsPastDeadline
 {
     /** The watched operation of one dispatch of LongWaitDetected. */
     public const DISPATCH_OPERATION = 'long_wait:dispatch';
+
+    /** The write of the measurement state (Monitoring\LongWaitMeasured). */
+    public const MEASURED_OPERATION = 'long_wait:measured';
 
     /** The watched operation of one dispatch of LongWaitRecovered. */
     public const RECOVERED_OPERATION = 'long_wait:recovered';
@@ -117,6 +121,8 @@ final class LongWaitPhase implements RunsPastDeadline
 
         $now = Clock::now();
         $ended = Watcher::instance()->run(LongWaitIncidents::OPERATION, fn (): array => $this->incidents->advance($rows, $now), []);
+        // Before a MeasurementIncomplete can end the run: the ping reads whether the incidents are current.
+        Watcher::instance()->run(self::MEASURED_OPERATION, static fn () => $container->make(LongWaitMeasured::class)->record($unknown === [], $now));
         $container->instance(self::BUDGET, $budget);
 
         try {

@@ -6,6 +6,7 @@ namespace Justrau\Orrery\Tests\Feature\Ping;
 
 use Illuminate\Testing\TestResponse;
 use Justrau\Orrery\Monitoring\LongWaitIncidents;
+use Justrau\Orrery\Monitoring\LongWaitMeasured;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Tests\TestCase;
 use Symfony\Component\HttpFoundation\Response;
@@ -50,6 +51,31 @@ abstract class PingTestCase extends TestCase
             'started_at' => Clock::toDecimal(Clock::now() - $startedAgo),
             'ended_at' => null,
             'dropped' => $dropped,
+        ]);
+    }
+
+    /**
+     * The long-wait phase's measurement state: its last run $ago seconds ago, complete or not, and its last
+     * complete run $completeAgo seconds ago (null: never).
+     */
+    protected function measured(float $ago = 20, bool $complete = true, ?float $completeAgo = 20): void
+    {
+        $now = Clock::now();
+        $this->setting(LongWaitMeasured::KEY, (string) json_encode(['at' => $now - $ago, 'complete' => $complete, 'complete_at' => $completeAgo === null ? null : $now - $completeAgo], JSON_PRESERVE_ZERO_FRACTION));
+    }
+
+    protected function window(string $context, int $dropped, float $startedAgo, ?float $endedAgo = null, ?float $errorAgo = null, string $process = 'host:9:9'): void
+    {
+        $now = Clock::now();
+
+        $this->mirror()->table('orrery_health_events')->insert([
+            'context' => $context,
+            'process' => $process,
+            'started_at' => Clock::toDecimal($now - $startedAgo),
+            'ended_at' => $endedAgo === null ? null : Clock::toDecimal($now - $endedAgo),
+            'dropped' => $dropped,
+            'last_error_operation' => $errorAgo === null ? null : 'x',
+            'last_error_at' => $errorAgo === null ? null : Clock::toDecimal($now - $errorAgo),
         ]);
     }
 

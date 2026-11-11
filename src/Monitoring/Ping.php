@@ -8,8 +8,9 @@ use Justrau\Orrery\Control\PauseCauses;
 use Justrau\Orrery\Control\SignalState;
 use Justrau\Orrery\Database\Schema\PackageSchema;
 use Justrau\Orrery\Database\Schema\SchemaStatus;
-use Justrau\Orrery\Http\Controllers\HealthController;
+use Justrau\Orrery\Runtime\HealthEvents;
 use Justrau\Orrery\Runtime\OffSwitch;
+use Justrau\Orrery\Runtime\ProcessContext;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Storage\PackageSession;
@@ -27,14 +28,15 @@ use Justrau\Orrery\Storage\PackageSession;
  * - `tick`: the age of `observer_tick_at` (the start of the last tick) at
  *   most `ping.tick_max_age` seconds, else `late` (the age is null when no
  *   tick has run).
- * - `observations`: no dropped observation in a health window that
- *   overlaps the last `ping.tick_max_age` seconds, else `dropped` with the
- *   sum (`at_least` when more windows overlap than one read takes).
+ * - `observations`: no dropped observation of a worker in the last
+ *   `ping.tick_max_age` seconds (observations()), else `dropped` with the
+ *   sum (`at_least` when more windows match than one read takes).
  * - `long_waits`, only with `ping.long_waits`: no stored long-wait incident
  *   whose last alerting tick is that recent and whose quiet count is 0,
  *   unless a pause certainly holds its queue; else `over_limit` with the
- *   connection and queue names. It needs a tick in time: with a late tick
- *   it is `unknown`.
+ *   connection and queue names. It needs a tick in time and a complete
+ *   measurement of the long-wait phase within `ping.tick_max_age`
+ *   (LongWaitMeasured): else it is `unknown`.
  *
  * A check that cannot be read fails with `unknown`: unknown is never ok.
  * Every read runs inside the watcher, so a failure is an answer, never an
@@ -47,6 +49,9 @@ use Justrau\Orrery\Storage\PackageSession;
 final class Ping
 {
     public const DEFAULT_TICK_MAX_AGE = 300;
+
+    /** The most windows that one observations read sums; more give `at_least`. */
+    public const MAX_WINDOWS = 100;
 
     public function __construct(private readonly Application $app) {}
 
@@ -73,7 +78,7 @@ final class Ping
 
         $checks['schema'] = $reachable ? self::schema($watcher, $sessions) : self::fail('unknown');
         $checks['tick'] = $reachable ? self::tick($watcher, $sessions, $now, $maxAge) : self::fail('unknown');
-        $checks['observations'] = $reachable ? self::observations($watcher, $now, $maxAge) : self::fail('unknown');
+        $checks['observations'] = $reachable ? self::observations($watcher, $sessions, $now, $maxAge) : self::fail('unknown');
 
         if (self::flag($config->get('orrery.ping.long_waits'))) {
             $checks['long_waits'] = $reachable && $checks['tick']['ok'] === true ? $this->longWaits($watcher, $now, $maxAge) : self::fail('unknown');
@@ -133,36 +138,50 @@ final class Ping
             return self::fail('unknown');
         }
 
-        $age = (int) round($now - (float) $value);
+        $age = (int) round($now - Clock::stored($value));
 
         return $age <= $maxAge ? ['ok' => true, 'age' => $age] : self::fail('late') + ['age' => $age];
     }
 
     /**
+     * The dropped observations of worker processes in the last $maxAge
+     * seconds: the windows of context `worker` (every watched operation of a
+     * worker is an observation, a heartbeat or a signal read) that ended in
+     * that time, or that are open and started or had their last error in it.
+     * An open window whose start and last error are both older belongs to a
+     * worker that was killed (the retention phase deletes it later): it does
+     * not count. Web, command and tick windows also count failed dashboard
+     * reads and skipped tick phases, so they do not count either.
+     *
      * @return Check
      */
-    private static function observations(Watcher $watcher, float $now, int $maxAge): array
+    private static function observations(Watcher $watcher, PackageSession $sessions, float $now, int $maxAge): array
     {
-        $read = $watcher->attempt('ping:observations', static fn (): array => HealthController::readWindows($now - $maxAge, $now));
+        $from = Clock::toDecimal($now - $maxAge);
+        $read = $watcher->attempt('ping:observations', static fn (): array => $sessions->mirror()->table(HealthEvents::TABLE)
+            ->where('context', ProcessContext::WORKER)
+            ->where('dropped', '>', 0)
+            ->where(static function ($query) use ($from): void {
+                $query->where('ended_at', '>=', $from)->orWhere(static function ($open) use ($from): void {
+                    $open->whereNull('ended_at')->where(static function ($recent) use ($from): void {
+                        $recent->where('started_at', '>=', $from)->orWhere('last_error_at', '>=', $from);
+                    });
+                });
+            })
+            ->limit(self::MAX_WINDOWS + 1)
+            ->pluck('dropped')
+            ->all());
 
         if (! $read->succeeded()) {
             return self::fail('unknown');
         }
 
-        /** @var array{0: list<array{dropped: int}>, 1: bool} $windows */
-        $windows = $read->value();
-        $dropped = array_sum(array_column($windows[0], 'dropped'));
+        /** @var list<int|string> $dropped */
+        $dropped = $read->value();
+        $truncated = count($dropped) > self::MAX_WINDOWS;
+        $sum = array_sum(array_map('intval', array_slice($dropped, 0, self::MAX_WINDOWS)));
 
-        if ($dropped === 0 && ! $windows[1]) {
-            return ['ok' => true, 'dropped' => 0];
-        }
-
-        if ($dropped === 0) {
-            // More windows overlap than one read takes: the rest are not known.
-            return self::fail('unknown');
-        }
-
-        return self::fail('dropped') + ['dropped' => $dropped, 'at_least' => $windows[1]];
+        return $sum === 0 ? ['ok' => true, 'dropped' => 0] : self::fail('dropped') + ['dropped' => $sum, 'at_least' => $truncated];
     }
 
     /**
@@ -170,7 +189,15 @@ final class Ping
      */
     private function longWaits(Watcher $watcher, float $now, int $maxAge): array
     {
-        $read = $watcher->attempt('ping:long_waits', function () use ($now, $maxAge): array {
+        $read = $watcher->attempt('ping:long_waits', function () use ($now, $maxAge): ?array {
+            // The incidents are current only after a complete measurement in time: an unknown row never
+            // refreshes an incident, so after a failed measurement it would read as recovered.
+            $measured = $this->app->make(LongWaitMeasured::class)->read();
+
+            if ($measured === null || ! $measured['complete'] || $measured['complete_at'] === null || $now - $measured['complete_at'] > $maxAge) {
+                return null;
+            }
+
             $over = [];
 
             foreach ($this->app->make(LongWaitIncidents::class)->all() as [, $record]) {
@@ -212,8 +239,12 @@ final class Ping
             return self::fail('unknown');
         }
 
-        /** @var array{over: list<array{connection: string, queue: string}>, unknown: bool} $result */
+        /** @var array{over: list<array{connection: string, queue: string}>, unknown: bool}|null $result */
         $result = $read->value();
+
+        if ($result === null) {
+            return self::fail('unknown');
+        }
 
         if ($result['over'] !== []) {
             return self::fail('over_limit') + ['queues' => $result['over']];

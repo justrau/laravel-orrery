@@ -14,6 +14,7 @@ use Illuminate\Support\Str;
 use Justrau\Orrery\Events\LongWaitDetected;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Maintenance\TickRunner;
+use Justrau\Orrery\Monitoring\LongWaitMeasured;
 use Justrau\Orrery\Monitoring\MeasurementIncomplete;
 use Justrau\Orrery\Monitoring\Phases\LongWaitPhase;
 use Justrau\Orrery\Monitoring\Phases\SamplesPhase;
@@ -327,6 +328,28 @@ final class WaitTimeUnknownTest extends TestCase
 
         $this->expectException(MeasurementIncomplete::class);
         $this->app->make(LongWaitPhase::class)->run(new TickBudget(Clock::monotonic() - 1));
+    }
+
+    /**
+     * Rejects: a phase that records no measurement state, records a run with unknown rows as complete, or forgets the
+     * time of the last complete run (the monitoring ping reads it: Monitoring\LongWaitMeasured).
+     */
+    public function test_the_phase_records_its_last_complete_measurement(): void
+    {
+        $this->app->make(LongWaitPhase::class)->run(new TickBudget(Clock::monotonic() + 30));
+        self::assertSame(['at' => self::START, 'complete' => true, 'complete_at' => self::START], $this->app->make(LongWaitMeasured::class)->read());
+
+        Carbon::setTestNow(Carbon::createFromTimestamp(self::START + 60, 'UTC'));
+        $this->addBrokenConnection();
+
+        try {
+            $this->app->make(LongWaitPhase::class)->run(new TickBudget(Clock::monotonic() + 30));
+            self::fail('The phase must throw MeasurementIncomplete.');
+        } catch (MeasurementIncomplete) {
+            // Recorded before the throw.
+        }
+
+        self::assertSame(['at' => self::START + 60, 'complete' => false, 'complete_at' => self::START], $this->app->make(LongWaitMeasured::class)->read());
     }
 
     /**
