@@ -24,8 +24,9 @@ use Justrau\Orrery\Storage\PackageTransaction;
  *    from the tick outcome. The window starts there; only while KEY has no
  *    `checked_through` (the first run after an upgrade) it starts at the
  *    start of the previous finished tick (`started_at` of
- *    Maintenance\TickOutcome). With neither (the first tick ever) there is
- *    no window, and the decision only writes `checked_through`. A decision
+ *    Maintenance\TickOutcome), and that start is stored first, so a walk that
+ *    fails still leaves it. With neither (the first tick ever) there is no
+ *    window, and the decision only writes `checked_through`. A decision
  *    that fails, or a `sample_counts` phase that the tick's deadline skips,
  *    leaves `checked_through`, so the next tick decides the same window
  *    again; a failure after the decision is no gap. Both times come from the
@@ -33,8 +34,7 @@ use Justrau\Orrery\Storage\PackageTransaction;
  * 2. The short window. When the window is at most GAP_SECONDS, nothing is
  *    read: `checked_through` moves to now with one guarded write (a compare
  *    and set on the value read), skipped while it is younger than
- *    REFRESH_SECONDS. So a normal tick costs one read and, every second
- *    tick, one write.
+ *    REFRESH_SECONDS. So a normal minute tick costs one read and one write.
  * 3. The evidence. Inside [max(start, now − samples.retention_hours), now),
  *    an instant is evidence of observation when an observing process wrote
  *    it on the observation path, at the time of the observation, into a
@@ -77,8 +77,12 @@ use Justrau\Orrery\Storage\PackageTransaction;
  * KEY, the JSON {checked_through, gaps}: `gaps` lists the holes as
  * [from, to, start] epoch seconds: the exact evidence times (not minute
  * boundaries), and the start of the window whose walk found the hole (the
- * last time the tick side had decided, Maintenance\Reconciliation anchors
- * its suppression rule there). A gap written as [from, to] reads with
+ * last time the tick side had decided, not clipped to the samples
+ * retention; Maintenance\Reconciliation anchors its suppression rule
+ * there). A hole that begins where the walk began on a window clipped to
+ * the samples retention is recorded from the last evidence before the clip
+ * (one more probe), else from the window's start; its invalid minutes stay
+ * clipped. A gap written as [from, to] reads with
  * start = from. They are sorted, the overlapping ones merged, and kept
  * while they end after now − `samples.retention_hours`. covering() answers
  * whether a moment falls inside one.
@@ -98,11 +102,12 @@ final class BlindGaps
 
     /**
      * How old `checked_through` must be before a short window writes it
-     * again: two ticks, so a normal tick writes at most every second time.
-     * The window then starts at most REFRESH_SECONDS plus one tick before
-     * now, well below GAP_SECONDS, so a normal tick never walks.
+     * again: less than one tick, so each minute tick writes it once and a
+     * second tick inside the same minute (a retry, another server) does not.
+     * So only a time of more than GAP_SECONDS without a completed decision
+     * (about five missed ticks) is ever walked.
      */
-    public const REFRESH_SECONDS = 120;
+    public const REFRESH_SECONDS = 50;
 
     /** The most recent gaps that recent() returns. */
     public const RECENT = 10;
@@ -162,6 +167,13 @@ final class BlindGaps
             }
 
             $start = $outcome['started_at'];
+            // The first decision after an upgrade: the window's start is stored first (one write, once), so a
+            // walk that fails now leaves that start for the next tick instead of a newer tick outcome.
+            $session->table('orrery_settings')->insertOrIgnore(['key' => self::KEY, 'value' => self::encode($start, [])]);
+            $raw = $session->table('orrery_settings')->where('key', self::KEY)->value('value');
+            $raw = is_string($raw) ? $raw : null;
+            $state = self::decode($raw);
+            $start = $state['checked_through'] ?? $start;
         }
 
         if ($now - $start <= self::GAP_SECONDS) {
@@ -174,9 +186,17 @@ final class BlindGaps
 
         $from = max($start, $horizon);
         [$holes, $through] = $this->walk($session, $from, $now);
+        // The gaps as recorded: a hole that begins at a window clipped to the samples retention begins, in the
+        // record, at the last evidence before the clip (one more probe), or at the window's start.
+        $recorded = $holes;
+
+        if ($holes !== [] && $holes[0][0] === $from && $from > $start) {
+            $recorded[0] = [$this->probe($session, $start, $from, true) ?? $start, $holes[0][1]];
+        }
+
         Hooks::reach(self::BEFORE_RECORD);
 
-        return $this->transactions->run($session, function (Connection $tx) use ($raw, $holes, $through, $from, $now, $retentionHours, $horizon): float {
+        return $this->transactions->run($session, function (Connection $tx) use ($raw, $holes, $recorded, $through, $start, $now, $retentionHours, $horizon): float {
             $invalid = SampleCounts::lockInvalid($tx, SampleCounts::minuteOf($now));
             $live = $tx->table('orrery_settings')->where('key', self::KEY)->value('value');
 
@@ -192,7 +212,7 @@ final class BlindGaps
             }
 
             SampleCounts::addInvalidIntervals($tx, $invalid, $intervals, $now, $retentionHours);
-            $found = array_map(static fn (array $hole): array => [$hole[0], $hole[1], $from], $holes);
+            $found = array_map(static fn (array $hole): array => [$hole[0], $hole[1], $start], $recorded);
             $tx->table('orrery_settings')->upsert(
                 [['key' => self::KEY, 'value' => self::encode($through, self::merge([...self::decode($live)['gaps'], ...$found], $horizon))]],
                 ['key'],
@@ -263,6 +283,26 @@ final class BlindGaps
         $session ??= Container::getInstance()->make(PackageSession::class)->mirror();
 
         return self::decode($session->table('orrery_settings')->where('key', self::KEY)->value('value'))['gaps'];
+    }
+
+    /**
+     * The time through which the blind gaps are decided, from the stored
+     * values of KEY and of Maintenance\TickOutcome::KEY: `checked_through`,
+     * else the previous tick's start (decide()'s fallback), else null (no
+     * tick has run). SampleCoverage reads the minutes after it as unknown
+     * while it is more than GAP_SECONDS old.
+     */
+    public static function decidedThrough(mixed $value, mixed $outcome): ?float
+    {
+        $checked = self::decode($value)['checked_through'];
+
+        if ($checked !== null) {
+            return $checked;
+        }
+
+        $decoded = is_string($outcome) ? TickOutcome::decode($outcome) : null;
+
+        return $decoded === null ? null : $decoded['started_at'];
     }
 
     /**

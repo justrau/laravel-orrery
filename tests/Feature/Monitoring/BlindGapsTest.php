@@ -243,20 +243,37 @@ final class BlindGapsTest extends RetentionTestCase
     }
 
     /**
-     * Rejects: an unbounded walk or record for a gap longer than the samples retention, and a catch-up that spends
-     * a unit (and so about 22 ticks) on each unknown minute of it.
+     * Rejects: an unbounded walk for a gap longer than the samples retention, invalid minutes before that retention,
+     * a record that starts the gap (or its window) at the clip instead of the last evidence before it (the stuck rule
+     * anchors there, so every lost job would alert), and a catch-up that spends a unit (and so about 22 ticks) on
+     * each unknown minute.
      */
-    public function test_a_gap_longer_than_the_samples_retention_is_clipped_to_it(): void
+    #[DataProvider('clips')]
+    public function test_a_gap_longer_than_the_samples_retention_is_clipped_to_it(?float $evidence): void
     {
         $this->frontier(self::B, self::PREVIOUS);
         $now = self::PREVIOUS + 30 * 3600;
-        $this->at($now);
 
+        if ($evidence !== null) {
+            // Observed for two hours after the last tick: the gap begins at the last evidence, before the clip.
+            $this->mirrorJob('completed', ['finished_at' => self::PREVIOUS + $evidence]);
+        }
+
+        $this->at($now);
         $this->aggregate();
 
-        self::assertSame([[$now - 24 * 3600, $now]], BlindGaps::read());
+        self::assertSame([[self::PREVIOUS + ($evidence ?? 0.0), $now]], BlindGaps::read());
+        self::assertSame([self::PREVIOUS], array_column(BlindGaps::anchored(), 2), 'The window starts at the last decision, not at the clip.');
         self::assertSame([[SampleCounts::minuteOf($now - 24 * 3600), SampleCounts::minuteOf($now) + 60]], $this->invalidIntervals());
         self::assertSame(SampleCounts::minuteOf($now), $this->through(), 'One run crosses the whole unknown day: one unit, not one per minute.');
+    }
+
+    /**
+     * @return array<string, array{0: ?float}>
+     */
+    public static function clips(): array
+    {
+        return ['no evidence' => [null], 'evidence before the clip' => [7200.0]];
     }
 
     /**
@@ -543,10 +560,10 @@ final class BlindGapsTest extends RetentionTestCase
     }
 
     /**
-     * Rejects: a short window that leaves `checked_through` (quiet normal ticks would then add up to a false gap), and
-     * one that writes it on every tick instead of every REFRESH_SECONDS.
+     * Rejects: a short window that leaves `checked_through` (quiet normal ticks would then add up to a false gap, and
+     * a few missed ticks would be walked), and one that writes it again on a second tick of the same minute.
      */
-    public function test_normal_ticks_keep_the_window_short_and_write_every_second_time(): void
+    public function test_normal_ticks_keep_the_window_short_and_write_once_a_minute(): void
     {
         $this->frontier(self::B, self::PREVIOUS);
         $seen = [];
@@ -559,10 +576,12 @@ final class BlindGapsTest extends RetentionTestCase
 
         self::assertSame([], BlindGaps::read(), 'Ten quiet minutes of normal ticks are no gap.');
         self::assertSame([], $this->invalidIntervals());
-        self::assertSame([
-            self::PREVIOUS, self::PREVIOUS + 120, self::PREVIOUS + 120, self::PREVIOUS + 240, self::PREVIOUS + 240,
-            self::PREVIOUS + 360, self::PREVIOUS + 360, self::PREVIOUS + 480, self::PREVIOUS + 480, self::PREVIOUS + 600,
-        ], $seen);
+        self::assertSame(array_map(static fn (int $tick): float => self::PREVIOUS + 60 * $tick, range(1, 10)), $seen);
+
+        // A second tick inside the same minute does not write again.
+        $this->at(self::PREVIOUS + 630);
+        $this->aggregate();
+        self::assertSame(self::PREVIOUS + 600, $this->checkedThrough());
     }
 
     /**
@@ -584,6 +603,66 @@ final class BlindGapsTest extends RetentionTestCase
 
         self::assertSame([[self::PREVIOUS - 900, self::PREVIOUS - 300]], BlindGaps::read());
         self::assertSame(self::PREVIOUS + 190, $this->checkedThrough());
+    }
+
+    /**
+     * Rejects: count readers that scan an undecided time live (Orrery just turned on, the dashboard opened before the
+     * next tick decided, or a decision that keeps failing): the off period would read as a covered 0. Normal
+     * operation (a decision within GAP_SECONDS) still scans the minutes from M on.
+     */
+    public function test_a_reader_shows_undecided_time_as_unknown(): void
+    {
+        $this->frontier(self::B + 120, self::B + 125.0);
+        $this->mirror()->table(SampleCounts::TABLE)->insert(['scope' => 'total', 'series' => SampleCounts::series('total'), 'minute' => self::B, 'completed' => 0, 'failed' => 0, 'runtime_ms_sum' => 0, 'runtime_count' => 0, 'pushed' => 0]);
+        $this->mirrorJob('completed', ['finished_at' => self::B + 130.0]);
+
+        // Normal operation: decided 60 s ago, the minutes from M on are scanned.
+        $this->at(self::B + 185.0);
+        $minutes = $this->throughput(self::B + 120, self::B + 180);
+        self::assertSame(['completed' => 1, 'failed' => 0], $minutes[self::B + 120]);
+
+        // 20 minutes without a decision: unknown from M on, until a tick decides.
+        $this->at(self::B + 120 + 20 * 60 + 3.0);
+        $minutes = $this->throughput(self::B, self::B + 20 * 60);
+        self::assertSame(['completed' => 0, 'failed' => 0], $minutes[self::B], 'A published minute before M stays as it was.');
+
+        foreach ($minutes as $minute => $counts) {
+            if ($minute >= self::B + 120) {
+                self::assertSame(['completed' => null, 'failed' => null], $counts, "Minute {$minute} is undecided, so unknown.");
+            }
+        }
+    }
+
+    /**
+     * Rejects: a first decision after an upgrade (no record yet, only the tick outcome) that loses its window when it
+     * fails: the failed tick writes a newer outcome, and the next tick would see a 60 s window.
+     */
+    public function test_the_first_decision_after_an_upgrade_keeps_its_window(): void
+    {
+        $this->frontier(self::B, self::PREVIOUS);
+        $this->mirror()->table('orrery_settings')->where('key', BlindGaps::KEY)->delete();
+        Hooks::$callback = static function (string $point): void {
+            if ($point === BlindGaps::BEFORE_RECORD) {
+                throw new RuntimeException('The decision fails.');
+            }
+        };
+        $failed = self::B + 20 * 60 + 3.0;
+        $this->at($failed);
+
+        try {
+            $this->aggregate();
+            self::fail('The run fails with its decision.');
+        } catch (RuntimeException) {
+        }
+
+        Hooks::$callback = null;
+        self::assertSame(self::PREVIOUS, $this->checkedThrough(), 'The window\'s start is stored before the walk.');
+        $this->mirror()->table('orrery_settings')->where('key', TickOutcome::KEY)->update(['value' => $this->outcome($failed, ['sample_counts'])]);
+        $now = $failed + 60;
+        $this->at($now);
+        $this->aggregate();
+
+        self::assertSame([[self::PREVIOUS, $now]], BlindGaps::read());
     }
 
     private function at(float $time): void

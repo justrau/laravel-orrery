@@ -7,6 +7,7 @@ use Illuminate\Database\Connection;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Database\QueryException;
 use Justrau\Orrery\Maintenance\RetentionPolicy;
+use Justrau\Orrery\Maintenance\TickOutcome;
 use Justrau\Orrery\Runtime\Hooks;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\Clock;
@@ -19,8 +20,8 @@ use Justrau\Orrery\Storage\PackageSession;
  * minute m of a window through of().
  *
  * One call reads, in this order:
- * 1. the settings rows INVALID (its version) and COUNTED_THROUGH (M), in one
- *    statement;
+ * 1. the settings rows INVALID (its version), COUNTED_THROUGH (M), and the
+ *    blind-gap record with the tick outcome, in one statement;
  * 2. the stored counts of the minutes before M: one statement that selects
  *    the `total` rows and the rows of the requested series together, so a
  *    `total` row never authorises group rows that it did not see (one
@@ -54,6 +55,11 @@ use Justrau\Orrery\Storage\PackageSession;
  *   Samples::retire()): unknown;
  * - m inside an invalid interval, or at or before RETIRED_THROUGH: unknown,
  *   whatever else exists (an older `total` row included);
+ * - m at or after max(M, the minute of the blind-gap decision's progress)
+ *   while that progress (BlindGaps::decidedThrough(), read in read 1) is more
+ *   than BlindGaps::GAP_SECONDS before the end: unknown, because that time
+ *   may be blind (Orrery was just turned on, or the decision keeps failing)
+ *   until a decision covers it;
  * - m < M with a `total` row: the stored counts; the arrivals only when that
  *   `total` row has a non-null `pushed` (a minute counted before schema step
  *   7 keeps null: unknown, never 0), and then a `queue` or `job` row with a
@@ -134,8 +140,8 @@ final class SampleCoverage
             $only['connection'] = $aliases[$only['connection']] ?? $only['connection'];
         }
 
-        // 1. The version of the invalid minutes and the frontier M.
-        [$before, $through] = $this->frontier($session, $current);
+        // 1. The version of the invalid minutes, the frontier M and the blind-gap decision's progress.
+        [$before, $through, $decided] = $this->frontier($session, $current);
 
         // 2. The stored counts before M.
         $stored = $through === null || $through <= $from ? [] : $this->stored($session, $scope, $only, $from, min($to, $through), in_array('pushed', $kinds, true), $rowLimit);
@@ -186,13 +192,18 @@ final class SampleCoverage
         // The samples' retention horizon, as the aggregation and Samples::retire() use it.
         $kept = SampleCounts::minuteOf($end - $this->counts->retentionHours() * 3600) + SampleCounts::MINUTE;
         $changed = $after !== $before;
+        // A time that no blind-gap decision has covered for more than BlindGaps::GAP_SECONDS (Orrery was just turned on,
+        // or the decision keeps failing) may be blind: its minutes from M on stay unknown until a decision.
+        $undecided = $decided !== null && $end - $decided > BlindGaps::GAP_SECONDS
+            ? max($through ?? $current, SampleCounts::minuteOf($decided))
+            : null;
         $known = [];
         $rows = [];
 
         for ($minute = $from; $minute < $to; $minute += SampleCounts::MINUTE) {
             $known[$minute] = ['completed' => false, 'failed' => false, 'pushed' => false];
 
-            if ($changed || $minute < $kept || SampleCounts::covers($intervals, $minute) || ($retired !== null && $minute <= $retired)) {
+            if ($changed || $minute < $kept || SampleCounts::covers($intervals, $minute) || ($retired !== null && $minute <= $retired) || ($undecided !== null && $minute >= $undecided)) {
                 continue;
             }
 
@@ -260,14 +271,16 @@ final class SampleCoverage
     }
 
     /**
-     * Read 1: the version of INVALID and M, in one statement.
+     * Read 1: the version of INVALID, M, and the time through which the
+     * blind gaps are decided (BlindGaps::decidedThrough(), from its record
+     * and the tick outcome), in one statement.
      *
-     * @return array{0: int, 1: ?int}
+     * @return array{0: int, 1: ?int, 2: ?float}
      */
     private function frontier(Connection $session, int $current): array
     {
         $values = $session->table('orrery_settings')
-            ->whereIn('key', [SampleCounts::INVALID, SampleCounts::COUNTED_THROUGH])
+            ->whereIn('key', [SampleCounts::INVALID, SampleCounts::COUNTED_THROUGH, BlindGaps::KEY, TickOutcome::KEY])
             ->pluck('value', 'key')
             ->all();
         $through = $values[SampleCounts::COUNTED_THROUGH] ?? null;
@@ -275,6 +288,7 @@ final class SampleCoverage
         return [
             SampleCounts::parseInvalid($values[SampleCounts::INVALID] ?? null, $current)['version'],
             is_numeric($through) ? SampleCounts::minuteOf((float) $through) : null,
+            BlindGaps::decidedThrough($values[BlindGaps::KEY] ?? null, $values[TickOutcome::KEY] ?? null),
         ];
     }
 
