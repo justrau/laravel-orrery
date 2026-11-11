@@ -20,6 +20,8 @@ use Symfony\Component\Console\Attribute\AsCommand;
 #[AsCommand(name: 'orrery:deployed')]
 class DeployedCommand extends Command
 {
+    use RefusesWhileDisabled;
+
     /** @var string */
     protected $signature = 'orrery:deployed {--label= : A short label for the deploy, for example a release tag}
                                                 {--window=600 : Record nothing when a marker with this label is at most this many seconds old (0 always records)}';

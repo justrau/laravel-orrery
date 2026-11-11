@@ -15,6 +15,8 @@ use Symfony\Component\Console\Attribute\AsCommand;
 #[AsCommand(name: 'orrery:clear-metrics')]
 class ClearMetricsCommand extends Command
 {
+    use RefusesWhileDisabled;
+
     /** @var string */
     protected $signature = 'orrery:clear-metrics';
 

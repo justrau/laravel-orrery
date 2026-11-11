@@ -39,6 +39,8 @@ use Throwable;
 #[AsCommand(name: 'orrery:retry')]
 class RetryCommand extends Command
 {
+    use RefusesWhileDisabled;
+
     public const ACTOR = 'cli';
 
     public const UNCERTAIN = 3;

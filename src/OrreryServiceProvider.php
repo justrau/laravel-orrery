@@ -11,10 +11,13 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Justrau\Orrery\Connectors\DatabaseConnector;
 use Justrau\Orrery\Http\Middleware\Authenticate;
+use Justrau\Orrery\Http\Middleware\RefuseWhileDisabled;
 use Justrau\Orrery\Observation\DatabaseDriverFilter;
+use Justrau\Orrery\Registration\BootsWhileDisabled;
 use Justrau\Orrery\Registration\Module;
 use Justrau\Orrery\Registration\Modules;
 use Justrau\Orrery\Runtime\Degradation;
+use Justrau\Orrery\Runtime\OffSwitch;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Runtime\WatchesItself;
 use Throwable;
@@ -63,8 +66,17 @@ class OrreryServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        $this->bootModules();
-        $this->registerEvents();
+        // The off switch (Runtime\OffSwitch): only the modules that serve
+        // `migrate` boot, and no legacy listener registers. The migrations,
+        // the publishing, the routes (which answer 503) and the commands stay.
+        $enabled = OffSwitch::enabled($this->app->make('config'));
+
+        $this->bootModules($enabled);
+
+        if ($enabled) {
+            $this->registerEvents();
+        }
+
         $this->registerMigrations();
         $this->offerPublishing();
 
@@ -113,7 +125,8 @@ class OrreryServiceProvider extends ServiceProvider
      * The attributes of the package route group. Authenticate is on the
      * group, so every route in routes/web.php, also one without a package
      * controller, needs the view ability, and a write route also the operate
-     * ability.
+     * ability. RefuseWhileDisabled follows it: while the package is off, an
+     * allowed request gets 503.
      *
      * @return array{domain: mixed, prefix: mixed, namespace: string, middleware: list<string>}
      */
@@ -123,7 +136,7 @@ class OrreryServiceProvider extends ServiceProvider
             'domain' => config('orrery.domain'),
             'prefix' => config('orrery.path'),
             'namespace' => 'Justrau\\Orrery\\Http\\Controllers',
-            'middleware' => ['orrery', Authenticate::class],
+            'middleware' => ['orrery', Authenticate::class, RefuseWhileDisabled::class],
         ];
     }
 
@@ -144,13 +157,18 @@ class OrreryServiceProvider extends ServiceProvider
     /**
      * Boots the modules in the order of MODULES. Each module's listeners register
      * just before its boot(), so the modules' listeners come before the
-     * legacy EventMap listeners, in the order of MODULES.
+     * legacy EventMap listeners, in the order of MODULES. While the package
+     * is off, only a module that implements BootsWhileDisabled boots.
      */
-    protected function bootModules(): void
+    protected function bootModules(bool $enabled = true): void
     {
         $events = $this->app->make(Dispatcher::class);
 
         foreach ($this->modules as $module) {
+            if (! $enabled && ! $module instanceof BootsWhileDisabled) {
+                continue;
+            }
+
             foreach ($module->listeners() as $event => $listeners) {
                 foreach ($listeners as $listener) {
                     $events->listen($event, $this->wrapListener($listener));
@@ -271,7 +289,7 @@ class OrreryServiceProvider extends ServiceProvider
     protected function registerQueueConnectors(): void
     {
         $this->callAfterResolving(QueueManager::class, function (QueueManager $manager) {
-            if (! config('orrery.swap_connector', true)) {
+            if (! config('orrery.swap_connector', true) || ! OffSwitch::enabled()) {
                 return;
             }
 

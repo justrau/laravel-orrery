@@ -12,6 +12,8 @@ use Symfony\Component\Console\Attribute\AsCommand;
 #[AsCommand(name: 'orrery:pause')]
 class PauseCommand extends Command
 {
+    use RefusesWhileDisabled;
+
     /** The actor that a command stores in orrery_signals.issued_by. */
     public const ACTOR = 'cli';
 

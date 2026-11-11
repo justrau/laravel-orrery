@@ -101,12 +101,9 @@ final class MonitoringModule implements Module
             MarkerRetentionPhase::class,
             StuckNotificationsPhase::class,
         ], TickCommand::PHASES_TAG);
-    }
 
-    public function boot(Application $app): void
-    {
-        Modules::resolveAtBoot($app, self::PROCESS_STATE);
-
+        // The optional jobs index is offered in register(), so `vendor:publish` also
+        // finds it while the package is off (Runtime\OffSwitch: boot() does not run then).
         $paths = [self::source() => $app->databasePath('migrations/'.self::MIGRATION)];
 
         ServiceProvider::$publishes[OrreryServiceProvider::class] = array_merge(ServiceProvider::$publishes[OrreryServiceProvider::class] ?? [], $paths);
@@ -114,6 +111,11 @@ final class MonitoringModule implements Module
         // The copy is named by the time of the publish: under its fixed 2026-09-23 name, a fresh
         // `migrate` ran it before the application's jobs table existed, and it built nothing.
         OrreryServiceProvider::publishWithCurrentDate(self::source());
+    }
+
+    public function boot(Application $app): void
+    {
+        Modules::resolveAtBoot($app, self::PROCESS_STATE);
     }
 
     public function listeners(): array

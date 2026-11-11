@@ -30,6 +30,7 @@ Where the code and a spec disagree, read the code and report the difference.
 - Each module implements `Registration\Module`: `register()`, `boot()`, `listeners()`, `resetForTesting()`. A module's listeners register just before its `boot()`, before the legacy `EventMap` entries (`JobFailed` → `MarshalFailedEvent`, `LongWaitDetected` → `SendNotification`, `LongWaitRecovered` → `SendRecoveredNotification`).
 - The provider wraps every listener: a driver filter (only `database` queue connections), then the watcher. A listener that implements `Runtime\WatchesItself` (for example `RecordWorkerHeartbeat`) watches its own writes, so it also runs while the breaker is open.
 - `Modules::addForTesting($module, $before)` adds a test module.
+- **The off switch** (`Runtime\OffSwitch`, `orrery.enabled`): the provider decides at `boot()` (Testbench registers providers before `defineEnvironment()`), so `register()` stays the same and only lazy callbacks check it: the connector swap and the `queue.failer` extender. While off, only a module that implements `BootsWhileDisabled` boots (`StorageModule`: `migrate` support), the `EventMap` listeners do not register, the routes answer 503 (`Http\Middleware\RefuseWhileDisabled`, after `Authenticate`), and the acting commands refuse (`Console\RefusesWhileDisabled`). The jobs-index publish is in `MonitoringModule::register()`, so it is offered also while off.
 
 ## Binding lifetimes
 
@@ -50,12 +51,14 @@ Where the code and a spec disagree, read the code and report the difference.
 - `orrery:clear [connection] [--queue=]`: `Actions\WaitingJobs::clear()`, shared with `POST /api/queues/clear`. Only waiting jobs of the byte-exact queue, in batches of one transaction each on the queue connection (no fence row), with their mirror rows on every alias of the jobs table. A batch whose bulk-row probe fails is kept, and the command exits 1. A queue connection inside a transaction is refused; a later batch that fails ends the clear with the counts so far (exit 1). `orrery:clear-metrics`: clears the per-minute counts.
 - `orrery:reconcile`, `orrery:resolve {id?} {--all}`: operator paths of reconciliation and of operations that wait for an operator.
 - `orrery:pause`, `orrery:continue`, `orrery:terminate` (`--connection=`, `--queue=`, actor `cli`), `orrery:deployed {--label=} {--window=600}`.
+- While the package is off, every command except `orrery:install`, `orrery:continue` and `orrery:resolve` (the removal procedure) uses `RefusesWhileDisabled`: exit 1 before `handle()` resolves its arguments.
 - Every operator command whose requested work did not happen exits non-zero. `CommandExitCodeTest` checks a mirror outage for every `orrery:*` command except `orrery:install`, and fails when a command has no row; each command's own test covers its other failures. `orrery:resolve` also exits 1 when an operation stays open after its step. A queue pause or continue whose Laravel part happened before the package record failed says so (`Control\QueuePauseRecordFailed`) and exits 1. The watcher rule covers hooks and listeners, not operator commands.
 
 ## Configuration (`config/orrery.php`)
 
 The file documents most keys (the first keys, `name`, `domain`, `path`, `proxy_path` and `middleware`, have no comment there: the table of `docs/configuration.md` describes them). Keys that change behaviour in non-obvious ways:
 
+- `enabled` (`ORRERY_ENABLED`, first in the file): the off switch (`Runtime\OffSwitch`); only an explicit false word turns it off.
 - `database` (`ORRERY_CONNECTION`): empty means the default connection, and on a SQLite file the sibling file.
 - `guard`: the guard that decides 401 versus 403.
 - `sessions.pooled`, `sessions.statement_timeout_ms` (10000; 0 off).

@@ -35,6 +35,8 @@ use Symfony\Component\Console\Attribute\AsCommand;
 #[AsCommand(name: 'orrery:forget')]
 class ForgetFailedCommand extends Command
 {
+    use RefusesWhileDisabled;
+
     public const ACTOR = 'cli';
 
     /** @var string */

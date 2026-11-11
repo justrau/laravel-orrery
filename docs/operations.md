@@ -91,6 +91,36 @@ php artisan orrery:deployed --label="v1.4.2"
 - The tick records a restart marker when the value of `queue:restart` in the default cache store changes. With several servers the store must be shared, as `queue:restart` needs anyway. A marker shows that a restart was requested, not that the workers stopped.
 - Markers are kept for 7 days.
 
+## Turning Orrery off
+
+If Orrery causes trouble in production, turn it off with an environment change. You do not need a code deploy:
+
+```bash
+# .env
+ORRERY_ENABLED=false
+```
+
+```bash
+php artisan config:cache
+php artisan queue:restart
+```
+
+- **Refresh the configuration cache.** With a cached configuration, Laravel does not read `.env`. Run `php artisan config:cache` (or your deploy's cache step) after the change. Without a cached configuration, a new request or command reads the new value.
+- **Restart the workers.** A running worker keeps the configuration that it loaded at its start. Run `php artisan queue:restart`. Until each worker restarts, it observes as before.
+- **What stops.** Orrery then behaves as if it were not installed. Your `database` queues use Laravel's own `DatabaseQueue`, and failed jobs go to Laravel's own failed-job provider. Orrery registers no queue, job or worker listener, stamps no payload, writes no heartbeat, reads no signal, defers nothing to a commit and does not schedule `orrery:tick`. Web requests, dispatches and workers open no connection to the package tables. The migrations still load, so `php artisan migrate` works.
+- **The dashboard** answers every page and API request with 503 and the text "Orrery is disabled (ORRERY_ENABLED=false).". The API body is `{"error": "orrery_disabled", "message": …}`. The access check comes first: a visitor without access still gets 401 or 403. `/orrery/api/health` also answers 503.
+- **The commands** `orrery:tick`, `orrery:retry`, `orrery:forget`, `orrery:clear`, `orrery:clear-metrics`, `orrery:pause`, `orrery:terminate`, `orrery:reconcile` and `orrery:deployed` refuse with that text and exit 1. If you schedule `orrery:tick` yourself (`orrery.schedule` false), that line fails every minute while Orrery is off: remove it or ignore the failures. `orrery:install` and the two commands of [the removal](upgrading.md#removing-orrery), `orrery:continue` and `orrery:resolve`, still run.
+- **Pauses.** While Orrery is off, its global and connection pauses do not hold the workers: only Orrery reads them. A queue pause still holds, because it is Laravel's own pause. Run `orrery:continue` (it works while Orrery is off) or `queue:continue` to lift it.
+
+To turn Orrery on again, set `ORRERY_ENABLED=true` (or remove the line), then run `php artisan config:cache` and `php artisan queue:restart`. Observation starts again from that moment. The dashboard then shows the time while Orrery was off as follows:
+
+- A job pushed while Orrery was off has no row in the Jobs list until a worker reserves it. The queue's waiting count and wait time are read from the `jobs` table, so they include it at once.
+- A job that ran or failed while Orrery was off has no row. A job that failed then is only in `failed_jobs`: the Failed list and the failure groups do not show it. `queue:failed` and `queue:retry` still see it, and `orrery:forget --all` also forgets failed records that have no row.
+- A job that was waiting when you turned Orrery off, and then ran while it was off, keeps its row as waiting. When it is absent from `jobs` for max(`retry_after`, 600) seconds, the tick sets it to `unknown` ([Known limits](known-limits.md)), and the stuck-job notifications report it.
+- The per-minute charts count the minutes while Orrery was off from the job rows, which do not exist, so those minutes show no jobs (zero), not unknown. To show them as unknown, run `php artisan orrery:clear-metrics` right after you turn Orrery on: every earlier minute then reads as unknown, also the minutes before Orrery was off.
+- A worker shows on the Workers screen again after it restarts with Orrery on.
+- A retry or forget that was in progress waits, and the first tick after you turn Orrery on continues it.
+
 ## Commands
 
 | Command | What it does |
@@ -109,4 +139,4 @@ php artisan orrery:deployed --label="v1.4.2"
 | `orrery:clear-metrics` | Deletes the per-minute counts. The queue state stays, and every earlier minute reads as unknown. |
 | `orrery:deployed [--label=] [--window=600]` | Records a deploy marker. |
 
-Every command except `orrery:tick` exits non-zero when its requested work did not happen. `orrery:clear` also deletes the mirror rows of waiting bulk jobs whose id the package has not resolved yet, on every connection name of the same jobs table; a bulk push whose mirror rows are written after `orrery:clear` ran keeps those rows. The queue name is compared byte by byte: `high` never clears `HIGH`.
+Every command except `orrery:tick` exits non-zero when its requested work did not happen. While Orrery is off (`ORRERY_ENABLED=false`), the commands that act refuse and exit 1 (see [Turning Orrery off](#turning-orrery-off)). `orrery:clear` also deletes the mirror rows of waiting bulk jobs whose id the package has not resolved yet, on every connection name of the same jobs table; a bulk push whose mirror rows are written after `orrery:clear` ran keeps those rows. The queue name is compared byte by byte: `high` never clears `HIGH`.

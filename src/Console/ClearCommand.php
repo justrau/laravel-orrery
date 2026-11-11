@@ -31,6 +31,7 @@ use Symfony\Component\Console\Attribute\AsCommand;
 class ClearCommand extends Command
 {
     use ConfirmableTrait;
+    use RefusesWhileDisabled;
 
     /** The attempts of one batch transaction when SQLite answers SQLITE_BUSY (WaitingJobs::BUSY_ATTEMPTS). */
     public const BUSY_ATTEMPTS = WaitingJobs::BUSY_ATTEMPTS;

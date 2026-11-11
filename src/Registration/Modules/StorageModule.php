@@ -8,7 +8,7 @@ use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Database\Events\SchemaLoaded;
 use Justrau\Orrery\Database\Schema\DeferredIndexes;
 use Justrau\Orrery\Database\Schema\PackageSchema;
-use Justrau\Orrery\Registration\Module;
+use Justrau\Orrery\Registration\BootsWhileDisabled;
 use Justrau\Orrery\Registration\Modules;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Storage\DatabaseClock;
@@ -21,7 +21,8 @@ use Justrau\Orrery\Storage\PackageTransaction;
  * SQLite file policy (D17, D18), the package transaction and the schema of
  * the package tables. Listed first: every later module reads and writes
  * through them. Its boot() also listens to Laravel's SchemaLoaded, so a
- * package schema loaded from a schema dump gets its marker.
+ * package schema loaded from a schema dump gets its marker. It boots also
+ * while the package is off (BootsWhileDisabled): `migrate` still works.
  *
  * Every binding is a singleton (process state): the open sessions, the
  * journal-mode checks and the SQLite counters live for the process, and a
@@ -30,7 +31,7 @@ use Justrau\Orrery\Storage\PackageTransaction;
  * The reset removes the two test clock seams, which stay static (the
  * allow-list of StaticStateInventoryTest).
  */
-final class StorageModule implements Module
+final class StorageModule implements BootsWhileDisabled
 {
     /** The process state of this module, resolved in boot() on the base application (Modules::resolveAtBoot()). */
     public const PROCESS_STATE = [

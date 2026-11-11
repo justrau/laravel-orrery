@@ -28,6 +28,8 @@ use Symfony\Component\Console\Attribute\AsCommand;
 #[AsCommand(name: 'orrery:reconcile')]
 class ReconcileCommand extends Command
 {
+    use RefusesWhileDisabled;
+
     /** The batches of one sweep at most (1,000 rows each). */
     public const MAX_BATCHES = 10000;
 

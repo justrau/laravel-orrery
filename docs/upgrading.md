@@ -22,7 +22,7 @@ On SQLite, stop the workers and delete every sibling file made by a build before
 
 In this order:
 
-1. Stop the workers and the scheduler (a tick, a dashboard poll or a dispatch builds the SQLite sibling file again while the package is installed). Continue every paused queue (`php artisan orrery:continue` for each paused scope: Laravel keeps a queue pause until it is lifted), and finish or resolve the open operations (`php artisan orrery:resolve --all`). Remove `php artisan orrery:deployed` from your deploy script and the `orrery:tick` line from your schedule, if you added them: after the removal they fail.
+1. Stop the workers and the scheduler (a tick, a dashboard poll or a dispatch builds the SQLite sibling file again while the package is installed). Continue every paused queue (`php artisan orrery:continue` for each paused scope: Laravel keeps a queue pause until it is lifted), and finish or resolve the open operations (`php artisan orrery:resolve --all`). Both commands also run while Orrery is off (`ORRERY_ENABLED=false`). Remove `php artisan orrery:deployed` from your deploy script and the `orrery:tick` line from your schedule, if you added them: after the removal they fail.
 2. Roll back the package migration:
 
    ```bash

@@ -27,6 +27,8 @@ use Symfony\Component\Console\Attribute\AsCommand;
 #[AsCommand(name: 'orrery:tick')]
 class TickCommand extends Command
 {
+    use RefusesWhileDisabled;
+
     public const PHASES_TAG = 'orrery.tick-phases';
 
     /** @var string */

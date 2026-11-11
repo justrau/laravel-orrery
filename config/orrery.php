@@ -1,6 +1,15 @@
 <?php
 
 return [
+    // The off switch (ORRERY_ENABLED). False: the package observes
+    // nothing. Laravel's own database queue, failed-job provider and events
+    // run as without the package: no listener, no heartbeat, no scheduled
+    // tick and no package database connection. The dashboard answers 503,
+    // and the commands that act refuse. Migrations still load. A cached
+    // configuration needs `php artisan config:cache`, and running workers
+    // keep their loaded configuration until `php artisan queue:restart`.
+    'enabled' => env('ORRERY_ENABLED', true),
+
     'name' => env('ORRERY_NAME', 'Orrery'),
 
     'domain' => env('ORRERY_DOMAIN'),

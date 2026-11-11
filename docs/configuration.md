@@ -4,6 +4,7 @@
 
 | Key | Default | Effect |
 | --- | --- | --- |
+| `enabled` | `true` (`ORRERY_ENABLED`) | The off switch. `false` (also `0`, `off`, `no`) turns Orrery off: it observes nothing, the dashboard answers 503 and the commands that act refuse. A cached configuration needs `php artisan config:cache`, and running workers need `php artisan queue:restart` (see [Turning Orrery off](operations.md#turning-orrery-off)). |
 | `name` | `Orrery` (`ORRERY_NAME`) | The name in the page title and the notifications. |
 | `domain` | `null` (`ORRERY_DOMAIN`) | The domain of the dashboard routes. |
 | `path` | `orrery` (`ORRERY_PATH`) | The URL path of the dashboard. |

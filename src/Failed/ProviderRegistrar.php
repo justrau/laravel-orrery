@@ -4,6 +4,7 @@ namespace Justrau\Orrery\Failed;
 
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Queue\Failed\DatabaseUuidFailedJobProvider as LaravelDatabaseUuidFailedJobProvider;
+use Justrau\Orrery\Runtime\OffSwitch;
 
 /**
  * The verifying extender of `queue.failer`.
@@ -29,7 +30,8 @@ final class ProviderRegistrar
 
     public static function register(Application $app): void
     {
-        $app->extend('queue.failer', static fn (mixed $failer, $app): mixed => self::verify($failer, $app));
+        // While the package is off (Runtime\OffSwitch), Laravel's own failer stays.
+        $app->extend('queue.failer', static fn (mixed $failer, $app): mixed => OffSwitch::enabled($app->make('config')) ? self::verify($failer, $app) : $failer);
     }
 
     public static function verify(mixed $failer, Application $app): mixed
