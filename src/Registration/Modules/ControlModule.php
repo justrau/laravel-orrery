@@ -2,14 +2,19 @@
 
 namespace Justrau\Orrery\Registration\Modules;
 
+use Illuminate\Console\Events\CommandFinished;
+use Illuminate\Console\Events\CommandStarting;
 use Illuminate\Contracts\Foundation\Application;
 use Illuminate\Queue\Events\JobProcessing;
+use Illuminate\Queue\Events\JobTimedOut;
 use Illuminate\Queue\Events\Looping;
 use Illuminate\Queue\Events\WorkerStarting;
+use Illuminate\Queue\Events\WorkerStopping;
 use Justrau\Orrery\Console\TickCommand;
 use Justrau\Orrery\Control\Phases\SignalExpiryPhase;
 use Justrau\Orrery\Control\SignalCache;
 use Justrau\Orrery\Control\StopLatch;
+use Justrau\Orrery\Listeners\ForgetStoppedWorker;
 use Justrau\Orrery\Listeners\RecordWorkerHeartbeat;
 use Justrau\Orrery\Registration\Module;
 use Justrau\Orrery\Registration\Modules;
@@ -24,10 +29,12 @@ use Justrau\Orrery\Workers\Phases\HeartbeatSweepPhase;
  * - The heartbeat listener on WorkerStarting, Looping and JobProcessing. On
  *   Looping it also returns false when the worker loop must not reserve (a
  *   global or connection pause of every subscribed queue, or a terminate).
+ * - ForgetStoppedWorker on WorkerStopping, JobTimedOut, CommandStarting and
+ *   CommandFinished: a worker that stops normally deletes its heartbeat row.
  * - The tick phases heartbeat_sweep (200) and signal_expiry (300).
  * - Every binding is a singleton (process state): the stop latch, the
- *   signal cache, the heartbeat state and the heartbeat listener (its
- *   throttle), so a long-lived worker keeps them and a new application
+ *   signal cache, the heartbeat state, the heartbeat listener (its
+ *   throttle) and the stop listener (the command depth), so a long-lived worker keeps them and a new application
  *   starts without them.
  */
 final class ControlModule implements Module
@@ -39,6 +46,7 @@ final class ControlModule implements Module
         SignalCache::class,
         Heartbeats::class,
         RecordWorkerHeartbeat::class,
+        ForgetStoppedWorker::class,
     ];
 
     public function register(Application $app): void
@@ -48,6 +56,7 @@ final class ControlModule implements Module
         $app->singleton(SignalCache::class);
         $app->singleton(Heartbeats::class);
         $app->singleton(RecordWorkerHeartbeat::class);
+        $app->singleton(ForgetStoppedWorker::class);
 
         // The precise start of a process without LARAVEL_START (for terminate).
         ProcessContext::markBooted();
@@ -69,6 +78,10 @@ final class ControlModule implements Module
             WorkerStarting::class => [RecordWorkerHeartbeat::class],
             Looping::class => [RecordWorkerHeartbeat::class],
             JobProcessing::class => [RecordWorkerHeartbeat::class],
+            WorkerStopping::class => [ForgetStoppedWorker::class],
+            JobTimedOut::class => [ForgetStoppedWorker::class],
+            CommandStarting::class => [ForgetStoppedWorker::class],
+            CommandFinished::class => [ForgetStoppedWorker::class],
         ];
     }
 
