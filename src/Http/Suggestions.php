@@ -12,14 +12,18 @@ use Justrau\Orrery\Storage\PackageSession;
 
 /**
  * The suggestions of the Jobs filter bar's Class and Tag fields
- * (`GET /api/suggestions`): values the package has seen, read with fixed
- * bounds on indexes, and matched in PHP.
+ * (`GET /api/suggestions`): values the package has seen, matched in PHP.
+ * Each read is bounded by a row count on an index (the newest JOB_SCAN or
+ * TAG_JOB_SCAN jobs, at most SAMPLE_ROWS sample rows of a SAMPLE_MINUTES
+ * range, at most Tags::MAX_TAGS + 1 monitored tags), never a scan of a
+ * whole table.
  *
  * - Class: the job names of the newest JOB_SCAN jobs (their ids in the order
  *   of the index `pushed`, pushed_at desc, id desc, which covers them; then
  *   the rows by primary key), then the job names of the per-class
  *   samples of the last SAMPLE_MINUTES minutes (`orrery_samples`, a range
- *   on the index `minute`), at most SAMPLE_CLASSES of them, grouped by the
+ *   on the index `minute`, at most SAMPLE_ROWS rows, newest minute first),
+ *   at most SAMPLE_CLASSES classes, grouped by the
  *   byte-exact `series` digest (so `App\Sync` and `App\SYNC` stay two
  *   classes also under MySQL's case-insensitive collation), the most
  *   recently seen first. The samples keep the classes of jobs whose rows
@@ -28,8 +32,10 @@ use Justrau\Orrery\Storage\PackageSession;
  *   tag index), then the tags of the newest TAG_JOB_SCAN jobs (read as for
  *   the classes, then `orrery_job_tags` by the index `job`),
  *   newest job first.
- * - Each bound is read as bound + 1, so one extra row says that it was hit:
- *   `limited` is then true and older values may be missing. The list is a
+ * - The job and tag bounds are read as bound + 1, so one extra row says that
+ *   a bound was hit; the sample rows say it when they reach SAMPLE_ROWS
+ *   (also when exactly that many exist). `limited` is then true and older
+ *   values may be missing. The list is a
  *   suggestion, never a complete list.
  * - The match is a case-insensitive substring of the value, in PHP, so `%`
  *   and `_` are only themselves (no LIKE). A value that starts with the
@@ -60,6 +66,9 @@ final class Suggestions
 
     /** The most classes read from the samples. */
     public const SAMPLE_CLASSES = 500;
+
+    /** The most sample rows read, newest minute first: the classes are found within them. */
+    public const SAMPLE_ROWS = 20_000;
 
     /** The newest jobs whose tags are read. */
     public const TAG_JOB_SCAN = 1_000;
@@ -143,16 +152,23 @@ final class Suggestions
 
         $current = SampleCounts::minuteOf(Clock::now());
         $from = $current - (self::SAMPLE_MINUTES - 1) * SampleCounts::MINUTE;
-        $samples = $session->table(SampleCounts::TABLE)
+        $recent = $session->table(SampleCounts::TABLE)
+            ->select(['series', 'name', 'minute'])
+            ->whereBetween('minute', [$from, $current])
+            ->where('scope', 'job')
+            ->orderByDesc('minute')
+            ->limit(self::SAMPLE_ROWS);
+        $samples = $session->query()->fromSub($recent, 'recent')
             ->select('series')
             ->selectRaw('MAX(name) AS name')
             ->selectRaw('MAX(minute) AS seen')
-            ->whereBetween('minute', [$from, $current])
-            ->where('scope', 'job')
+            ->selectRaw('COUNT(*) AS sample_rows')
             ->groupBy('series')
             ->orderByDesc('seen')->orderBy('series')
             ->limit(self::SAMPLE_CLASSES + 1)
             ->get()->all();
+        // With at most SAMPLE_CLASSES groups, every group is here, so their rows add up to the rows read.
+        $sampleRows = array_sum(array_map(static fn (object $row): int => (int) ($row->sample_rows ?? 0), $samples));
 
         $values = [];
 
@@ -162,7 +178,7 @@ final class Suggestions
             }
         }
 
-        return [$values, $jobsLimited || count($samples) > self::SAMPLE_CLASSES];
+        return [$values, $jobsLimited || count($samples) > self::SAMPLE_CLASSES || $sampleRows >= self::SAMPLE_ROWS];
     }
 
     /**

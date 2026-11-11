@@ -132,22 +132,30 @@ final class SuggestionsControllerTest extends ControllerTest
 
     /**
      * Rejects: a sample read grouped by the name (MySQL's default collation merges `Sync` and `SYNC` into one
-     * class), a read of samples older than SAMPLE_MINUTES (an unbounded scan), or a read past SAMPLE_CLASSES
-     * without `limited`.
-     * Still passes: a window one minute wider than SAMPLE_MINUTES on one side (the old sample is two hours old).
+     * class), or a window other than the current minute and the SAMPLE_MINUTES - 1 before it.
+     * Still passes: a window that also reads a future minute (none is stored).
      */
-    public function test_class_samples_are_byte_exact_recent_and_bounded(): void
+    public function test_class_samples_are_byte_exact_and_read_from_the_window(): void
     {
-        $this->sample('App\\Jobs\\Sync', 1_790_000_100);
-        $this->sample('App\\Jobs\\SYNC', 1_790_000_040);
-        $this->sample('App\\Jobs\\Archived', 1_790_000_100 - 7200);
+        $current = 1_790_000_100;
+        $first = $current - (Suggestions::SAMPLE_MINUTES - 1) * 60;
+
+        $this->sample('App\\Jobs\\Sync', $current);
+        $this->sample('App\\Jobs\\SYNC', $first);
+        $this->sample('App\\Jobs\\Syncer', $first - 60);
 
         $response = $this->getJson('/orrery/api/suggestions?field=class&q=sync')->assertOk();
 
-        self::assertSame(['App\\Jobs\\Sync', 'App\\Jobs\\SYNC'], array_column($response->json('values'), 'value'));
+        self::assertSame(['App\\Jobs\\Sync', 'App\\Jobs\\SYNC'], array_column($response->json('values'), 'value'), 'the first minute of the window is read, the one before it is not');
         self::assertFalse($response->json('limited'));
-        self::assertSame([], $this->getJson('/orrery/api/suggestions?field=class&q=archived')->assertOk()->json('values'));
+    }
 
+    /**
+     * Rejects: a class cap that says `limited` at exactly SAMPLE_CLASSES classes, or not at one more.
+     * Still passes: a cap that reads the classes in another order (only the flag is checked).
+     */
+    public function test_the_class_cap_says_limited_only_past_it(): void
+    {
         $rows = [];
 
         for ($n = 0; $n < Suggestions::SAMPLE_CLASSES; $n++) {
@@ -158,7 +166,41 @@ final class SuggestionsControllerTest extends ControllerTest
             $this->mirror()->table(SampleCounts::TABLE)->insert($chunk);
         }
 
+        self::assertFalse($this->getJson('/orrery/api/suggestions?field=class&q=many')->assertOk()->json('limited'));
+
+        $this->sample('App\\Jobs\\ManyMore', 1_790_000_040);
+
         self::assertTrue($this->getJson('/orrery/api/suggestions?field=class&q=many')->assertOk()->json('limited'));
+    }
+
+    /**
+     * Rejects: a sample read without a row cap (a class seen only in the oldest rows of a full window is still
+     * found), or a cap that does not say `limited`.
+     * Still passes: a cap a little above SAMPLE_ROWS (the newer minutes hold 60 rows more than the cap).
+     */
+    public function test_the_sample_read_stops_at_its_row_cap(): void
+    {
+        $current = 1_790_000_100;
+        $first = $current - (Suggestions::SAMPLE_MINUTES - 1) * 60;
+        $perMinute = (int) ceil((Suggestions::SAMPLE_ROWS + 60) / (Suggestions::SAMPLE_MINUTES - 1));
+        $rows = [];
+
+        for ($minute = $first + 60; $minute <= $current; $minute += 60) {
+            for ($n = 0; $n < $perMinute; $n++) {
+                $rows[] = $this->sampleRow(sprintf('App\\Jobs\\Busy%03d', $n), $minute);
+            }
+        }
+
+        $rows[] = $this->sampleRow('App\\Jobs\\Ancient', $first);
+
+        foreach (array_chunk($rows, 500) as $chunk) {
+            $this->mirror()->table(SampleCounts::TABLE)->insert($chunk);
+        }
+
+        $response = $this->getJson('/orrery/api/suggestions?field=class&q=ancient')->assertOk();
+
+        self::assertSame([], $response->json('values'));
+        self::assertTrue($response->json('limited'));
     }
 
     /**
