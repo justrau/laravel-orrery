@@ -26,7 +26,7 @@ Orrery is not on Packagist yet. Composer installs it from the public GitHub repo
 2. Require the package:
 
    ```bash
-   composer require justrau/laravel-orrery:^0.2
+   composer require justrau/laravel-orrery:^0.3
    ```
 
 3. Run the installer and the migrations:

@@ -42,7 +42,7 @@ Orrery is not on Packagist yet. Composer installs it from the public GitHub repo
 
 ```bash
 composer config repositories.orrery vcs https://github.com/justrau/laravel-orrery
-composer require justrau/laravel-orrery:^0.2
+composer require justrau/laravel-orrery:^0.3
 php artisan orrery:install
 php artisan migrate
 ```

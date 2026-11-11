@@ -6,6 +6,19 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-11
+
+### Added
+
+- **MariaDB support.** MariaDB 12.3 (the latest LTS release) is a tested engine, with its own CI job and schema fixture. The query-plan tests skip on MariaDB, so index use is not yet verified there.
+- **`dashboard.class_rows`** (default `36060`) bounds the rows that the Job classes screen reads, newest minute first. Past the bound, older minutes are unknown, totals say "at least", and `GET /orrery/api/classes` adds `capped: true`; the screen says why minutes were not counted.
+
+### Fixed
+
+- **MariaDB in strict mode** refused the grouped reads of the minute counts, job classes, queue history and backlog, which repeated a `CAST()` in `GROUP BY`. They now group by their select aliases, with the same byte-exact results on every engine.
+- **MySQL package sessions with the application's own init command and multi-statements off** failed on every connect (error 1064). The package no longer appends to the application's init command: it sends its session settings as one `SET` after the connect, and adds an isolation statement only when the init command names an isolation level.
+- **An application `afterCommit` callback that throws** stopped Laravel's commit walk, and Orrery then held every later observation until the end of the unit. Orrery now detects the stopped walk, counts the stopped transaction's items as unverified, and lets the later observations through. A stale record from a failed commit in the same commit keeps its root walking, so nothing is lost.
+
 ## [0.2.0] - 2026-11-11
 
 ### Added
@@ -87,6 +100,7 @@ The first release: a Horizon-style dashboard for the `database` queue driver of 
 - The package's error reports (`WatchedOperationFailed`) carry no job value: no bindings, no previous exception and no trace.
 - Failure-group keys are an HMAC under `app.key`, so a key in a URL does not reveal its message.
 
-[Unreleased]: https://github.com/justrau/laravel-orrery/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/justrau/laravel-orrery/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/justrau/laravel-orrery/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/justrau/laravel-orrery/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/justrau/laravel-orrery/releases/tag/v0.1.0
