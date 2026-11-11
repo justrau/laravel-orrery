@@ -30,6 +30,8 @@ import {
     unknownAnnouncement,
     windowFromQuery,
     windowLine,
+    DEFAULT_SPAN,
+    classesFirstRequests,
 } from '../../resources/js/screens/classes/classes.js';
 
 const NOW = 1790000000; // 2026-09-21 14:13:20 UTC
@@ -372,4 +374,14 @@ test('unknownAnnouncement depends only on the count', () => {
     assert.equal(unknownAnnouncement({count: 3, first: MINUTE - 900, last: MINUTE - 780}), '3 minutes in this window could not be counted.');
     assert.equal(unknownAnnouncement({count: 3, first: MINUTE - 840, last: MINUTE - 720}), '3 minutes in this window could not be counted.');
     assert.equal(unknownAnnouncement({count: 1, first: MINUTE, last: MINUTE}), '1 minute in this window could not be counted.');
+});
+
+// Rejects: a window other than the route's, or a series of another span than the screen's first one.
+test('classesFirstRequests: the classes of the window, and the selected class\'s series', () => {
+    assert.equal(DEFAULT_SPAN, '1h');
+    assert.deepEqual(classesFirstRequests({minutes: '15', class: 'App\\Jobs\\X'}), [
+        {url: '/api/classes', params: {minutes: 15}},
+        {url: '/api/classes/series', params: {name: 'App\\Jobs\\X', minutes: 60}},
+    ]);
+    assert.deepEqual(classesFirstRequests({}), [{url: '/api/classes', params: {minutes: 60}}]);
 });

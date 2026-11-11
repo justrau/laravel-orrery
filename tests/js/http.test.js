@@ -5,6 +5,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 
 import {createHttp, queryUrl} from '../../resources/js/support/http.js';
+import {createPrefetchCache} from '../../resources/js/support/prefetch.js';
 import {describeFailure, enterTerminal, failureKind, installErrorHandling, resetTerminalForTesting} from '../../resources/js/errors.js';
 
 /** A fake fetch: records each call and answers with `answer(url, init)` (a Response or a promise). */
@@ -245,29 +246,41 @@ test('errors.js installs its interceptors on the client', async (t) => {
     assert.equal(calls.length, 2, 'the read in the terminal state never went out');
 });
 
-// Rejects: a client that tells no listener about a request (the held navigation would never wait for the next
-// screen's reads), tells it after the request settled, or keeps a listener after its removal.
-// Still passes: a client that also tells the listener about a request that an interceptor skips (it settles too).
-test('onRequest tells each listener about every new request at once, until it is removed', async () => {
-    const {fetch} = fakeFetch();
-    const http = createHttp({fetch});
-    const seen = [];
-    const remove = http.onRequest(promise => seen.push(promise));
+// Rejects: a screen's first GET that goes to the network again after the navigation prefetched it (fetched twice),
+// a second GET that reuses the answer (a poll would show old data), a write that takes a prefetched answer, or a
+// prefetch that is not abortable (a cancelled navigation keeps its request running).
+// Still passes: a client that also takes a prefetched answer for a GET with the params in another order.
+test('prefetch: the first GET of the same read takes the prefetched answer, once', async () => {
+    const {fetch, calls} = fakeFetch((url, init) => new Response(JSON.stringify({url}), {status: 200}));
+    const cache = createPrefetchCache();
+    const http = createHttp({fetch, prefetchCache: cache});
 
-    const first = http.get('/orrery/api/workload');
+    const entry = http.prefetch('/orrery/api/jobs', {status: 'failed', per_page: 5});
 
-    assert.equal(seen.length, 1, 'told synchronously, before the answer');
-    assert.equal(typeof seen[0].then, 'function');
-    await first;
-    await seen[0];
+    assert.equal(typeof entry.abort, 'function');
+    await entry.promise;
+    assert.equal(calls.length, 1);
 
-    remove();
+    const first = await http.get('/orrery/api/jobs', {params: {per_page: 5, status: 'failed'}});
+
+    assert.equal(calls.length, 1, 'the screen took the prefetched answer');
+    assert.deepEqual(first.data, {url: '/orrery/api/jobs?status=failed&per_page=5'});
+
+    await http.get('/orrery/api/jobs', {params: {per_page: 5, status: 'failed'}});
+    assert.equal(calls.length, 2, 'a poll goes to the network');
+
+    http.prefetch('/orrery/api/control', {});
     await http.post('/orrery/api/control', {});
-    assert.equal(seen.length, 1);
+    assert.equal(calls.at(-1).init.method, 'POST', 'a write never takes a prefetched answer');
+    assert.equal(calls.length, 4);
+});
 
-    // A listener that throws never breaks the request.
-    http.onRequest(() => {
-        throw new Error('listener');
-    });
-    assert.equal((await http.get('/orrery/api/workers')).status, 200);
+// Rejects: a prefetch whose abort does not reach fetch().
+test('prefetch: abort cancels the request', async () => {
+    const {fetch} = fakeFetch(hangs);
+    const http = createHttp({fetch, prefetchCache: createPrefetchCache()});
+    const entry = http.prefetch('/orrery/api/workload', {});
+
+    entry.abort();
+    assert.equal((await rejection(entry.promise)).code, 'ERR_CANCELED');
 });

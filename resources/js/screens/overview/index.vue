@@ -14,7 +14,6 @@
     import {codeText} from '../../support/wording.js';
     import {
         GROUPS_BULK_STORAGE_KEY,
-        MARKER_LEAD_SECONDS,
         countText,
         groupCountAtLeast,
         groupsSource,
@@ -26,6 +25,7 @@
     import QueueCard from './QueueCard.vue';
     import {
         GROUP_RANGE_SECONDS,
+        overviewRequests,
         GROUP_ROWS,
         MAX_GROUP_NOTICES,
         attentionItems,
@@ -411,8 +411,7 @@
              */
             refresh() {
                 const sequence = this.startRequest('overview');
-                const now = nowSeconds();
-                const live = liveWindow(GROUP_RANGE_SECONDS, now);
+                const [control, throughput, markers] = overviewRequests(nowSeconds());
                 const current = () => this.isCurrentRequest('overview', sequence);
                 const read = (path, params, assign, section) => this.get(path, params)
                     .then(data => {
@@ -435,13 +434,13 @@
                     });
 
                 return Promise.allSettled([
-                    read('/api/control', {}, data => {
+                    read(control.url, control.params, data => {
                         if (!Array.isArray(data)) throw new TypeError('The control answer is not a list.');
 
                         this.control = data;
                     }, 'control'),
-                    read('/api/throughput', {minutes: 60}, data => { this.throughput = data; }, 'throughput'),
-                    read('/api/markers', {since: live.from - MARKER_LEAD_SECONDS}, data => {
+                    read(throughput.url, throughput.params, data => { this.throughput = data; }, 'throughput'),
+                    read(markers.url, markers.params, data => {
                         this.markers = (data && Array.isArray(data.markers) ? data.markers : [])
                             .map(marker => ({...marker, at: num(marker && marker.at)}))
                             .filter(marker => marker.at !== null);

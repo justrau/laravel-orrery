@@ -1,6 +1,7 @@
 import {axisTicks, niceAxis, slotStarts} from '../../support/series.js';
 import {readStored, writeStored} from '../../support/storage.js';
-import {formatCount, formatDate, formatHourMinute, formatHourMinuteZoned, formatTimeRangeZoned} from '../../support/time.js';
+import {CARD_PAGE, HISTORY_CONCURRENCY, findRow, normalizeWorkload, queueRequest} from './queues.js';
+import {formatCount, formatDate, formatDayMinuteZoned, formatDayRangeZoned, formatHourMinute, nowSeconds} from '../../support/time.js';
 
 /**
  * The rules of the backlog charts of the Queues screen (BacklogChart.vue):
@@ -135,6 +136,82 @@ export function backlogSlots(window, buckets, slotSeconds) {
     });
 }
 
+/** The runs of known slots: each is drawn as one line; a line never crosses an unknown slot. */
+export function backlogSegments(slots) {
+    const segments = [];
+    let current = null;
+
+    (slots || []).forEach(slot => {
+        if (slot.value === null) {
+            current = null;
+
+            return;
+        }
+
+        if (!current) {
+            current = [];
+            segments.push(current);
+        }
+
+        current.push(slot);
+    });
+
+    return segments;
+}
+
+/** The runs of unknown slots: `{from, to}` (slot indexes) and `{first, end}` (their times). */
+export function backlogGaps(slots) {
+    const gaps = [];
+    let current = null;
+
+    (slots || []).forEach(slot => {
+        if (slot.value !== null) {
+            current = null;
+
+            return;
+        }
+
+        if (current) {
+            current.to = slot.index;
+            current.end = slot.end;
+        } else {
+            current = {from: slot.index, to: slot.index, first: slot.at, end: slot.end};
+            gaps.push(current);
+        }
+    });
+
+    return gaps;
+}
+
+/** The known slots with unknown minutes: their value is the peak of the known ones, so "at least". */
+export function partialSlots(slots) {
+    return (slots || []).filter(slot => slot.value !== null && slot.unknownMinutes > 0);
+}
+
+/**
+ * The accessible description of a chart: the label, the latest known
+ * value (a peak "up to" in a wide slot) with its time, the gaps, the partly
+ * unknown periods, and the marker titles.
+ */
+export function backlogDescription(label, slots, markerTitles = [], now = nowSeconds()) {
+    const known = (slots || []).filter(slot => slot.value !== null);
+    const latest = known.length ? known[known.length - 1] : null;
+    const gaps = backlogGaps(slots).length;
+    const partial = partialSlots(slots).length;
+    const parts = [label];
+
+    if (latest) {
+        parts.push(`${latest.minutes > 1 ? 'up to ' : ''}${formatCount(latest.value)} at ${slotTime(latest, now)}`);
+    } else {
+        parts.push('no data');
+    }
+
+    if (gaps) parts.push(`${gaps} ${gaps === 1 ? 'gap' : 'gaps'} without data`);
+    if (partial) parts.push(`${partial} ${partial === 1 ? 'period' : 'periods'} partly without data (values are at least)`);
+
+    return `${[...parts, ...markerTitles].join(', ')}.`;
+}
+
 /**
  * The top of a card's y scale: a round number (series.js niceAxis()) over
  * the largest known value of every card (`shared`) or of the card `key`
@@ -188,14 +265,22 @@ export function stepSlot(index, key, count) {
 }
 
 /**
+ * The time of a slot in the display zone, with its date when it is not of
+ * `now`'s day (the 6 h and 24 h views reach the day before).
+ */
+export function slotTime(slot, now = nowSeconds()) {
+    return slot.minutes > 1 ? formatDayRangeZoned(slot.at, slot.end, now) : formatDayMinuteZoned(slot.at, now);
+}
+
+/**
  * The tooltip of a slot: `{value, time, note}`. A one-minute slot gives
  * its value ("12 ready"); a wider slot its peak ("up to 12 ready"), and
  * "at least" when some of its minutes are unknown. An unknown slot says
  * "unknown", never 0.
  */
-export function slotTip(slot) {
+export function slotTip(slot, now = nowSeconds()) {
     const wide = slot.minutes > 1;
-    const time = wide ? formatTimeRangeZoned(slot.at, slot.end) : formatHourMinuteZoned(slot.at);
+    const time = slotTime(slot, now);
 
     if (slot.value === null) {
         return {value: 'unknown', time, note: wide ? 'no data in this period' : 'no data for this minute'};
@@ -245,4 +330,42 @@ export function cardTitle(row) {
     const connections = row && Array.isArray(row.connections) && row.connections.length ? row.connections : [row.connection];
 
     return {name: row.name, group: connections.join(', ')};
+}
+
+/** The markers read of the Queues screen: since the start of the range, with two minutes before it. */
+export function backlogMarkersRequest(now, key) {
+    return {url: '/api/markers', params: {since: Math.floor(now - backlogRange(key).minutes * 60 - 120)}, timeKeys: ['since']};
+}
+
+/**
+ * The queues whose history is read: the cards on screen (the first
+ * `cardLimit` rows) and the selected queue.
+ */
+export function historyRowsOf(rows, cardLimit, selected) {
+    const shown = rows.slice(0, cardLimit);
+
+    if (selected && !shown.some(row => row.key === selected.key)) shown.push(selected);
+
+    return shown;
+}
+
+/**
+ * The Queues screen's first reads, as it asks them when it mounts with the
+ * shell's workload: the markers, the retention settings, and the histories
+ * of the first HISTORY_CONCURRENCY cards (the reads that start at once; the
+ * rest wait for a slot). None of the histories before the workload loaded.
+ */
+export function queuesFirstRequests(workload, params, key, now) {
+    const requests = [backlogMarkersRequest(now, key), {url: '/api/settings/retention', params: {}}];
+
+    if (!Array.isArray(workload)) return requests;
+
+    const rows = normalizeWorkload(workload);
+    const selected = params ? findRow(rows, params.connection, params.queue) : null;
+
+    historyRowsOf(rows, CARD_PAGE, selected).slice(0, HISTORY_CONCURRENCY).forEach(row => {
+        requests.push(queueRequest('history', row.connection, row.name, {minutes: backlogRange(key).minutes}));
+    });
+
+    return requests;
 }

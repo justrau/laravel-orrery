@@ -2,13 +2,13 @@
     import Notice from '../components/ui/Notice.vue';
     import {modalOpen} from '../support/focus.js';
     import {SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH, clampSidebarWidth, readSidebarWidth, sidebarMaxWidth, sidebarWidthForKey, sidebarWidthText, writeSidebarWidth} from '../support/sidebar-width.js';
-    import {captureRequests, createNavigationHold, focusLost, holdStep} from '../support/navigation.js';
+    import {focusLost, routeScreen} from '../support/navigation.js';
     import {browserSeconds, noteServerTime, nowSeconds} from '../support/time.js';
     import Sidebar from './Sidebar.vue';
     import Toolbar from './Toolbar.vue';
     import {SIDEBAR_BREAKPOINT, failuresPastHour, listBody, objectBody, mirroredCount, runningBatches, shellAttention, sidebarIsDrawer, sidebarQueueGroups} from './data.js';
     import {BACKGROUND_HANDLES, LIVE_HANDLES, createLiveRefresher} from './poll.js';
-    import {closeNav, live, liveWatcherHealth, setLiveRefresh, setNarrow, setPhone, shell} from './store.js';
+    import {closeNav, live, liveWatcherHealth, navigation, setLiveRefresh, setNarrow, setPhone, shell} from './store.js';
 
     /** The slower reads (the counts and the batches) refresh on every nth poll. */
     const SLOW_EVERY = 3;
@@ -39,14 +39,11 @@
      * `--container-sidebar` custom property through a style binding (the
      * CSSOM, which the Content Security Policy allows).
      *
-     * A navigation to another screen is held (support/navigation.js): the
-     * old screen's toolbar and content are copied into a frozen, inert
-     * layer before the router renders the new screen, which mounts hidden
-     * under it. The layer goes when the reads that the new screen started
-     * while mounting have settled, or after the timeout; a thin progress bar
-     * shows while it waits. The old screen itself unmounts at once, as
-     * before, so its polls stop and nothing of it refreshes. When the focus
-     * went away with the old screen, it moves to the new screen's heading.
+     * A navigation to another screen is held until the next screen's first
+     * data has arrived (support/navigation.js, installed by app.js); the
+     * shell shows the thin progress bar of the store's `navigation` while it
+     * waits. After a change of screen, a focus that went away with the old
+     * screen moves to the new screen's heading.
      */
     export default {
         components: {Notice, Sidebar, Toolbar},
@@ -59,15 +56,12 @@
             return {
                 live,
                 shell,
+                navigation,
                 now: nowSeconds(),
                 polls: 0,
                 // The chosen width; sidebarWidth is it within the window's bounds.
                 sidebarChosen: SIDEBAR_DEFAULT_WIDTH,
                 viewport: typeof window !== 'undefined' ? window.innerWidth : null,
-                // The held navigation: the frozen copy shows (held), the bar after a moment (progress).
-                held: false,
-                progress: false,
-                holdTitle: null,
             };
         },
 
@@ -154,8 +148,9 @@
             this.liveRefresher = createLiveRefresher(() => this.refresh());
             setLiveRefresh(() => this.liveRefresher.request());
 
-            this.hold = createNavigationHold({onChange: (state, reason) => this.holdChanged(state, reason)});
-            this.removeAfterEach = this.$router.afterEach((to, from, failure) => this.navigated(to, from, failure));
+            this.removeAfterEach = this.$router.afterEach((to, from, failure) => {
+                if (!failure && routeScreen(from) !== null && routeScreen(to) !== routeScreen(from)) this.focusScreen();
+            });
         },
 
         watch: {
@@ -197,7 +192,6 @@
 
         beforeUnmount() {
             this.removeAfterEach();
-            this.hold.cancel();
             setLiveRefresh(null);
             clearInterval(this.clock);
             document.removeEventListener('keydown', this.onKeydown);
@@ -214,70 +208,12 @@
         methods: {
             closeNav,
 
-            /**
-             * A finished navigation (router.afterEach(), which runs before the
-             * router renders the new screen): a change of screen freezes the
-             * old one and waits for the reads that the new one starts while it
-             * mounts (up to the next tick, after the render).
-             */
-            navigated(to, from, failure) {
-                const step = holdStep({from, to, failure, holding: this.held});
-
-                if (step === 'none' || step === 'keep') return;
-
-                if (step === 'start') this.freeze();
-
-                this.holdTitle = to.meta && typeof to.meta.title === 'string' ? to.meta.title : null;
-
-                const token = this.hold.begin();
-                const capture = captureRequests(listener => this.$http.onRequest(listener));
-
-                this.$nextTick(() => this.hold.wait(token, capture.stop()));
-            },
-
-            /**
-             * Copies the toolbar and the screen into the frozen layer: a deep
-             * copy of the DOM, inert and hidden from assistive technology. The
-             * inline styles are copied through the CSSOM (the Content Security
-             * Policy allows it), and the scroll positions after the copy is
-             * in the page.
-             */
-            freeze() {
-                const stage = this.$refs.stage;
-                const layer = this.$refs.frozen;
-
-                if (!stage || !layer) return;
-
-                const copy = stage.cloneNode(true);
-
-                layer.replaceChildren(copy);
-
-                const originals = stage.querySelectorAll('*');
-                const copies = copy.querySelectorAll('*');
-
-                for (let index = 0; index < originals.length && index < copies.length; index++) {
-                    const original = originals[index];
-                    const twin = copies[index];
-
-                    if (original.style && original.style.length) twin.style.cssText = original.style.cssText;
-                    if (original.scrollTop) twin.scrollTop = original.scrollTop;
-                    if (original.scrollLeft) twin.scrollLeft = original.scrollLeft;
-                }
-            },
-
-            /** The hold changed; when it ends, the frozen copy goes and a lost focus moves to the heading. */
-            holdChanged(state) {
-                this.held = state.held;
-                this.progress = state.progress;
-
-                if (state.held) return;
-
-                if (this.$refs.frozen) this.$refs.frozen.replaceChildren();
-
+            /** After a change of screen: a focus that went away with the old screen moves to the new heading. */
+            focusScreen() {
                 this.$nextTick(() => {
                     if (!focusLost(document.activeElement, document)) return;
 
-                    const heading = this.$el.querySelector('.o-shell__stage h1');
+                    const heading = this.$el.querySelector('.o-toolbar h1');
 
                     if (heading) heading.focus({preventScroll: true});
                 });
@@ -456,22 +392,20 @@
                  @pointerdown="startResize" @keydown="resizeKey" @dblclick="resetSidebarWidth"></div>
         </div>
 
-        <div class="o-shell__main" :inert="drawerOpen">
-            <div ref="stage" class="o-shell__stage" :class="{'o-shell__stage--held': held}" :aria-busy="held ? 'true' : null">
-                <toolbar :now="now" @nav-opened="focusDrawer" />
-
-                <div v-if="downForMaintenance" class="o-shell__maintenance">
-                    <notice tone="warning" title="This application is in maintenance mode."
-                            detail="Queued jobs may not be processed unless your worker uses the --force option." />
-                </div>
-
-                <router-view />
+        <div class="o-shell__main" :inert="drawerOpen" :aria-busy="navigation.progress ? 'true' : null">
+            <div v-if="navigation.progress" class="o-shell__progress" role="progressbar"
+                 :aria-label="navigation.title ? `Loading ${navigation.title}` : 'Loading the next screen'" data-navigation-progress>
+                <span class="o-shell__progress-bar"></span>
             </div>
 
-            <div v-show="held" ref="frozen" class="o-shell__frozen" inert aria-hidden="true" data-held-screen></div>
+            <toolbar :now="now" @nav-opened="focusDrawer" />
 
-            <div v-if="progress" class="o-shell__progress" role="progressbar" :aria-label="holdTitle ? `Loading ${holdTitle}` : 'Loading the next screen'"
-                 data-navigation-progress><span class="o-shell__progress-bar"></span></div>
+            <div v-if="downForMaintenance" class="o-shell__maintenance">
+                <notice tone="warning" title="This application is in maintenance mode."
+                        detail="Queued jobs may not be processed unless your worker uses the --force option." />
+            </div>
+
+            <router-view />
         </div>
     </div>
 </template>
@@ -540,30 +474,6 @@
         flex-direction: column;
         min-width: 0;
         position: relative;
-    }
-
-    /* The toolbar and the screen; the frozen layer copies it, so the copy lays out the same. */
-    .o-shell__stage {
-        display: flex;
-        flex: 1 1 0%;
-        flex-direction: column;
-        min-height: 0;
-        min-width: 0;
-    }
-
-    /* While a navigation is held, the new screen mounts under the frozen copy of the old one. */
-    .o-shell__stage--held {
-        visibility: hidden;
-    }
-
-    .o-shell__frozen {
-        background-color: var(--color-bg);
-        display: flex;
-        flex-direction: column;
-        inset: 0;
-        overflow: hidden;
-        position: absolute;
-        z-index: 2;
     }
 
     /* The thin progress bar of a held navigation, at the top of the content. */

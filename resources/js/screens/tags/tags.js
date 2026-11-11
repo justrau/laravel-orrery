@@ -283,3 +283,25 @@ export function readFailure(error) {
 export function tagsSubtitle(now) {
     return `Monitored tags keep their jobs longer · any tag can be looked up · ${timesInNote(now)}`;
 }
+
+/** The rows of one page of a tag's list. */
+export const TAG_PER_PAGE = 50;
+
+/**
+ * The Tags screen's first reads for a route, as its created() asks them:
+ * the monitored tags (with the lookup of the selected tag), and the first
+ * page of the selected tag's tab.
+ */
+export function tagsFirstRequests(params, query) {
+    const selected = routeTag(params, query);
+    const tag = selected && selected.valid ? selected.tag : null;
+    const requests = [{url: '/api/tags', params: tag !== null ? {tag} : {}}];
+
+    if (tag !== null) {
+        const request = tagListRequest(tag, tabFromQuery(query), {order: 'desc', cursor: null}, TAG_PER_PAGE);
+
+        requests.push({url: request.endpoint, params: request.params});
+    }
+
+    return requests;
+}

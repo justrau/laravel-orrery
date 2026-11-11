@@ -1285,3 +1285,10 @@ export function layoutFor(width) {
 
     return 'phone';
 }
+
+/** The Job detail's first read for a route: `GET /api/jobs/{uuid}`, or none for an id that is not a uuid. */
+export function detailFirstRequests(params) {
+    const url = detailUrl(params && typeof params.uuid === 'string' ? params.uuid : null);
+
+    return url === null ? [] : [{url, params: {}}];
+}

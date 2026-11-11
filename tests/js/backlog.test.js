@@ -10,17 +10,25 @@ import {
     BACKLOG_SCALE_KEY,
     BACKLOG_SCALES,
     DEFAULT_BACKLOG_RANGE,
+    backlogMarkersRequest,
+    backlogDescription,
+    backlogGaps,
     backlogPollSeconds,
     backlogRange,
     backlogScale,
     backlogScaleMode,
+    backlogSegments,
     backlogSlots,
     backlogTicks,
     cardTitle,
+    historyRowsOf,
     nearestSlot,
+    partialSlots,
+    queuesFirstRequests,
     rangeLabel,
     readBacklogChoice,
     slotSecondsFor,
+    slotTime,
     slotTip,
     stepSlot,
     writeBacklogChoice,
@@ -196,17 +204,77 @@ test('stepSlot moves the point with Left, Right, Home and End', () => {
     assert.equal(stepSlot(null, 'ArrowLeft', 0), undefined);
 });
 
-// Rejects: an unknown slot shown as "0 ready", a wide slot that hides that it is a maximum, or a slot with
-// unknown minutes that does not say so.
+// Rejects: an unknown slot shown as "0 ready", a wide slot that hides that it is a maximum, a slot with
+// unknown minutes that does not say so, or a slot of an earlier day without its date (6 h and 24 h views).
 // Still passes: other wording of the same facts.
-test('slotTip says the value, unknown, or the largest known value of a wide slot', () => {
-    assert.deepEqual(slotTip({at: T, end: T + 60, value: 12, minutes: 1, unknownMinutes: 0}), {value: '12 ready', time: '08:00 UTC', note: null});
-    assert.deepEqual(slotTip({at: T, end: T + 60, value: null, minutes: 1, unknownMinutes: 1}), {value: 'unknown', time: '08:00 UTC', note: 'no data for this minute'});
-    assert.deepEqual(slotTip({at: T, end: T + 720, value: 1234, minutes: 12, unknownMinutes: 0}), {value: 'up to 1,234 ready', time: '08:00–08:12 UTC', note: null});
-    assert.deepEqual(slotTip({at: T, end: T + 720, value: 3, minutes: 12, unknownMinutes: 5}), {value: 'up to at least 3 ready', time: '08:00–08:12 UTC', note: '5 of 12 minutes without data'});
-    assert.deepEqual(slotTip({at: T, end: T + 720, value: null, minutes: 12, unknownMinutes: 12}), {value: 'unknown', time: '08:00–08:12 UTC', note: 'no data in this period'});
+test('slotTip says the value, unknown, or the largest known value of a wide slot, with the date of an earlier day', () => {
+    const today = T + 3600;
+
+    assert.deepEqual(slotTip({at: T, end: T + 60, value: 12, minutes: 1, unknownMinutes: 0}, today), {value: '12 ready', time: '08:00 UTC', note: null});
+    assert.deepEqual(slotTip({at: T, end: T + 60, value: null, minutes: 1, unknownMinutes: 1}, today), {value: 'unknown', time: '08:00 UTC', note: 'no data for this minute'});
+    assert.deepEqual(slotTip({at: T, end: T + 720, value: 1234, minutes: 12, unknownMinutes: 0}, today), {value: 'up to 1,234 ready', time: '08:00–08:12 UTC', note: null});
+    assert.deepEqual(slotTip({at: T, end: T + 720, value: 3, minutes: 12, unknownMinutes: 5}, today), {value: 'up to at least 3 ready', time: '08:00–08:12 UTC', note: '5 of 12 minutes without data'});
+    assert.deepEqual(slotTip({at: T, end: T + 720, value: null, minutes: 12, unknownMinutes: 12}, today), {value: 'unknown', time: '08:00–08:12 UTC', note: 'no data in this period'});
+
+    // The previous day: the date is part of the time.
+    const tomorrow = T + 86400;
+
+    assert.equal(slotTip({at: T, end: T + 720, value: 3, minutes: 12, unknownMinutes: 0}, tomorrow).time, '2027-01-15 08:00–08:12 UTC');
+    assert.equal(slotTip({at: T, end: T + 60, value: 3, minutes: 1, unknownMinutes: 0}, tomorrow).time, '2027-01-15 08:00 UTC');
+    assert.equal(slotTime({at: T, end: T + 720, minutes: 12}, today), '08:00–08:12 UTC');
 });
 
+const slotsOf = values => values.map((value, index) => ({index, at: T + index * 60, end: T + (index + 1) * 60, value, minutes: 1, unknownMinutes: value === null ? 1 : 0}));
+
+// Rejects: a line joined across an unknown slot, or an unknown slot drawn as a point at 0 (the baseline).
+// Still passes: segments that carry more fields per slot.
+test('backlogSegments: one segment per run of known slots, never through a gap', () => {
+    const segments = backlogSegments(slotsOf([4, null, 4]));
+
+    assert.equal(segments.length, 2);
+    assert.deepEqual(segments.map(segment => segment.map(slot => slot.index)), [[0], [2]]);
+    assert.ok(segments.flat().every(slot => slot.value !== null));
+    assert.deepEqual(backlogSegments(slotsOf([0, 1])).map(segment => segment.length), [2], 'a known 0 is drawn');
+    assert.deepEqual(backlogSegments(slotsOf([null, null])), []);
+});
+
+// Rejects: gaps that split one run of unknown slots, or that miss the time of their last slot.
+test('backlogGaps: one gap per run of unknown slots, with its first and last slot', () => {
+    assert.deepEqual(backlogGaps(slotsOf([null, null, 1, null])), [
+        {from: 0, to: 1, first: T, end: T + 120},
+        {from: 3, to: 3, first: T + 180, end: T + 240},
+    ]);
+    assert.deepEqual(backlogGaps(slotsOf([1, 2])), []);
+});
+
+// Rejects: a partly unknown wide slot that looks fully known (not listed), or an unknown slot listed as partial.
+test('partialSlots: the known slots with unknown minutes', () => {
+    const slots = [
+        {index: 0, value: 3, minutes: 12, unknownMinutes: 5},
+        {index: 1, value: 3, minutes: 12, unknownMinutes: 0},
+        {index: 2, value: null, minutes: 12, unknownMinutes: 12},
+    ];
+
+    assert.deepEqual(partialSlots(slots).map(slot => slot.index), [0]);
+});
+
+// Rejects: a description that reads a peak as an exact value, that hides partly unknown periods or gaps, or that
+// gives a time of an earlier day without its date.
+// Still passes: other wording of the same facts.
+test('backlogDescription names the latest value, the gaps, the partly unknown periods and the markers', () => {
+    const wide = [
+        {index: 0, at: T, end: T + 720, value: 3, minutes: 12, unknownMinutes: 5},
+        {index: 1, at: T + 720, end: T + 1440, value: null, minutes: 12, unknownMinutes: 12},
+        {index: 2, at: T + 1440, end: T + 2160, value: 9, minutes: 12, unknownMinutes: 0},
+    ];
+
+    assert.equal(
+        backlogDescription('default: ready jobs, past 24 hours', wide, ['Deploy v2 08:30 UTC'], T + 86400),
+        'default: ready jobs, past 24 hours, up to 9 at 2027-01-15 08:24–08:36 UTC, 1 gap without data, 1 period partly without data (values are at least), Deploy v2 08:30 UTC.',
+    );
+    assert.equal(backlogDescription('x', slotsOf([null]), [], T), 'x, no data, 1 gap without data.');
+    assert.equal(backlogDescription('x', slotsOf([5]), [], T + 60), 'x, 5 at 08:00 UTC.');
+});
 // Rejects: more labels than a small card holds, labels off the round times of the display zone, or labels outside
 // the window.
 // Still passes: a thinner set of labels on a wide card (the count is fixed).
@@ -254,4 +322,36 @@ test('rangeLabel names the window of a preset', () => {
     assert.equal(rangeLabel('6h'), 'past 6 hours');
     assert.equal(rangeLabel('24h'), 'past 24 hours');
     assert.equal(rangeLabel('x'), 'past hour');
+});
+
+// Rejects: a markers window that ignores the range (a 24 h chart would miss its markers), or one without its
+// tolerance key.
+test('backlogMarkersRequest: the markers since the start of the range, two minutes before it', () => {
+    assert.deepEqual(backlogMarkersRequest(T + 0.5, '6h'), {url: '/api/markers', params: {since: T - 360 * 60 - 120}, timeKeys: ['since']});
+});
+
+// Rejects: a history list without the selected queue, or with it twice.
+test('historyRowsOf: the cards on screen, and the selected queue after them', () => {
+    const rows = ['a', 'b', 'c'].map(key => ({key}));
+
+    assert.deepEqual(historyRowsOf(rows, 2, rows[2]).map(row => row.key), ['a', 'b', 'c']);
+    assert.deepEqual(historyRowsOf(rows, 2, rows[0]).map(row => row.key), ['a', 'b']);
+    assert.deepEqual(historyRowsOf(rows, 2, null).map(row => row.key), ['a', 'b']);
+});
+
+// Rejects: histories of more cards than the screen starts at once (prefetches it would not take in time), of
+// another range, or none for the cards when the workload is known.
+// Still passes: the history reads in another order.
+test('queuesFirstRequests: the markers, the retention, and the first cards\' histories', () => {
+    const workload = ['a', 'b', 'c', 'd', 'e'].map(name => ({name, connection: 'database', length: 1}));
+    const requests = queuesFirstRequests(workload, {}, '24h', T);
+
+    assert.deepEqual(requests.slice(0, 2), [
+        {url: '/api/markers', params: {since: T - 1440 * 60 - 120}, timeKeys: ['since']},
+        {url: '/api/settings/retention', params: {}},
+    ]);
+    assert.deepEqual(requests.slice(2).map(request => [request.url, request.params.queue, request.params.minutes]), [
+        ['/api/queues/history', 'a', 1440], ['/api/queues/history', 'b', 1440], ['/api/queues/history', 'c', 1440], ['/api/queues/history', 'd', 1440],
+    ]);
+    assert.equal(queuesFirstRequests(null, {}, '1h', T).length, 2);
 });

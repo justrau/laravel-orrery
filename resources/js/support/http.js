@@ -22,11 +22,11 @@
  *   rejected)` runs the last one added first, `interceptors.response.use()`
  *   the first one added first, and a request interceptor that rejects skips
  *   the request and reaches the response interceptors' `rejected`.
- * - `onRequest(listener)` calls the listener with the promise of every new
- *   request, synchronously when the request starts (the shell's held
- *   navigation waits for the reads that a new screen starts,
- *   support/navigation.js); it returns the removal. A listener that throws
- *   never breaks the request.
+ * - `prefetch(url, params, timeKeys, config)` starts a GET for the next
+ *   screen of a held navigation (support/navigation.js) and keeps it in the
+ *   client's `prefetchCache` (support/prefetch.js): the first `get()` of the
+ *   same read takes that answer once instead of fetching again. It returns
+ *   the cache entry, with `abort()`.
  */
 
 /** The Accept header that axios sent. */
@@ -97,10 +97,9 @@ function parseBody(text) {
  * A client. `headers` go with every request (the CSRF token); `fetch` is
  * the fetch function (Node tests pass a fake one).
  */
-export function createHttp({headers: instanceHeaders = {}, fetch: fetchImpl = (...args) => globalThis.fetch(...args)} = {}) {
+export function createHttp({headers: instanceHeaders = {}, fetch: fetchImpl = (...args) => globalThis.fetch(...args), prefetchCache = null} = {}) {
     const requestHandlers = [];
     const responseHandlers = [];
-    const listeners = new Set();
 
     async function dispatch(config) {
         const own = config.signal;
@@ -164,6 +163,14 @@ export function createHttp({headers: instanceHeaders = {}, fetch: fetchImpl = (.
     }
 
     function request(config) {
+        const method = String(config.method || 'get').toLowerCase();
+
+        if (prefetchCache && config.prefetch !== true) {
+            const taken = prefetchCache.take(method, config.url, config.params);
+
+            if (taken) return taken;
+        }
+
         let chain = Promise.resolve({...config, method: String(config.method || 'get').toLowerCase()});
 
         for (const [fulfilled, rejected] of [...requestHandlers].reverse()) chain = chain.then(fulfilled, rejected);
@@ -171,14 +178,6 @@ export function createHttp({headers: instanceHeaders = {}, fetch: fetchImpl = (.
         chain = chain.then(dispatch);
 
         for (const [fulfilled, rejected] of responseHandlers) chain = chain.then(fulfilled, rejected);
-
-        for (const listener of listeners) {
-            try {
-                listener(chain);
-            } catch (error) {
-                // A listener never breaks a request.
-            }
-        }
 
         return chain;
     }
@@ -193,10 +192,13 @@ export function createHttp({headers: instanceHeaders = {}, fetch: fetchImpl = (.
             response: {use: use(responseHandlers)},
         },
         request,
-        onRequest(listener) {
-            listeners.add(listener);
+        prefetch(url, params = {}, timeKeys = [], config = {}) {
+            const controller = new AbortController();
+            const promise = request({...config, url, params, method: 'get', signal: controller.signal, prefetch: true});
 
-            return () => listeners.delete(listener);
+            if (!prefetchCache) return {promise, abort: () => controller.abort()};
+
+            return prefetchCache.put(url, params, timeKeys, promise, () => controller.abort());
         },
         get: (url, config = {}) => request({...config, url, method: 'get'}),
         delete: (url, config = {}) => request({...config, url, method: 'delete'}),

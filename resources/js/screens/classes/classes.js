@@ -372,3 +372,16 @@ export function classFailure(error) {
 
     return `The server answered with an error (HTTP ${response.status}). Try again.`;
 }
+
+/** The span of the class charts when the screen opens. */
+export const DEFAULT_SPAN = '1h';
+
+/** The Job classes screen's first reads for a route query: the classes of the window, and the selected class's series. */
+export function classesFirstRequests(query) {
+    const requests = [{url: '/api/classes', params: {minutes: windowFromQuery(query)}}];
+    const selected = selectedFromQuery(query);
+
+    if (selected !== null) requests.push({url: '/api/classes/series', params: seriesParams(selected, DEFAULT_SPAN)});
+
+    return requests;
+}

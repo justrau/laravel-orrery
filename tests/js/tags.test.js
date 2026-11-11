@@ -27,6 +27,8 @@ import {
     viewLookup,
     writeFailure,
     writeResult,
+    TAG_PER_PAGE,
+    tagsFirstRequests,
 } from '../../resources/js/screens/tags/tags.js';
 
 const NBSP = ' ';
@@ -255,4 +257,15 @@ test('afterMonitor() opens the monitored tag only while the screen and its route
 // Rejects: a toolbar without the zone of the tag view's row times (the rows show a bare clock).
 test('tagsSubtitle names the zone of the row times', () => {
     assert.equal(tagsSubtitle(NOW), 'Monitored tags keep their jobs longer · any tag can be looked up · times in UTC');
+});
+
+// Rejects: a tag list without the lookup of the selected tag, a first page of another tab or size than the
+// screen's, or a list read for an invalid tag (the screen reads none).
+test('tagsFirstRequests: the monitored tags with the lookup, and the selected tag\'s first page', () => {
+    assert.deepEqual(tagsFirstRequests({tag: 'tenant:7'}, {tab: 'failed'}), [
+        {url: '/api/tags', params: {tag: 'tenant:7'}},
+        {url: '/api/jobs', params: {status: 'failed', tag: 'tenant:7', per_page: TAG_PER_PAGE}},
+    ]);
+    assert.deepEqual(tagsFirstRequests({}, {}), [{url: '/api/tags', params: {}}]);
+    assert.deepEqual(tagsFirstRequests({}, {tag: ' \0'}), [{url: '/api/tags', params: {}}]);
 });

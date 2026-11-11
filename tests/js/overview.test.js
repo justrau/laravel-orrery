@@ -38,6 +38,7 @@ import {
     throughputBuckets,
     throughputRate,
     throughputSubtitle,
+    overviewRequests,
 } from '../../resources/js/screens/overview/overview.js';
 
 // 2026-09-28 09:00:00 UTC
@@ -833,4 +834,15 @@ test('controlOutcome words a pause whose Orrery record failed as a warning', () 
     assert.equal(mixed.tone, 'danger');
     assert.equal(mixed.title, 'Pause emails: 1 of 2 signals failed.');
     assert.match(mixed.detail, /^other: HTTP 500 · database:emails is paused\. /);
+});
+
+// Rejects: a first load that asks other reads than refresh() (a prefetch that the screen never takes: fetched
+// twice), or a markers window that does not start MARKER_LEAD_SECONDS before the past hour.
+// Still passes: a load whose since is a few seconds off (the prefetch tolerance covers it).
+test('overviewRequests: the control signals, the throughput and the markers of refresh()', () => {
+    assert.deepEqual(overviewRequests(1_800_000_000.7), [
+        {url: '/api/control', params: {}},
+        {url: '/api/throughput', params: {minutes: 60}},
+        {url: '/api/markers', params: {since: 1_800_000_000 - 3600 - 120}, timeKeys: ['since']},
+    ]);
 });

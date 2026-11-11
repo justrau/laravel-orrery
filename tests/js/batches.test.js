@@ -46,6 +46,8 @@ import {
     staleText,
     stateChip,
     unknownReasonText,
+    batchUrl,
+    batchesFirstRequests,
 } from '../../resources/js/screens/batches/batches.js';
 
 // 2026-11-08 09:00:04 UTC.
@@ -420,4 +422,15 @@ test('cancelOutcome and cancelFailure word every answer', () => {
     assert.equal(cancelFailure({response: {status: 403, data: {error: 'forbidden_action'}}}), null);
     assert.equal(cancelFailure({response: {status: 503, data: {error: 'write_failed'}}}).title, 'Outcome unknown');
     assert.equal(cancelFailure({}).title, 'Outcome unknown');
+});
+
+// Rejects: an id that is not encoded (a "/" would read another path), a list without the URL's search, or a
+// detail read without an open batch.
+test('batchesFirstRequests: the list with the search, and the open batch', () => {
+    assert.equal(batchUrl('a/b'), '/api/batches/a%2Fb');
+    assert.deepEqual(batchesFirstRequests({batchId: 'a/b'}, {query: 'Nightly'}), [
+        {url: '/api/batches', params: {query: 'Nightly'}},
+        {url: '/api/batches/a%2Fb', params: {}},
+    ]);
+    assert.deepEqual(batchesFirstRequests({}, {}), [{url: '/api/batches', params: {}}]);
 });

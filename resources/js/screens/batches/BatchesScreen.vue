@@ -44,6 +44,7 @@
         rowTime,
         staleText,
         stateChip,
+        batchUrl,
     } from './batches.js';
 
     /** The list and the open batch are read again every this many seconds. */
@@ -351,7 +352,7 @@
                 }
 
                 try {
-                    const response = await this.$http.get(Orrery.basePath + '/api/batches/' + encodeURIComponent(id), {
+                    const response = await this.$http.get(Orrery.basePath + batchUrl(id), {
                         handles: background ? BACKGROUND_STATUSES : SECTION_STATUSES,
                     });
 

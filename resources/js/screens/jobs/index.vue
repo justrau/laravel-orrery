@@ -31,6 +31,7 @@
         lastVerifiedParts,
         leaseCell,
         listFailure,
+        JOBS_PER_PAGE,
         listOrder,
         markedText,
         mergeBarChange,
@@ -137,7 +138,7 @@
                 stale: false,
                 updatedAt: null,
                 banner: null,
-                perPage: 50,
+                perPage: JOBS_PER_PAGE,
                 now: nowSeconds(),
                 bulk: {open: false, action: 'retry', runShown: false, running: false},
                 restartNote: null,
@@ -538,7 +539,8 @@
             },
 
             onMenuKeydown(event) {
-                if (event.key !== 'Escape' || !this.menuOpen) return;
+                // An Escape that closed a suggestion list (the filter bar) is not the menu's.
+                if (event.key !== 'Escape' || !this.menuOpen || event.defaultPrevented) return;
 
                 this.toggleMenu();
                 this.$nextTick(() => this.$refs.menuButton && this.$refs.menuButton.focus());

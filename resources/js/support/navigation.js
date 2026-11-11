@@ -1,22 +1,25 @@
 /**
- * The held navigation of the shell (AppShell.vue): when a navigation
- * changes the screen, the old screen stays visible (as a frozen copy) until
- * the new screen's first reads have settled, then the shell switches, as
- * Inertia or Nuxt do. A thin progress bar shows while it waits.
+ * The held navigation (installed by app.js), as Inertia or Nuxt do it: the
+ * URL, the sidebar's highlight and the content stay on the old screen
+ * until the next screen's first data has arrived, then everything changes
+ * at once. A thin progress bar shows while it waits.
  *
- * - The first page load holds nothing (there is no old screen), and neither
- *   does a failed or blocked navigation, or a change within one screen
- *   (/queues and /queues/:connection/:queue keep one instance): holdStep().
- * - The first reads of the new screen are the requests that start while it
- *   mounts (captureRequests() over the shared `$http`'s onRequest()), so a
- *   screen needs no change and nothing is fetched twice. A screen that
- *   reads only the shell's live data starts none and shows at once.
- * - A failed read ends the hold like a good one: the screen then shows its
- *   own error or stale state. A slow read ends it after HOLD_TIMEOUT_MS,
- *   and the screen shows its own loading state: navigation never feels stuck.
- * - Rapid clicks: each navigation that changes the screen starts a new hold
- *   (a new token and a new timeout); only the newest hold can end it, so an
- *   older screen's reads never switch to a screen that is not the last one.
+ * - Each screen's route declares its first load (`meta.load(to, context)`,
+ *   a pure function of its `screens/<screen>/*.js` module that builds the
+ *   requests with the same builders the screen uses). The guard starts them
+ *   through the shared `$http` prefetch (support/prefetch.js), and the
+ *   screen's own first GET of the same read takes the answer: nothing is
+ *   fetched twice, and the screen mounts with its data.
+ * - The first page load, a deep link and a change within one screen do not
+ *   hold (shouldHold()).
+ * - A failed read commits like a good one: the screen then reads again and
+ *   shows its own error or stale state. A slow read commits after
+ *   HOLD_TIMEOUT_MS and the screen shows its loading state; the read stays
+ *   in flight for the screen to take.
+ * - The last navigation wins: a newer navigation supersedes the waiting one
+ *   (router.beforeEach), whose reads are discarded and aborted.
+ * - A refused leave (a screen's beforeRouteLeave) runs before this guard
+ *   (beforeResolve), so it still works.
  */
 
 /** The longest wait for the next screen's first data, in ms. */
@@ -34,30 +37,24 @@ export function routeScreen(route) {
 }
 
 /**
- * What a finished navigation does to the hold (router.afterEach()):
- * 'none' (no hold: the first load, a failure, or the same screen),
- * 'start' (freeze the old screen and wait), 'restart' (a newer navigation
- * during a hold: keep the frozen copy, wait for the newest screen) or
- * 'keep' (the same screen during a hold: keep waiting).
+ * Whether a navigation holds: a change of screen after the first load (a
+ * first load or a deep link has nothing to hold), to a route whose meta
+ * declares its first load. A change within one screen (a filter, a tab,
+ * /queues to /queues/:connection/:queue) keeps the screen and does not hold.
  */
-export function holdStep({from, to, failure, holding}) {
-    if (failure) return 'none';
-
+export function shouldHold(from, to) {
     const fromScreen = routeScreen(from);
 
-    // The first navigation starts from a route without matches (vue-router's START_LOCATION).
-    if (fromScreen === null) return 'none';
+    if (fromScreen === null || fromScreen === routeScreen(to)) return false;
 
-    if (fromScreen === routeScreen(to)) return holding ? 'keep' : 'none';
-
-    return holding ? 'restart' : 'start';
+    return !!(to && to.meta && typeof to.meta.load === 'function');
 }
 
 /**
  * The hold's state machine: `begin()` starts a hold and returns its token,
  * `wait(token, requests)` ends it when the requests settle (resolves
- * 'ready'), at the timeout ('timeout'), or never when a newer hold began
- * ('stale'). `release(token)` ends the hold of that token only;
+ * 'ready'), at the timeout ('timeout'), when a newer hold began ('stale')
+ * or when it was cancelled ('cancel'). `release(token)` ends the hold of that token only;
  * `cancel()` ends any hold. `onChange(state, reason)` gets
  * `{held, progress}` on every change.
  */
@@ -141,32 +138,48 @@ export function createNavigationHold({
 }
 
 /**
- * Collects the requests that start between this call and `stop()`:
- * `subscribe(listener)` adds a listener for each new request's promise and
- * returns its removal (support/http.js onRequest()). `stop()` returns the
- * promises, in start order, and stops listening.
+ * The guard of the held navigation, a function for router.beforeResolve():
+ * `(to, from)` resolves true to commit, false for a navigation that a newer
+ * one superseded. `load(to)` gives the route's requests, `prefetch(requests)`
+ * starts them and returns entries with a `promise`, `discard(entries)`
+ * drops the entries of a superseded navigation. `guard.supersede()` (for
+ * router.beforeEach()) ends a waiting hold: the last navigation wins.
  */
-export function captureRequests(subscribe) {
-    const requests = [];
-    let unsubscribe = subscribe(promise => requests.push(promise));
+export function createNavigationGuard({hold, load, prefetch, discard}) {
+    const guard = async (to, from) => {
+        if (!shouldHold(from, to)) return true;
 
-    return {
-        stop() {
-            if (unsubscribe) {
-                unsubscribe();
-                unsubscribe = null;
-            }
+        let requests = [];
 
-            return requests.slice();
-        },
+        try {
+            requests = load(to) || [];
+        } catch (error) {
+            requests = [];
+        }
+
+        if (!Array.isArray(requests) || requests.length === 0) return true;
+
+        const token = hold.begin();
+        const entries = prefetch(requests);
+        const outcome = await hold.wait(token, entries.map(entry => entry.promise));
+
+        if (outcome === 'ready' || outcome === 'timeout') return true;
+
+        discard(entries);
+
+        return false;
     };
+
+    guard.supersede = () => hold.cancel();
+
+    return guard;
 }
 
 /**
- * Whether the keyboard focus was lost by the switch: on nothing, on the
- * body, or on an element that left the page with the old screen. Then the
- * shell moves it to the new screen's heading; a focus on a live control (a
- * sidebar link) stays.
+ * Whether the keyboard focus was lost by the change of screen: on nothing,
+ * on the body, or on an element that left the page with the old screen.
+ * Then the shell moves it to the new screen's heading; a focus on a live
+ * control (a sidebar link) stays.
  */
 export function focusLost(active, doc) {
     if (!active) return true;

@@ -30,6 +30,7 @@
         WRITE_HANDLES,
         writeFailure,
         writeResult,
+        TAG_PER_PAGE,
     } from './tags.js';
     import {tagLocation} from './tag-links.js';
 
@@ -75,7 +76,7 @@
                 inputProblem: null,
                 tags: {response: null, lookupFor: null, loading: true, failure: null, stale: false},
                 view: emptyView(),
-                perPage: 50,
+                perPage: TAG_PER_PAGE,
                 now: nowSeconds(),
                 notice: null,
                 writing: false,

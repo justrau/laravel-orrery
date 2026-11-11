@@ -9,6 +9,32 @@ import jobDetail from './screens/jobs/JobDetail.vue';
 import jobClasses from './screens/classes/index.vue';
 import {REDIRECTS, routeRedirect} from './support/redirects.js';
 import tagsScreen from './screens/tags/index.vue';
+import {batchesFirstRequests} from './screens/batches/batches.js';
+import {classesFirstRequests} from './screens/classes/classes.js';
+import {failedFirstRequests} from './screens/failed/failures.js';
+import {detailFirstRequests} from './screens/jobs/detail.js';
+import {jobsFirstRequests} from './screens/jobs/jobs.js';
+import {overviewRequests} from './screens/overview/overview.js';
+import {queuesFirstRequests, readBacklogChoice} from './screens/queues/backlog.js';
+import {tagsFirstRequests} from './screens/tags/tags.js';
+
+/**
+ * The first load of each screen (route `meta.load(to, context)`): the
+ * requests that the screen makes when it mounts, built by the screen's own
+ * builders. A held navigation (support/navigation.js) prefetches them, and
+ * the screen takes the answers. `context` is `{now, live}` (the clock and
+ * the shell's live data). The Workers screen reads only the shell's data.
+ */
+const LOADS = {
+    overview: (to, {now}) => overviewRequests(now),
+    queues: (to, {now, live}) => queuesFirstRequests(live.workload, to.params, readBacklogChoice().range, now),
+    jobs: to => jobsFirstRequests(to.query),
+    detail: to => detailFirstRequests(to.params),
+    tags: to => tagsFirstRequests(to.params, to.query),
+    classes: to => classesFirstRequests(to.query),
+    failed: (to, {now}) => failedFirstRequests(to.query, now),
+    batches: to => batchesFirstRequests(to.params, to.query),
+};
 
 /** The redirect rows of the Jobs list: the old list tabs and the old failed list. */
 const JOBS_LIST_REDIRECTS = REDIRECTS.filter(row => row.lands === 'D8-13');
@@ -46,15 +72,15 @@ export function createRoutes({environment = null} = {}) {
         {path: '/', redirect: '/overview'},
         {path: '/dashboard', redirect: '/overview'},
 
-        {path: '/overview', name: 'overview', component: overview, meta: {title: 'Overview'}},
+        {path: '/overview', name: 'overview', component: overview, meta: {title: 'Overview', load: LOADS.overview}},
 
-        {path: '/queues', name: 'queues', component: queues, meta: {title: 'Queues'}, props: {connection: null, queue: null}},
-        {path: '/queues/:connection/:queue(.+)', name: 'queue', component: queues, meta: {title: 'Queues'}, props: true},
+        {path: '/queues', name: 'queues', component: queues, meta: {title: 'Queues', load: LOADS.queues}, props: {connection: null, queue: null}},
+        {path: '/queues/:connection/:queue(.+)', name: 'queue', component: queues, meta: {title: 'Queues', load: LOADS.queues}, props: true},
 
         {path: '/workers', name: 'workers', component: workers, meta: {title: 'Workers'}},
 
         // The Jobs list, and the redirects of the lists it replaced.
-        {path: '/jobs', name: 'jobs-list', component: jobsList, meta: {title: 'Jobs'}},
+        {path: '/jobs', name: 'jobs-list', component: jobsList, meta: {title: 'Jobs', load: LOADS.jobs}},
         ...JOBS_LIST_REDIRECTS.map(row => ({path: row.path, redirect: routeRedirect(row)})),
 
         // The Tags screen. /tags/:tag is the tag view; a tag that a path
@@ -62,15 +88,15 @@ export function createRoutes({environment = null} = {}) {
         // guard of screens/tags/tag-links.js installTagGuard() (app.js), which
         // also runs on a param-only change. The old /monitoring screens
         // redirect here.
-        {path: '/tags', name: 'tags', component: tagsScreen, meta: {title: 'Tags'}},
-        {path: '/tags/:tag', name: 'tag', component: tagsScreen, meta: {title: 'Tags'}},
+        {path: '/tags', name: 'tags', component: tagsScreen, meta: {title: 'Tags', load: LOADS.tags}},
+        {path: '/tags/:tag', name: 'tag', component: tagsScreen, meta: {title: 'Tags', load: LOADS.tags}},
         {path: '/monitoring', redirect: tagsRedirect('/monitoring')},
         {path: '/monitoring/:tag', redirect: tagsRedirect('/monitoring/:tag')},
         {path: '/monitoring/:tag/jobs', redirect: tagsRedirect('/monitoring/:tag/jobs')},
         {path: '/monitoring/:tag/failed', redirect: tagsRedirect('/monitoring/:tag/failed')},
 
         // The Job classes view, and the redirects of the Metrics screens it replaces.
-        {path: '/classes', name: 'classes', component: jobClasses, meta: {title: 'Job classes'}},
+        {path: '/classes', name: 'classes', component: jobClasses, meta: {title: 'Job classes', load: LOADS.classes}},
         // The old Metrics paths redirect.
         {path: '/metrics', redirect: metricsRedirect('/metrics')},
         {path: '/metrics/jobs', redirect: metricsRedirect('/metrics/jobs')},
@@ -80,21 +106,21 @@ export function createRoutes({environment = null} = {}) {
         {
             path: '/failed',
             children: [
-                {path: '', name: 'failed-jobs', component: failed, meta: {title: 'Failed jobs'}},
+                {path: '', name: 'failed-jobs', component: failed, meta: {title: 'Failed jobs', load: LOADS.failed}},
             ],
         },
 
         // The Job detail. /jobs/:uuid matches only a
         // uuid. The old detail paths redirect to it; an old id that is not a
         // uuid lands on the not-found state.
-        {path: `/jobs/:uuid(${JOB_UUID})`, name: 'job-detail', component: jobDetail, props: route => ({uuid: route.params.uuid}), meta: {title: 'Job'}},
+        {path: `/jobs/:uuid(${JOB_UUID})`, name: 'job-detail', component: jobDetail, props: route => ({uuid: route.params.uuid}), meta: {title: 'Job', load: LOADS.detail}},
         {path: '/jobs/not-a-uuid/:legacyId', name: 'job-detail-not-found', component: jobDetail, props: route => ({uuid: null, legacyId: route.params.legacyId}), meta: {title: 'Job'}},
         {path: '/jobs/:type/:jobId', redirect: detailRedirect('/jobs/:type/:jobId')},
         {path: '/failed/:jobId', redirect: detailRedirect('/failed/:jobId')},
 
         // The Batches screen on the old paths and names.
-        {path: '/batches', name: 'batches', component: batchesScreen, props: {batchId: null}, meta: {title: 'Batches'}},
-        {path: '/batches/:batchId', name: 'batches-preview', component: batchesScreen, props: route => ({batchId: String(route.params.batchId)}), meta: {title: 'Batch'}},
+        {path: '/batches', name: 'batches', component: batchesScreen, props: {batchId: null}, meta: {title: 'Batches', load: LOADS.batches}},
+        {path: '/batches/:batchId', name: 'batches-preview', component: batchesScreen, props: route => ({batchId: String(route.params.batchId)}), meta: {title: 'Batch', load: LOADS.batches}},
     ];
 
     if (environment === 'local') {

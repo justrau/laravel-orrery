@@ -4,6 +4,7 @@
  * component stays thin and each rule is in one place.
  */
 
+import {MARKER_LEAD_SECONDS, liveWindow} from '../failed/failures.js';
 import {ATTENTION_FAILURE_SECONDS, attentionCount, failureGroups, shellAttention} from '../../shell/data.js';
 import {broaderCauses, causesText, continueWarning, isRecordFailed, pauseCommands, pauseLabel, pauseNotes, pauseState, recordFailedNote, recordFailedWarning} from '../../support/pause.js';
 import {queuePath} from '../../support/redirects.js';
@@ -868,4 +869,21 @@ export function controlErrorText(control) {
 /** Whether a control signal list (GET /api/control) has a global pause. */
 export function hasGlobalPause(signals) {
     return Array.isArray(signals) && signals.some(signal => signal && signal.signal === 'pause' && signal.scope === 'global');
+}
+
+/**
+ * The Overview's first reads, as refresh() asks them: the control signals,
+ * the throughput of the past hour and the markers since the live window
+ * (MARKER_LEAD_SECONDS before it). The route's `meta.load` (routes.js)
+ * prefetches them for a held navigation (support/navigation.js); `since`
+ * is computed from the clock, so it matches within the prefetch tolerance.
+ */
+export function overviewRequests(now) {
+    const window = liveWindow(GROUP_RANGE_SECONDS, now);
+
+    return [
+        {url: '/api/control', params: {}},
+        {url: '/api/throughput', params: {minutes: 60}},
+        {url: '/api/markers', params: {since: window.from - MARKER_LEAD_SECONDS}, timeKeys: ['since']},
+    ];
 }

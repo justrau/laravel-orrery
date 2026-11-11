@@ -581,3 +581,43 @@ export function traceLocation(trace) {
 
     return match ? `${match[1]}:${match[2]}` : null;
 }
+
+/** The rows of "Latest failed jobs". */
+export const LATEST_ROWS = 5;
+
+/** The params of a failure group read: the live window, the queue filter, and `extra` (an offset). */
+export function groupWindowParams(window, queue, extra = {}) {
+    const params = {from: window.from, to: window.to, ...extra};
+
+    if (queue) params.queue = queue;
+
+    return params;
+}
+
+/**
+ * The Failure groups screen's first reads for a route query, as its
+ * refresh() asks them: the group list (not for the live past hour of all
+ * queues, which comes from the shell), the latest failed jobs, the markers
+ * and the selected group. The window keys are computed from the clock, so
+ * they match within the prefetch tolerance (support/prefetch.js).
+ */
+export function failedFirstRequests(query, now) {
+    const view = failedView(query);
+    const window = liveWindow(rangeOf(view.range).seconds, now);
+    const requests = [];
+
+    if (!(view.range === '1h' && !view.queue && view.offset === 0)) {
+        requests.push({url: '/api/failures/groups', params: groupWindowParams(window, view.queue, view.offset ? {offset: view.offset} : {}), timeKeys: ['from', 'to']});
+    }
+
+    requests.push(
+        {url: LATEST_PATH, params: latestParams(LATEST_ROWS)},
+        {url: '/api/markers', params: {since: window.from - MARKER_LEAD_SECONDS}, timeKeys: ['since']},
+    );
+
+    if (view.group) {
+        requests.push({url: `/api/failures/groups/${view.group}`, params: groupWindowParams(window, view.queue), timeKeys: ['from', 'to']});
+    }
+
+    return requests;
+}

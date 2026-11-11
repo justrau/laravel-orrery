@@ -13,7 +13,7 @@
 import {UNREADABLE_ANSWER, isShapeError} from '../../shell/data.js';
 import {bulkBlocker, listSource} from '../../support/bulk.js';
 import {clearedFilters, filterSummary, mergeQuery} from '../../support/filters.js';
-import {cappedCount, filterKey, isUuid, listEndpoint, listParams, newEntriesAction, pagerRequest, totalText} from '../../support/lists.js';
+import {cappedCount, filterKey, filtersFromQuery, isUuid, listEndpoint, listParams, newEntriesAction, pagerRequest, queryProblem, totalText} from '../../support/lists.js';
 import {formatClock, formatCount, formatDate, formatDuration, formatHourMinute, formatLocal, isSameDisplayDay, nowSeconds, relativeTime, toSeconds, zoneSuffix} from '../../support/time.js';
 import {awaitingText, codeText, fill, stateLabel, stateText} from '../../support/wording.js';
 
@@ -893,4 +893,21 @@ export function compactLine(row, status) {
     if (Array.isArray(row.tags) && row.tags.length) parts.push(row.tags[0]);
 
     return parts.join(' · ');
+}
+
+/** The rows of one page of the Jobs list. */
+export const JOBS_PER_PAGE = 50;
+
+/**
+ * The Jobs list's first read for a route query, as the screen's first
+ * load() asks it (the first page in the list's order), or none when a link
+ * filter cannot be applied (queryProblem(): the list is not read).
+ */
+export function jobsFirstRequests(query) {
+    if (queryProblem(query) !== null) return [];
+
+    const filters = filtersFromQuery(query);
+    const request = requestFor(filters, {order: listOrder(filters), cursor: null}, {perPage: JOBS_PER_PAGE, signal: signalFromQuery(query)});
+
+    return [{url: request.endpoint, params: request.params}];
 }

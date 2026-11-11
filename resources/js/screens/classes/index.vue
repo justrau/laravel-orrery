@@ -37,6 +37,7 @@
         unknownNotice,
         windowFromQuery,
         windowLine,
+        DEFAULT_SPAN,
     } from './classes';
 
     /** The statuses that a read of this screen shows itself (no global alert on every poll). */
@@ -71,7 +72,7 @@
                 pollSeconds: POLL_SECONDS,
                 windows: WINDOWS,
                 spans: Object.keys(SPANS),
-                span: '1h',
+                span: DEFAULT_SPAN,
                 data: null,
                 dataWindow: null,
                 loadError: null,

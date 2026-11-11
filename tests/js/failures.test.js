@@ -44,6 +44,9 @@ import {
     traceLocation,
     traceText,
     timesText,
+    LATEST_ROWS,
+    failedFirstRequests,
+    groupWindowParams,
 } from '../../resources/js/screens/failed/failures.js';
 
 // Rejects: an unknown range key that gives undefined, and a lookup by label instead of key.
@@ -487,4 +490,33 @@ test('failedView and failedViewQuery keep the view in the URL', () => {
         {range: '7d', queue: 'database:emails', offset: '50', group: key});
     assert.deepEqual(failedViewQuery({range: '1h', queue: '', offset: 0, group: null}), {});
     assert.deepEqual(failedView(failedViewQuery({range: '24h', queue: 'q', offset: 150, group: key})), {range: '24h', queue: 'q', offset: 150, group: key});
+});
+
+// Rejects: a group list read for the live past hour of all queues (the screen takes it from the shell: the
+// prefetch would never be taken), a window without its tolerance keys, a lost queue or offset, or no read of the
+// selected group.
+// Still passes: reads in another order (the cache matches each read on its own).
+test('failedFirstRequests: the reads of the first refresh() for a route', () => {
+    const now = 1_800_000_000;
+
+    assert.deepEqual(failedFirstRequests({}, now + 0.5), [
+        {url: '/api/jobs', params: {status: 'failed', per_page: LATEST_ROWS}},
+        {url: '/api/markers', params: {since: now - 3600 - 120}, timeKeys: ['since']},
+    ]);
+
+    const day = {from: now - 86400, to: now};
+    const group = 'a'.repeat(64);
+
+    assert.deepEqual(failedFirstRequests({range: '24h', queue: 'database:default', offset: '50', group}, now), [
+        {url: '/api/failures/groups', params: {...day, offset: 50, queue: 'database:default'}, timeKeys: ['from', 'to']},
+        {url: '/api/jobs', params: {status: 'failed', per_page: 5}},
+        {url: '/api/markers', params: {since: day.from - 120}, timeKeys: ['since']},
+        {url: `/api/failures/groups/${group}`, params: {...day, queue: 'database:default'}, timeKeys: ['from', 'to']},
+    ]);
+});
+
+// Rejects: a queue filter sent when there is none, or an extra key that replaces the window.
+test('groupWindowParams: the window, the queue when set, and the extra keys', () => {
+    assert.deepEqual(groupWindowParams({from: 1, to: 2}, ''), {from: 1, to: 2});
+    assert.deepEqual(groupWindowParams({from: 1, to: 2}, 'q', {offset: 50}), {from: 1, to: 2, offset: 50, queue: 'q'});
 });

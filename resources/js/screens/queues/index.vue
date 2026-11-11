@@ -13,7 +13,7 @@
     import {GROUPS_BULK_STORAGE_KEY, countText, groupQueuesText, groupsSource, markerBefore} from '../failed/failures';
     import {nativeContinueCommands} from '../overview/overview';
     import BacklogChart from './BacklogChart.vue';
-    import {BACKLOG_RANGES, BACKLOG_SCALES, backlogPollSeconds, backlogRange, backlogScale, backlogSlots, cardTitle, rangeLabel, readBacklogChoice, slotSecondsFor, writeBacklogChoice} from './backlog.js';
+    import {BACKLOG_RANGES, BACKLOG_SCALES, backlogMarkersRequest, backlogPollSeconds, backlogRange, backlogScale, backlogSlots, cardTitle, historyRowsOf, rangeLabel, readBacklogChoice, slotSecondsFor, writeBacklogChoice} from './backlog.js';
     import MiniGauge from './MiniGauge.vue';
     import QueueInspector from './QueueInspector.vue';
     import {
@@ -242,11 +242,7 @@
 
             /** The queues whose history is read: the cards on screen, and the selected queue. */
             historyRows() {
-                const rows = this.cardRows.slice();
-
-                if (this.selectedRow && !rows.some(row => row.key === this.selectedRow.key)) rows.push(this.selectedRow);
-
-                return rows;
+                return historyRowsOf(this.rows || [], this.cardLimit, this.selectedRow);
             },
 
             backlogRanges() {
@@ -442,12 +438,12 @@
              */
             refresh() {
                 const sequence = this.startRequest('screen');
-                const since = nowSeconds() - this.historyMinutes * 60 - 120;
+                const markers = backlogMarkersRequest(nowSeconds(), this.backlog.range);
                 const current = () => this.isCurrentRequest('screen', sequence);
 
                 return Promise.allSettled([
                     this.rows !== null ? this.loadFailures(true) : null,
-                    this.get('/api/markers', {since: Math.floor(since)}, true).then(data => {
+                    this.get(markers.url, markers.params, true).then(data => {
                         if (current()) this.markers = normalizeMarkers(data);
                     }).catch(() => {}),
                 ]);

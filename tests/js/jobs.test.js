@@ -54,6 +54,8 @@ import {
     timeColumn,
     timeHeader,
     workerCell,
+    JOBS_PER_PAGE,
+    jobsFirstRequests,
 } from '../../resources/js/screens/jobs/jobs.js';
 import {filtersFromQuery} from '../../resources/js/support/lists.js';
 
@@ -704,4 +706,17 @@ test('autoLoadApplies only where the switch acts', () => {
     assert.equal(autoLoadApplies('running', 'desc'), false);
     assert.equal(autoLoadApplies('retrying', 'desc'), false);
     assert.equal(autoLoadApplies('stuck', 'desc'), false);
+});
+
+// Rejects: a first load with another page size or order than the screen's first read, one for a link whose
+// filter cannot be applied (the screen reads nothing then), or one without the stuck signal.
+// Still passes: a load that also sends a parameter the server ignores (the cache would then miss; not done).
+test('jobsFirstRequests: the first page of the route\'s list, or nothing for a bad link filter', () => {
+    assert.equal(JOBS_PER_PAGE, 50);
+    assert.deepEqual(jobsFirstRequests({status: 'failed', queue: 'default', connection: 'database'}), [
+        {url: '/api/jobs', params: {status: 'failed', connection: 'database', queue: 'default', per_page: 50}},
+    ]);
+    assert.deepEqual(jobsFirstRequests({}), [{url: '/api/jobs', params: {status: 'pending', per_page: 50}}]);
+    assert.deepEqual(jobsFirstRequests({status: 'stuck'}), [{url: '/api/jobs/stuck', params: {signal: 'reservation_expired', per_page: 50}}]);
+    assert.deepEqual(jobsFirstRequests({from: 'yesterday'}), []);
 });

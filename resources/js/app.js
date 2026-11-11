@@ -7,10 +7,13 @@ import { createRoutes } from './routes';
 import App from './App.vue';
 import Poll from './components/Poll.vue';
 import ToolbarControls from './shell/ToolbarControls.vue';
-import { resetToolbar } from './shell/store';
-import { requestTimeout } from './shell/poll.js';
+import { live, navigation, resetToolbar } from './shell/store';
+import { BACKGROUND_HANDLES, requestTimeout } from './shell/poll.js';
 import { installErrorHandling } from './errors';
 import { createHttp } from './support/http.js';
+import { createNavigationGuard, createNavigationHold } from './support/navigation.js';
+import { createPrefetchCache } from './support/prefetch.js';
+import { nowSeconds } from './support/time.js';
 import { installTagGuard } from './screens/tags/tag-links.js';
 
 let token = document.head.querySelector("meta[name='csrf-token']");
@@ -23,7 +26,8 @@ const app = createApp(App);
 
 // Every request sends X-Requested-With: XMLHttpRequest (support/http.js), and
 // the CSRF token of the page when it has one.
-const http = createHttp({ headers: token ? { 'X-CSRF-TOKEN': token.content } : {} });
+const prefetchCache = createPrefetchCache();
+const http = createHttp({ headers: token ? { 'X-CSRF-TOKEN': token.content } : {}, prefetchCache });
 
 // Reads time out after 30 s (shell/poll.js), so a poll never waits forever and
 // the next one can start. Writes keep no timeout: their outcome would be unknown.
@@ -56,6 +60,30 @@ const router = createRouter({
 
 // A tag that a path cannot carry ('.', '..', '/') moves to /tags?tag=.
 installTagGuard(router);
+
+// The held navigation (support/navigation.js): a change of screen waits,
+// with the URL and the sidebar, until the next screen's first reads have
+// answered (at most HOLD_TIMEOUT_MS). The reads are prefetched through
+// $http, and the screen's own first GET takes each answer once. A newer
+// navigation supersedes a waiting one. The progress bar of the shell reads
+// the store's `navigation`.
+const hold = createNavigationHold({
+    onChange: state => {
+        navigation.progress = state.progress;
+    },
+});
+const navigationGuard = createNavigationGuard({
+    hold,
+    load: to => to.meta.load(to, { now: nowSeconds(), live }),
+    prefetch: requests => requests.map(request => http.prefetch(window.Orrery.basePath + request.url, request.params, request.timeKeys || [], { handles: BACKGROUND_HANDLES })),
+    discard: entries => prefetchCache.discard(entries),
+});
+
+router.beforeEach(to => {
+    navigationGuard.supersede();
+    navigation.title = to.meta && typeof to.meta.title === 'string' ? to.meta.title : null;
+});
+router.beforeResolve(navigationGuard);
 
 // A screen sets its toolbar text when it mounts. A new screen starts from the
 // route's title. Routes that render the same component (/queues and

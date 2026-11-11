@@ -599,3 +599,19 @@ export function cancelFailure(error) {
 
     return {tone: 'warning', title: 'Outcome unknown', detail: codeText('write_failed')};
 }
+
+/** The read of one batch: `GET /api/batches/{id}`. */
+export function batchUrl(id) {
+    return '/api/batches/' + encodeURIComponent(String(id));
+}
+
+/** The Batches screen's first reads for a route: the list (with the search of the URL), and the open batch. */
+export function batchesFirstRequests(params, query) {
+    const requests = [{url: '/api/batches', params: listParams(queryFromRoute(query), null)}];
+
+    if (params && params.batchId !== undefined && params.batchId !== null && params.batchId !== '') {
+        requests.push({url: batchUrl(params.batchId), params: {}});
+    }
+
+    return requests;
+}

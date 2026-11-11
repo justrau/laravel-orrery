@@ -15,7 +15,9 @@
     import {
         GROUPS_BULK_STORAGE_KEY,
         LATEST_PATH,
+        LATEST_ROWS,
         MARKER_LEAD_SECONDS,
+        groupWindowParams,
         MAX_GROUP_KEYS,
         GROUP_PAGE,
         RANGES,
@@ -50,7 +52,6 @@
     const POLL_SECONDS = 10;
 
     /** The rows of "Latest failed jobs". */
-    const LATEST_ROWS = 5;
 
     /**
      * The HTTP statuses that the screen's reads handle themselves: the
@@ -408,11 +409,7 @@
             },
 
             groupParams(live, extra = {}) {
-                const params = {from: live.from, to: live.to, ...extra};
-
-                if (this.queue) params.queue = this.queue;
-
-                return params;
+                return groupWindowParams(live, this.queue, extra);
             },
 
             /**

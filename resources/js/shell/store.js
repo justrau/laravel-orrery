@@ -67,6 +67,13 @@ export const live = reactive({
     at: null,
 });
 
+/**
+ * The held navigation (support/navigation.js, app.js): `progress` shows the
+ * shell's progress bar, `title` is the next screen's route title for its
+ * label. app.js writes it; the shell only reads it.
+ */
+export const navigation = reactive({progress: false, title: null});
+
 /** Whether the live part (workload, workers or health) failed in the last poll: the toolbar says "Stale". */
 export function liveFailed() {
     return live.workloadError || live.workersError || live.healthError;

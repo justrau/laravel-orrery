@@ -60,6 +60,7 @@ import {
     writeFailure,
     writeOutcome,
     writeRequest,
+    detailFirstRequests,
 } from '../../resources/js/screens/jobs/detail.js';
 
 const UUID = '3f9b0c12-7d4e-4c1a-a6f0-2b8e91d5c047';
@@ -974,4 +975,12 @@ test('runNowSheet and the run-now outcomes', () => {
     assert.match(writeOutcome('run_now', {result: 'job_id_unknown'}).detail, /Try again in a minute/);
     assert.equal(writeOutcome('run_now', {result: 'other'}).title, 'Outcome unknown');
     assert.deepEqual(historyEventLabel('run_now'), {label: 'run now', tone: 'accent'});
+});
+
+// Rejects: a first load for the not-found route (no read), or a uuid sent in upper case (the screen sends it in
+// lower case, so the prefetch would never be taken).
+test('detailFirstRequests: the detail read of a uuid, or nothing', () => {
+    assert.deepEqual(detailFirstRequests({uuid: '9F0E8C3A-1B2C-4D5E-8F90-1234567890AB'}), [{url: '/api/jobs/9f0e8c3a-1b2c-4d5e-8f90-1234567890ab', params: {}}]);
+    assert.deepEqual(detailFirstRequests({legacyId: '12'}), []);
+    assert.deepEqual(detailFirstRequests(null), []);
 });
