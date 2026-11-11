@@ -103,11 +103,17 @@
                 this.schedule();
             },
 
+            /** Drops the pending read: an answer that arrives later does not open the list again. */
+            cancelLoad() {
+                clearTimeout(this.timer);
+                this.startRequest('suggest');
+            },
+
             onBlur() {
                 this.focused = false;
                 this.open = false;
                 this.active = null;
-                clearTimeout(this.timer);
+                this.cancelLoad();
                 this.$emit('blur');
             },
 
@@ -120,6 +126,8 @@
 
                 this.open = step.open;
                 this.active = step.active;
+
+                if (step.cancel) this.cancelLoad();
 
                 if (step.select !== null) {
                     this.choose(step.select);
@@ -143,6 +151,7 @@
 
                 if (!item) return;
 
+                this.cancelLoad();
                 this.open = false;
                 this.active = null;
                 this.$emit('update:modelValue', item.value);

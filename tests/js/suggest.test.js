@@ -54,21 +54,23 @@ test('suggestionRequest names the field and the typed text, or nothing for a tex
 // Rejects: the ARIA combobox keys done wrong: Down that does not open a closed list or move to the first option,
 // Up that does not reach the last, no wrap, Enter that selects without an active option (it must commit the typed
 // text instead), Escape that does not close an open list or that is taken from a closed one (the filter panel
-// closes on it), Tab that keeps the list open.
+// closes on it), Tab that keeps the list open; a selection or an Escape that does not cancel the pending read (its
+// answer would open the list again).
 // Still passes: a list that keeps its active option when it closes (the component resets it on open).
 test('comboKey decides each key of the combobox', () => {
     const open = {open: true, active: null, count: 3};
+    const move = (active, isOpen = true) => ({open: isOpen, active, prevent: true, select: null, cancel: false});
 
-    assert.deepEqual(comboKey({open: false, active: null, count: 3}, 'ArrowDown'), {open: true, active: 0, prevent: true, select: null});
-    assert.deepEqual(comboKey(open, 'ArrowDown'), {open: true, active: 0, prevent: true, select: null});
-    assert.deepEqual(comboKey({...open, active: 2}, 'ArrowDown'), {open: true, active: 0, prevent: true, select: null});
-    assert.deepEqual(comboKey(open, 'ArrowUp'), {open: true, active: 2, prevent: true, select: null});
-    assert.deepEqual(comboKey({...open, active: 0}, 'ArrowUp'), {open: true, active: 2, prevent: true, select: null});
-    assert.deepEqual(comboKey({...open, active: 1}, 'Enter'), {open: false, active: null, prevent: true, select: 1});
-    assert.deepEqual(comboKey(open, 'Enter'), {open: false, active: null, prevent: false, select: null});
-    assert.deepEqual(comboKey({...open, active: 1}, 'Escape'), {open: false, active: null, prevent: true, select: null});
+    assert.deepEqual(comboKey({open: false, active: null, count: 3}, 'ArrowDown'), move(0));
+    assert.deepEqual(comboKey(open, 'ArrowDown'), move(0));
+    assert.deepEqual(comboKey({...open, active: 2}, 'ArrowDown'), move(0));
+    assert.deepEqual(comboKey(open, 'ArrowUp'), move(2));
+    assert.deepEqual(comboKey({...open, active: 0}, 'ArrowUp'), move(2));
+    assert.deepEqual(comboKey({...open, active: 1}, 'Enter'), {open: false, active: null, prevent: true, select: 1, cancel: true});
+    assert.deepEqual(comboKey(open, 'Enter'), {open: false, active: null, prevent: false, select: null, cancel: true});
+    assert.deepEqual(comboKey({...open, active: 1}, 'Escape'), {open: false, active: null, prevent: true, select: null, cancel: true});
     assert.deepEqual(comboKey({open: false, active: null, count: 3}, 'Escape'), null);
-    assert.deepEqual(comboKey({...open, active: 1}, 'Tab'), {open: false, active: null, prevent: false, select: null});
+    assert.deepEqual(comboKey({...open, active: 1}, 'Tab'), {open: false, active: null, prevent: false, select: null, cancel: false});
     assert.deepEqual(comboKey({open: false, active: null, count: 0}, 'ArrowDown'), null);
     assert.equal(comboKey(open, 'a'), null);
 });

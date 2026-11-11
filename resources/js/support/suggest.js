@@ -54,11 +54,13 @@ export function suggestionItems(data, field) {
 
 /**
  * What a key does to the combobox `{open, active, count}`: the new
- * `{open, active}`, `prevent` (the key is the combobox's) and `select`
- * (the index of the option to fill), or null when the key is not its own.
- * Down and Up open the list and move with wrap-around; Enter selects the
- * active option (without one it is the field's own Enter: commit the
- * text); Escape closes an open list; Tab closes it and moves on.
+ * `{open, active}`, `prevent` (the key is the combobox's), `select` (the
+ * index of the option to fill) and `cancel` (the pending read is dropped,
+ * so its answer does not open the list again), or null when the key is not
+ * its own. Down and Up open the list and move with wrap-around; Enter
+ * selects the active option (without one it is the field's own Enter:
+ * commit the text); Escape closes an open list; Tab closes it and moves on
+ * (the blur ends the reads).
  */
 export function comboKey({open, active, count}, key) {
     const last = count - 1;
@@ -68,19 +70,19 @@ export function comboKey({open, active, count}, key) {
         case 'ArrowDown':
             if (count < 1) return null;
 
-            return {open: true, active: !open || active === null || active >= last ? 0 : active + 1, prevent: true, select: null};
+            return {open: true, active: !open || active === null || active >= last ? 0 : active + 1, prevent: true, select: null, cancel: false};
         case 'ArrowUp':
             if (count < 1) return null;
 
-            return {open: true, active: !open || active === null || active <= 0 ? last : active - 1, prevent: true, select: null};
+            return {open: true, active: !open || active === null || active <= 0 ? last : active - 1, prevent: true, select: null, cancel: false};
         case 'Enter':
-            if (open && active !== null && active >= 0 && active < count) return {...closed, prevent: true, select: active};
+            if (open && active !== null && active >= 0 && active < count) return {...closed, prevent: true, select: active, cancel: true};
 
-            return {...closed, prevent: false};
+            return {...closed, prevent: false, cancel: true};
         case 'Escape':
-            return open ? {...closed, prevent: true} : null;
+            return open ? {...closed, prevent: true, cancel: true} : null;
         case 'Tab':
-            return {...closed, prevent: false};
+            return {...closed, prevent: false, cancel: false};
         default:
             return null;
     }
