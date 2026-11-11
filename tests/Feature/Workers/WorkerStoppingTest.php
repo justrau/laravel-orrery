@@ -85,10 +85,15 @@ final class WorkerStoppingTest extends ControllerTest
     /**
      * Rejects: a sticky timeout flag when Worker::$killOnTimeout is false:
      * Laravel then throws into the job and keeps the worker running, so a
-     * later normal stop must still remove the row.
+     * later normal stop must still remove the row. Laravel 12 has no
+     * $killOnTimeout (its worker always kills), so the test skips there.
      */
     public function test_a_timeout_without_a_kill_does_not_keep_the_row_at_the_stop(): void
     {
+        if (! property_exists(Worker::class, 'killOnTimeout')) {
+            self::markTestSkipped('Worker::$killOnTimeout exists from Laravel 13.');
+        }
+
         $kill = Worker::$killOnTimeout;
         Worker::$killOnTimeout = false;
 
