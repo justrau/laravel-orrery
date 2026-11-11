@@ -633,7 +633,10 @@ final class Processes
     /**
      * Whether process $pid exists. bin/test runs this file with php -n, and
      * where posix is a shared extension (setup-php on Ubuntu) -n leaves it
-     * out, so the fallback is kill -0.
+     * out. Then /proc answers without a child process: a child would be a
+     * member of the caller's group, which a group stop counts and signals.
+     * kill -0 is the last fallback, and a kill that a signal ended is no
+     * evidence, so it counts as existing.
      */
     public static function exists(int $pid): bool
     {
@@ -641,7 +644,13 @@ final class Processes
             return posix_kill($pid, 0);
         }
 
-        return Run::capture(['kill', '-0', (string) $pid], null, 10.0)[0] === 0;
+        if (is_dir('/proc/self')) {
+            return is_dir('/proc/'.$pid);
+        }
+
+        [$status, , , $signaled] = Run::capture(['kill', '-0', (string) $pid], null, 10.0);
+
+        return $status === 0 || $signaled;
     }
 }
 
