@@ -19,7 +19,9 @@ use WeakReference;
  * Laravel's public transaction API: the transaction level of the connection
  * instance, its beforeStartingTransaction() and beforeExecuting() callbacks,
  * the pending and committed lists of the transactions manager, and the
- * commit and rollback callbacks of each DatabaseTransactionRecord.
+ * commit and rollback callbacks of each DatabaseTransactionRecord. Beside
+ * that API, it reads the call stack only to tell a running commit walk from
+ * one that a throwing callback stopped.
  *
  * A hook calls it so (around() does all of it):
  *
@@ -31,7 +33,11 @@ use WeakReference;
  * The rules:
  * - At level 0 after the call, the item runs at once, unless a tracked root
  *   of the same instance is in its commit walk: then it joins the tail of the
- *   outermost walking root (raise order).
+ *   outermost walking root (raise order). A walk runs while the commit
+ *   callbacks of its root or of one of its savepoints are on the call stack
+ *   (outermostWalkingRoot()). A walk that a throwing callback stopped before
+ *   the package's callback is ended at the next search: its undecided items
+ *   are counted and its tail runs, so it holds no later item.
  * - Else the item joins the list of the LAST pending level-1 record of the
  *   instance's name (the root), with its chain: the savepoint records after
  *   the root. The root's commit callback runs the items whose chain records
@@ -48,7 +54,8 @@ use WeakReference;
  *   ambiguous ones (the level changed during the call), `rollback_unverified`
  *   for the others.
  * - endUnit() counts what its unit left behind: a root that is still
- *   pending, and the undecided items of a root whose walk stopped.
+ *   pending, and the undecided items of a stopped walk that no later search
+ *   ended.
  *
  * Isolation: capture(), the connection callbacks, the record callbacks and
  * after() never throw into the host. The parent call is never wrapped.
@@ -348,16 +355,14 @@ final class CommitDeferral
             }
 
             $this->settle($root, 'deferral.unit', function () use ($root, $pending, $id): void {
-                $this->untrack($root);
-
                 if (isset($pending[$id])) {
+                    $this->untrack($root);
                     $this->count($root->items, static fn (): bool => true);
 
                     return;
                 }
 
-                $this->runAll(array_values(array_filter($root->items, static fn (array $item): bool => $item['decided'])));
-                $this->count($root->items, static fn (array $item): bool => ! $item['decided']);
+                $this->endStoppedWalk($root);
             });
         }
     }
@@ -894,8 +899,12 @@ final class CommitDeferral
 
     /**
      * The first tracked root of $q, in tracking order and before $before
-     * (when given), that left the pending list and whose commit callback has
-     * not run: the root whose walk runs (or stopped).
+     * (when given), whose walk runs: it left the pending list, its commit
+     * callback has not run, and the callbacks of its walk are on the call
+     * stack. A root that left the pending list but whose walk is not on the
+     * stack had its walk stopped by a throwing callback: its commit
+     * callback can never run, so it is ended here (endStoppedWalk()) and
+     * holds no later item.
      */
     private function outermostWalkingRoot(Connection $q, ?TrackedRoot $before): ?TrackedRoot
     {
@@ -904,6 +913,7 @@ final class CommitDeferral
         }
 
         $pending = null;
+        $walking = null;
 
         foreach ($this->roots as $id => $root) {
             if ($root === $before) {
@@ -916,12 +926,78 @@ final class CommitDeferral
 
             $pending ??= $this->pendingSet();
 
-            if (! isset($pending[$id])) {
+            if (isset($pending[$id])) {
+                continue;
+            }
+
+            $walking ??= self::walkingRecords();
+
+            if (self::walkRuns($root->record, $walking)) {
                 return $root;
             }
+
+            $this->settle($root, 'deferral.stopped', fn () => $this->endStoppedWalk($root));
         }
 
         return null;
+    }
+
+    /**
+     * The transaction records whose commit callbacks run now: the objects
+     * of the DatabaseTransactionRecord::executeCallbacks() frames on the
+     * call stack. Only a root that left the pending list reads it, so the
+     * hot path never does.
+     *
+     * @return list<DatabaseTransactionRecord>
+     */
+    private static function walkingRecords(): array
+    {
+        $records = [];
+
+        foreach (debug_backtrace(DEBUG_BACKTRACE_PROVIDE_OBJECT | DEBUG_BACKTRACE_IGNORE_ARGS) as $frame) {
+            $object = $frame['object'] ?? null;
+
+            if ($frame['function'] === 'executeCallbacks' && $object instanceof DatabaseTransactionRecord) {
+                $records[] = $object;
+            }
+        }
+
+        return $records;
+    }
+
+    /**
+     * Whether the walk of $root runs: a record of $walking is $root or one
+     * of its committed savepoints (its parent chain reaches $root). Laravel
+     * runs a root's commit callbacks only inside the commit() that removed
+     * the root from the pending list, so a walk that is not on the stack
+     * ended, and the root's commit callback did not run.
+     *
+     * @param  list<DatabaseTransactionRecord>  $walking
+     */
+    private static function walkRuns(DatabaseTransactionRecord $root, array $walking): bool
+    {
+        foreach ($walking as $record) {
+            for ($link = $record; $link !== null; $link = $link->parent) {
+                if ($link === $root) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Ends a root whose walk stopped before its commit callback ran: the
+     * decided items (raised after the walk began) run in raise order, and
+     * the undecided items are counted (the commit of the database cannot be
+     * proved without the callback).
+     */
+    private function endStoppedWalk(TrackedRoot $root): void
+    {
+        $this->untrack($root);
+        $this->runAll(array_values(array_filter($root->items, static fn (array $item): bool => $item['decided'])));
+        $this->count($root->items, static fn (array $item): bool => ! $item['decided']);
     }
 
     private function isTracked(TrackedRoot $root): bool

@@ -26,6 +26,10 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 - `GET /orrery/api/queues/{connection}/{queue}/history` is now `GET /orrery/api/queues/history?connection=&queue=`: a browser resolved `.` and `..` segments of a queue name in the path, so `x/../default` read another queue.
 - `GET /orrery/api/jobs/{uuid}` adds `chained` (pending jobs) and `actions.delete`, `actions.pending_reason` and `actions.run_now`.
 
+### Fixed
+
+- **A stopped commit walk no longer holds later observations.** When an `afterCommit` callback of the application threw before the package's callback, every later observation of that connection waited until the end of the job, command or request, and a long-running command lost them at the count cap. Now the next observation sees that the walk is no longer on the call stack: the stopped transaction's observations are counted in `unverified`, and the later ones are written at once or at their own commit.
+
 ## [0.1.0] - 2026-11-10
 
 The first release: a Horizon-style dashboard for the `database` queue driver of Laravel. Orrery is a watcher only. It never starts, supervises or scales queue workers; you run `queue:work` under systemd, supervisord, Forge or another process manager. Your `jobs`, `failed_jobs` and `job_batches` tables stay authoritative, and Orrery keeps its own `orrery_*` mirror tables next to them.

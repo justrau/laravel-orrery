@@ -19,9 +19,9 @@ With `swap_connector` on (the default), `Connectors\DatabaseConnector` returns t
 
 ## Commit deferral
 
-`CommitDeferral::around()` captures the queue connection instance before the parent call and decides after it. It uses only Laravel's public transaction API (the level, the `beforeStartingTransaction()` and `beforeExecuting()` callbacks, the transaction records and their callbacks).
+`CommitDeferral::around()` captures the queue connection instance before the parent call and decides after it. It uses only Laravel's public transaction API (the level, the `beforeStartingTransaction()` and `beforeExecuting()` callbacks, the transaction records and their callbacks), and the call stack to tell a running commit walk from a stopped one.
 
-- At level 0 after the call, the item runs at once.
+- At level 0 after the call, the item runs at once, unless a tracked root of the instance is in its commit walk: then it waits at the tail of that root (raise order). A walk runs while the commit callbacks of its root or of one of its savepoints are on the call stack (`debug_backtrace()`, read only when a tracked root left the pending list). A walk that an application callback stopped before the package's callback is ended at the next search: its undecided items are counted, its tail runs, and it holds no later item.
 - Else it joins the last pending level-1 record of the instance (the root) with its savepoint chain, and runs at the root's commit when every chain record has a commit mark. A savepoint is decided by its commit mark, never by its rollback callback.
 - The root's commit proves the commit only when the instance is at level 0, has the same PDO, and that PDO is not in a transaction. Else the items are counted.
 - The stale rule: a level-0 begin on a watched instance drops and counts every tracked root of the name that can no longer commit.
