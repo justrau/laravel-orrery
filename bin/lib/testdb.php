@@ -1541,9 +1541,12 @@ interface Ops
 
     /**
      * Starts or confirms the default services, and with $alt also the
-     * services of the profile "alt".
+     * services of the profile "alt". With $only, just those services (the
+     * services of one engine).
+     *
+     * @param  list<string>|null  $only
      */
-    public function up(bool $alt = false): void;
+    public function up(bool $alt = false, ?array $only = null): void;
 
     public function readMarker(string $service): ?string;
 
@@ -1687,10 +1690,10 @@ final class DockerOps implements Ops
         return false;
     }
 
-    public function up(bool $alt = false): void
+    public function up(bool $alt = false, ?array $only = null): void
     {
-        fwrite(STDERR, 'testdb: no live lease, so docker compose up --wait starts or confirms the orrery-testing services'.($alt ? ' with the profile alt' : '')."\n");
-        [$status, , $err] = $this->compose(['up', '--detach', '--wait', '--wait-timeout', '180'], 300.0, $alt);
+        fwrite(STDERR, 'testdb: no live lease, so docker compose up --wait starts or confirms the orrery-testing services'.($only === null ? '' : ' '.implode(', ', $only)).($alt ? ' with the profile alt' : '')."\n");
+        [$status, , $err] = $this->compose(['up', '--detach', '--wait', '--wait-timeout', '180', ...($only ?? [])], 300.0, $alt);
 
         if ($status !== 0) {
             throw new Failure('docker compose up failed: '.trim($err), EXIT_OPERATION);
@@ -2020,14 +2023,14 @@ final class FakeOps implements Ops
         return in_array($port, $this->load()['ports_taken'], true);
     }
 
-    public function up(bool $alt = false): void
+    public function up(bool $alt = false, ?array $only = null): void
     {
         $this->hold('up');
-        $state = $this->record('up', ['alt' => $alt]);
+        $state = $this->record('up', $only === null ? ['alt' => $alt] : ['alt' => $alt, 'only' => $only]);
         $unhealthy = [];
 
-        // Like Compose: without the profile, the alt services stay as they are.
-        foreach ($alt ? ALL_SERVICES : SERVICES as $service) {
+        // Like Compose: without the profile, the alt services stay as they are; with names, only those services.
+        foreach ($only ?? ($alt ? ALL_SERVICES : SERVICES) as $service) {
             $current = &$state['services'][$service];
             $recreate = $current['state'] !== 'running'
                 || $state['running_definition'] !== $state['definition']
@@ -2051,7 +2054,10 @@ final class FakeOps implements Ops
             unset($current);
         }
 
-        $state['running_definition'] = $state['definition'];
+        if ($only === null) {
+            $state['running_definition'] = $state['definition'];
+        }
+
         $this->save($state);
 
         if ($unhealthy !== []) {
@@ -2504,19 +2510,22 @@ final class App
      *
      * Without $alt it covers the default services only. With $alt (up --alt,
      * admit --alt) it covers the alt services too: under a live lease they
-     * must already be running with the token, else it starts them. A new
-     * token goes to every running service, a running alt service included,
-     * so a later --alt call under a live lease finds matching markers.
+     * must already be running with the token, else it starts them. With
+     * $only (an admission: the services of its engine) it covers only
+     * those, so a MySQL run never needs the Postgres or MariaDB server. A
+     * new token goes to every running service, the uncovered ones included,
+     * so a later call for them under a live lease finds matching markers.
      *
      * @param  array<string, mixed>  $data
+     * @param  list<string>|null  $only
      * @return string "kept" or "new"
      */
-    private function ensureServices(array &$data, bool $alt = false): string
+    private function ensureServices(array &$data, bool $alt = false, ?array $only = null): string
     {
         $ops = $this->ops();
         $ports = Environment::ports();
         $services = $ops->services();
-        $covered = $alt ? ALL_SERVICES : SERVICES;
+        $covered = $only ?? ($alt ? ALL_SERVICES : SERVICES);
 
         if ($data['leases'] !== []) {
             $holders = implode(', ', array_keys($data['leases']));
@@ -2574,7 +2583,7 @@ final class App
             }
         }
 
-        $ops->up($alt);
+        $ops->up($alt, $only);
         $agree = $data['token'] !== null;
 
         foreach ($covered as $service) {
@@ -2590,12 +2599,10 @@ final class App
         $token = bin2hex(random_bytes(16));
         $marked = $covered;
 
-        if (! $alt) {
-            // up() without the profile left the alt services as they were.
-            foreach (ALT_SERVICES as $service) {
-                if ($services[$service]['state'] === 'running' && $services[$service]['health'] === 'healthy') {
-                    $marked[] = $service;
-                }
+        // up() left the uncovered services as they were: a running one gets the new token too.
+        foreach (ALL_SERVICES as $service) {
+            if (! in_array($service, $marked, true) && $services[$service]['state'] === 'running' && $services[$service]['health'] === 'healthy') {
+                $marked[] = $service;
             }
         }
 
@@ -2729,7 +2736,8 @@ final class App
                 throw new Failure("run {$runId} already has a lease", EXIT_USAGE);
             }
 
-            $generation = $this->ensureServices($data, $alt);
+            // Only the servers of the run's engine: a MySQL run never needs the Postgres or MariaDB server.
+            $generation = $this->ensureServices($data, $alt, $services);
             $this->dropOrphans($data);
 
             foreach ([$base, $mirror] as $name) {

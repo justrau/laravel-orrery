@@ -8,8 +8,9 @@
 #   sqlite --sqlite-file  a SQLite file in the run's temporary directory,
 #                         removed after the run. No Docker and no registry.
 #   mysql, pgsql, mariadb take a lease and the name lock in the registry,
-#                         recreate <base> and <base>_mirror in the orrery-testing
-#                         containers, run PHPUnit behind the startup gate, then
+#                         start only the orrery-testing server of the engine
+#                         (while no lease is live), recreate <base> and
+#                         <base>_mirror there, run PHPUnit behind the startup gate, then
 #                         release. The base name is $ORRERY_TEST_DATABASE,
 #                         else a generated orrery_run_<8 hex> that is dropped at the end.
 #   --drop-database       (server engines) the release drops an explicit database

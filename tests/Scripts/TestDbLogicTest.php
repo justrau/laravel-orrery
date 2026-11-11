@@ -150,11 +150,12 @@ final class TestDbLogicTest extends TestCase
     public function test_admit_reserves_both_names_and_release_drops_only_generated_databases(): void
     {
         $supervisor = $this->spawnSleeper();
+        self::assertSame(0, $this->testdb(['up'], $this->fakeEnv($this->registry))['exit'], 'bin/test-db up starts every default server');
 
         $generated = $this->admit('run_1_0000000a', $supervisor, 'orrery_gen', '--generated', 'mysql');
         self::assertSame('orrery_gen_mirror', $generated['mirror']);
         self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $generated['token']);
-        self::assertSame('new', $generated['generation']);
+        self::assertSame('kept', $generated['generation']);
 
         $explicit = $this->admit('run_1_0000000b', $supervisor, 'orrery_exp', '--explicit', 'pgsql');
         self::assertSame($generated['token'], $explicit['token']);
@@ -1211,6 +1212,7 @@ final class TestDbLogicTest extends TestCase
     public function test_with_a_live_lease_unusable_services_are_refused_without_a_service_change(callable $change, int $expected): void
     {
         $supervisor = $this->spawnSleeper();
+        self::assertSame(0, $this->testdb(['up'], $this->fakeEnv($this->registry))['exit'], 'bin/test-db up starts every default server');
         $this->admit('run_1_0000000a', $supervisor, 'orrery_live', '--explicit', 'mysql');
         $token = self::registryData($this->registry)['token'];
         self::changeFakeState($this->registry, $change);
@@ -1219,7 +1221,8 @@ final class TestDbLogicTest extends TestCase
         $up = $this->testdb(['up'], $this->fakeEnv($this->registry));
         self::assertSame($expected, $up['exit'], $up['stderr']);
 
-        $admit = $this->admitRaw('run_1_0000000b', $supervisor, 'orrery_other', '--generated', 'mysql');
+        // The engine `all` needs every default server.
+        $admit = $this->admitRaw('run_1_0000000b', $supervisor, 'orrery_other', '--generated', 'all');
         self::assertSame($expected, $admit['exit'], $admit['stderr']);
 
         $operations = self::operations(array_slice(self::fakeCalls($this->registry), $before));
@@ -1231,6 +1234,7 @@ final class TestDbLogicTest extends TestCase
     public function test_with_a_live_lease_a_changed_definition_reuses_the_running_generation(): void
     {
         $supervisor = $this->spawnSleeper();
+        self::assertSame(0, $this->testdb(['up'], $this->fakeEnv($this->registry))['exit'], 'bin/test-db up starts every default server');
         $first = $this->admit('run_1_0000000a', $supervisor, 'orrery_def', '--explicit', 'mysql');
         $token = $first['token'];
 
@@ -1314,6 +1318,7 @@ final class TestDbLogicTest extends TestCase
     public function test_create_and_drop_need_the_name_lock(): void
     {
         $supervisor = $this->spawnSleeper();
+        self::assertSame(0, $this->testdb(['up'], $this->fakeEnv($this->registry))['exit'], 'bin/test-db up starts every default server');
         $this->admit('run_1_0000000a', $supervisor, 'orrery_named', '--explicit', 'mysql');
         $before = count(self::fakeCalls($this->registry));
 
@@ -3022,7 +3027,7 @@ final class TestDbLogicTest extends TestCase
         $before = count(self::fakeCalls($this->registry));
         $databases = array_map(static fn (array $current): array => $current['databases'], self::fakeState($this->registry)['services']);
 
-        $admit = $this->testdb(['admit', 'run_1_0000000b', (string) $supervisor['pid'], $supervisor['start'], 'orrery_other', '--generated', '--engine=mysql', '--alt'], $this->fakeEnv($this->registry));
+        $admit = $this->testdb(['admit', 'run_1_0000000b', (string) $supervisor['pid'], $supervisor['start'], 'orrery_other', '--generated', '--engine=all', '--alt'], $this->fakeEnv($this->registry));
         self::assertSame(70, $admit['exit'], $admit['stderr']);
         self::assertStringContainsString($service, $admit['stderr']);
 
@@ -3089,6 +3094,7 @@ final class TestDbLogicTest extends TestCase
     public function test_alt_up_with_a_live_lease_changes_nothing(): void
     {
         $supervisor = $this->spawnSleeper();
+        self::assertSame(0, $this->testdb(['up'], $this->fakeEnv($this->registry))['exit'], 'bin/test-db up starts every default server');
         $this->admit('run_1_0000000a', $supervisor, 'orrery_live', '--explicit', 'mysql');
         $token = self::registryData($this->registry)['token'];
         $before = count(self::fakeCalls($this->registry));
@@ -3113,15 +3119,15 @@ final class TestDbLogicTest extends TestCase
 
         $admit = $this->testdb(['admit', 'run_1_0000000a', (string) $supervisor['pid'], $supervisor['start'], 'orrery_altgen', '--generated', '--engine=mysql', '--alt'], $this->fakeEnv($this->registry));
         self::assertSame(0, $admit['exit'], $admit['stderr']);
-        self::assertSame([['alt' => true]], array_values(array_map(
+        self::assertSame([['alt' => true, 'only' => ['mysql', 'mysql-alt']]], array_values(array_map(
             static fn (array $call): array => $call['args'],
             array_filter(self::fakeCalls($this->registry), static fn (array $call): bool => $call['op'] === 'up'),
-        )));
+        )), 'only the servers of the engine');
 
         $services = self::fakeState($this->registry)['services'];
         self::assertSame(['orrery_marker', 'orrery_altgen', 'orrery_altgen_mirror'], $services['mysql']['databases']);
         self::assertSame(['orrery_marker', 'orrery_altgen', 'orrery_altgen_mirror'], $services['mysql-alt']['databases']);
-        self::assertSame(['orrery_marker'], $services['pgsql-alt']['databases']);
+        self::assertSame('absent', $services['pgsql-alt']['state']);
 
         $release = $this->testdb(['release', 'run_1_0000000a'], $this->fakeEnv($this->registry));
         self::assertSame(0, $release['exit'], $release['stderr']);
@@ -3130,6 +3136,44 @@ final class TestDbLogicTest extends TestCase
         $services = self::fakeState($this->registry)['services'];
         self::assertSame(['orrery_marker'], $services['mysql']['databases']);
         self::assertSame(['orrery_marker'], $services['mysql-alt']['databases']);
+    }
+
+    /**
+     * Rejects: an admission that starts or needs the servers of other engines (a MySQL run that
+     * waits for the MariaDB or Postgres container), a later admission of another engine that
+     * gives the running server a new token while its lease is live, and an admission under a live
+     * lease that starts a server.
+     * Still passes: an admission that starts its server with another Compose command (the fake
+     * records only the arguments of up).
+     */
+    public function test_an_admission_starts_and_needs_only_the_servers_of_its_engine(): void
+    {
+        $supervisor = $this->spawnSleeper();
+
+        $mysql = $this->admit('run_1_0000000a', $supervisor, 'orrery_one', '--generated', 'mysql');
+        self::assertSame('new', $mysql['generation']);
+        $services = self::fakeState($this->registry)['services'];
+        self::assertSame('running', $services['mysql']['state']);
+        self::assertSame('absent', $services['postgres']['state']);
+        self::assertSame('absent', $services['mariadb']['state']);
+        self::assertSame([['alt' => false, 'only' => ['mysql']]], array_values(array_map(
+            static fn (array $call): array => $call['args'],
+            array_filter(self::fakeCalls($this->registry), static fn (array $call): bool => $call['op'] === 'up'),
+        )));
+
+        // Under the live MySQL lease, a Postgres run cannot start its server.
+        $pgsql = $this->admitRaw('run_1_0000000b', $supervisor, 'orrery_two', '--generated', 'pgsql');
+        self::assertSame(71, $pgsql['exit'], $pgsql['stderr']);
+        self::assertStringContainsString('postgres', $pgsql['stderr']);
+
+        // After the release, it starts only Postgres, and the running MySQL server gets the new token too.
+        self::assertSame(0, $this->testdb(['release', 'run_1_0000000a'], $this->fakeEnv($this->registry))['exit']);
+        $second = $this->admit('run_1_0000000b', $supervisor, 'orrery_two', '--generated', 'pgsql');
+        $services = self::fakeState($this->registry)['services'];
+        self::assertSame('running', $services['postgres']['state']);
+        self::assertSame('absent', $services['mariadb']['state']);
+        self::assertSame($second['token'], $services['mysql']['marker']);
+        self::assertSame($second['token'], $services['postgres']['marker']);
     }
 
     /**
@@ -3150,7 +3194,8 @@ final class TestDbLogicTest extends TestCase
 
         $services = self::fakeState($this->registry)['services'];
         self::assertSame(['orrery_marker', 'orrery_maria', 'orrery_maria_mirror'], $services['mariadb']['databases']);
-        self::assertSame(['orrery_marker'], $services['mysql']['databases']);
+        self::assertSame('absent', $services['mysql']['state'], 'a MariaDB run starts no MySQL server');
+        self::assertSame('absent', $services['postgres']['state']);
         self::assertSame(self::registryData($this->registry)['token'], $services['mariadb']['marker']);
 
         $release = $this->testdb(['release', 'run_1_0000000a'], $this->fakeEnv($this->registry));

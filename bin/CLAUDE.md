@@ -29,7 +29,7 @@ bin/tia -- --stop-on-failure         # arguments after -- go to PHPUnit (not --f
 
 - Put wrapper options directly after the engine.
 - `sqlite`: in-memory, no Docker. `sqlite --sqlite-file`: a SQLite file in WAL in the run's temporary directory (the sibling file `<file>.orrery.sqlite` in `same` mode); use it for the process tests.
-- `mysql`, `pgsql`, `mariadb`: take a lease and the name lock, start the `orrery-testing` containers when needed, recreate `<base>` and `<base>_mirror`, run PHPUnit, release.
+- `mysql`, `pgsql`, `mariadb`: take a lease and the name lock, start the `orrery-testing` container of the engine when needed, recreate `<base>` and `<base>_mirror`, run PHPUnit, release.
 - The base name is `ORRERY_TEST_DATABASE`; unset, `bin/test` generates `orrery_run_<8 hex>` and drops it. An explicit name stays unless `--drop-database`.
 - `--alt` also uses the second server (`mysql-alt` on 33107, `pgsql-alt` on 54337). MariaDB has no alt server. `--group alt` alone runs nothing: add `--exclude-group orrery-no-exclusion`.
 - `--schema`: default `reuse` for server leases and `--sqlite-file`, `fresh` for in-memory and `--no-provision`.
@@ -45,7 +45,7 @@ One heavy run at a time on the machine: `bin/test mysql|pgsql|mariadb` with a le
 ## The ownership contract
 
 - Only `bin/lib/testdb.php` operates the containers, always as `docker compose --project-name orrery-testing --file docker/testing/compose.yaml`. No script touches another container. Do not start or stop this project by hand while a run holds a lease.
-- Ports: `127.0.0.1:33106` (MySQL), `127.0.0.1:54336` (Postgres), `127.0.0.1:33108` (MariaDB, the latest LTS release; its image has only the `mariadb` client), and the `alt` profile's 33107 and 54337. `bin/test-db up` starts the three default servers. A foreign process on a port makes `bin/test-db up` fail (69).
+- Ports: `127.0.0.1:33106` (MySQL), `127.0.0.1:54336` (Postgres), `127.0.0.1:33108` (MariaDB, the latest LTS release; its image has only the `mariadb` client), and the `alt` profile's 33107 and 54337. `bin/test-db up` starts the three default servers; a lease (`bin/test <engine>`) starts and needs only the servers of its engine, so a MySQL run never waits for the Postgres or MariaDB container. While a lease is live, no server is started: a run of another engine whose server is not running exits 71. A foreign process on a port makes `bin/test-db up` fail (69).
 - Capacity: each server keeps its data in a tmpfs inside its memory limit (`ComposeCapacityTest`). When the Postgres tmpfs is full it refuses every connection, so drop each explicit database after its run. A test that seeds many rows must size itself (as `bin/benchmark-tick` does).
 - Endpoint proof: `orrery_marker` holds a token equal to the registry's; the harness checks it before the first migration.
 - The registry is `/tmp/orrery-testing-<uid>/` (mode 0700) for every checkout; `TMPDIR` does not change it.
