@@ -23,7 +23,7 @@
 | `tick.deadline_seconds` | `30` | The time limit of one `orrery:tick` run. The later phases wait for the next run. |
 | `workers.heartbeat_seconds` | `15` (`ORRERY_HEARTBEAT_SECONDS`) | The least time between two heartbeat writes of a worker. |
 | `workers.pools` | `[]` | The intended worker pools, keyed by name, for `orrery:workers` (see [Worker pools](operations.md#worker-pools)). Orrery never starts workers. |
-| `ping.token` | `null` (`ORRERY_PING_TOKEN`) | The token of the monitoring ping `GET /orrery/ping`. `null` turns the route off (404). See [Monitoring](operations.md#monitoring) and [Security](security.md#the-monitoring-ping). |
+| `ping.token` | `null` (`ORRERY_PING_TOKEN`) | The token of the monitoring ping `GET /orrery/ping`, at least 32 characters. `null` or a shorter token turns the route off (404). See [Monitoring](operations.md#monitoring) and [Security](security.md#the-monitoring-ping). |
 | `ping.tick_max_age` | `300` (`ORRERY_PING_TICK_MAX_AGE`) | The ping fails `late` when the last tick started longer ago, in seconds. It is also the window of the `observations` check. |
 | `ping.long_waits` | `false` (`ORRERY_PING_LONG_WAITS`) | `true` adds the `long_waits` check: a queue over its long-wait limit that no pause holds fails the ping. |
 | `control.stale_signals_seconds` | `900` | How long a worker keeps its last signals when it cannot read new ones. After that it ignores them. |

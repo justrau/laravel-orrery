@@ -16,7 +16,7 @@ use Symfony\Component\HttpFoundation\Response;
  */
 abstract class PingTestCase extends TestCase
 {
-    protected const TOKEN = 'ping-secret-0123456789abcdef';
+    protected const TOKEN = 'ping-secret-0123456789abcdef0123456789ab';
 
     protected function defineEnvironment($app): void
     {

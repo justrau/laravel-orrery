@@ -7,7 +7,6 @@ use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Foundation\Application as FoundationApplication;
 use Illuminate\Queue\QueueManager;
 use Illuminate\Queue\TimeoutExceededException;
-use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Justrau\Orrery\Connectors\DatabaseConnector;
@@ -65,9 +64,6 @@ class OrreryServiceProvider extends ServiceProvider
      */
     protected array $modules = [];
 
-    /** The requests per minute and client of the ping route. */
-    public const PING_THROTTLE = 60;
-
     public function boot(): void
     {
         // The off switch (Runtime\OffSwitch): only the modules that serve
@@ -96,7 +92,9 @@ class OrreryServiceProvider extends ServiceProvider
         if (! $routesCached) {
             // Before the dashboard group: its page route matches every path.
             Route::group(self::pingRouteGroup(), static function (): void {
-                Route::get('/ping', Http\Controllers\PingController::class)->name('orrery.ping');
+                Route::get('/ping', Http\Controllers\PingController::class)
+                    ->name('orrery.ping')
+                    ->withoutMiddleware(Http\Controllers\PingController::STATELESS);
             });
 
             Route::group(self::routeGroup(), function (): void {
@@ -156,22 +154,22 @@ class OrreryServiceProvider extends ServiceProvider
 
     /**
      * The attributes of the ping route's group: the dashboard's domain,
-     * prefix and middleware, but no Authenticate (the ping's token is its
-     * access check) and no RefuseWhileDisabled (the ping answers its own
-     * `disabled`). Every request is throttled (PING_THROTTLE per minute and
-     * client), so a token cannot be guessed at full speed. The prefix keeps
-     * that count apart from the application's own throttled routes.
+     * prefix and `orrery` middleware group (so an application's additions to
+     * that group, such as an IP allow-list, cover the ping too), but no
+     * Authenticate (the ping's token is its access check) and no
+     * RefuseWhileDisabled (the ping answers its own `disabled`). The route
+     * removes the session, cookie and CSRF middleware of the group
+     * (PingController::STATELESS), and the controller limits failed token
+     * checks itself.
      *
      * @return array{domain: mixed, prefix: mixed, middleware: list<string>}
      */
     public static function pingRouteGroup(): array
     {
-        $middleware = config('orrery.middleware', ['web']);
-
         return [
             'domain' => config('orrery.domain'),
             'prefix' => config('orrery.path'),
-            'middleware' => [...(is_array($middleware) ? array_values(array_filter($middleware, 'is_string')) : ['web']), ThrottleRequests::class.':'.self::PING_THROTTLE.',1,orrery-ping'],
+            'middleware' => ['orrery'],
         ];
     }
 

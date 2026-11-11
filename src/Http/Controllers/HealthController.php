@@ -149,6 +149,10 @@ use Throwable;
  *   no `pgsql` connection (a mistyped name is otherwise ignored in silence).
  *   It reads no database.
  *
+ * - `ping`: the monitoring ping's configuration (PingController::state()):
+ *   `token` `missing`, `too_short` (the route answers 404) or `set`, and
+ *   `rate_limit` `on`, `off_host_sqlite` (failed token checks are not
+ *   limited: the limiter's store writes a host SQLite file) or null.
  * - `guard_invalid`: whether the guard that Authenticate
  *   asks for its 401 rule (`orrery.guard`; null or '' for the default guard)
  *   cannot be used. True when the value is not a string, has a dot, names no
@@ -300,6 +304,7 @@ class HealthController extends Controller
                 'shared_jobs_table_retry_after' => self::sharedTableRetryAfter($waits),
                 'samples' => self::UNREADABLE_SAMPLES,
                 'guard_invalid' => Authenticate::guardInvalid(),
+                'ping' => PingController::state(),
                 'pooled_sessions' => self::pooledSessions($sessions),
                 'redaction' => self::redaction(),
                 'retention_config' => self::retentionConfig(false),
@@ -330,6 +335,7 @@ class HealthController extends Controller
             'shared_jobs_table_retry_after' => self::sharedTableRetryAfter($waits),
             'samples' => $this->samples($now),
             'guard_invalid' => Authenticate::guardInvalid(),
+            'ping' => PingController::state(),
             'pooled_sessions' => self::pooledSessions($sessions),
             'redaction' => self::redaction(),
             'retention_config' => self::retentionConfig(true),

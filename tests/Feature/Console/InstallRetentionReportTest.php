@@ -76,4 +76,18 @@ final class InstallRetentionReportTest extends TestCase
         self::assertStringContainsString('The worker pools are invalid', $output);
         self::assertStringContainsString('orrery.workers.pools.default.processes', $output);
     }
+
+    /**
+     * Rejects: an install that does not warn about a ping token that is too short (the route stays off), or that
+     * warns when no token is set.
+     */
+    public function test_install_warns_about_a_short_ping_token(): void
+    {
+        self::assertSame(0, Artisan::call('orrery:install'));
+        self::assertStringNotContainsString('ORRERY_PING_TOKEN', Artisan::output());
+
+        $this->app['config']->set('orrery.ping.token', 'short');
+        self::assertSame(0, Artisan::call('orrery:install'));
+        self::assertStringContainsString('ORRERY_PING_TOKEN is shorter than 32 characters', Artisan::output());
+    }
 }

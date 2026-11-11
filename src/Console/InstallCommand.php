@@ -13,6 +13,7 @@ use Justrau\Orrery\Database\Schema\IndexBuild;
 use Justrau\Orrery\Database\Schema\PackageSchema;
 use Justrau\Orrery\Database\Schema\SchemaStatus;
 use Justrau\Orrery\Http\Controllers\HealthController;
+use Justrau\Orrery\Http\Controllers\PingController;
 use Justrau\Orrery\Maintenance\RetentionPolicy;
 use Justrau\Orrery\Retry\Fence;
 use Justrau\Orrery\Retry\FenceTargets;
@@ -71,6 +72,7 @@ class InstallCommand extends Command
         $this->reportFence();
         $this->reportRetention();
         $this->reportWorkerPools();
+        $this->reportPing();
 
         // A refused mirror (reportMirror() printed why), a refused sibling file or one that cannot
         // be created (reportSchema() printed why), or a fence migration that could not be written,
@@ -343,6 +345,25 @@ class InstallCommand extends Command
 
         if ($pools !== []) {
             $this->components->info('The worker pools are valid ('.count($pools).' in '.Pools::KEY.'); php artisan orrery:workers prints their process-manager configuration.');
+        }
+    }
+
+    /**
+     * The monitoring ping: a token that is too short keeps the route off,
+     * and a limiter store on a host SQLite file leaves failed token checks
+     * unlimited (PingController::state(), also in /api/health). Nothing
+     * when no token is set.
+     */
+    protected function reportPing(): void
+    {
+        $state = PingController::state();
+
+        if ($state['token'] === 'too_short') {
+            $this->components->warn('ORRERY_PING_TOKEN is shorter than '.PingController::MIN_TOKEN_LENGTH.' characters: the ping route stays off (404) until you set a longer token.');
+        }
+
+        if ($state['rate_limit'] === 'off_host_sqlite') {
+            $this->components->warn('The cache store of the rate limiter (cache.limiter, else the default store) writes your SQLite database: the ping does not limit failed token checks. Use another store for cache.limiter.');
         }
     }
 

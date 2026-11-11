@@ -193,7 +193,7 @@ or send the token as `Authorization: Bearer <token>` or `X-Orrery-Token: <token>
 {"status":"fail","checks":{"package_database":{"ok":true},"schema":{"ok":true,"version":10},"tick":{"ok":false,"reason":"late","age":912},"observations":{"ok":true,"dropped":0}},"as_of":1790000000.25}
 ```
 
-A 503 means that Orrery does not observe or maintain reliably now. It does not say that your queue or your workers fail: the dashboard and `/orrery/api/health` show the details. Without a token the route answers 404, and with a missing or wrong token 403. While Orrery is off (`ORRERY_ENABLED=false`) the route answers 503 `{"status":"disabled"}` after the token check, so the monitor alerts: pause the monitor when you turn Orrery off on purpose.
+A 503 means that Orrery does not observe or maintain reliably now. It does not say that your queue or your workers fail: the dashboard and `/orrery/api/health` show the details. Without a token the route answers 404, and with a missing or wrong token 403. After 60 failed token checks in a minute, a client gets 429 (see [Security](security.md#the-monitoring-ping)). While Orrery is off (`ORRERY_ENABLED=false`) the route answers 503 `{"status":"disabled"}` after the token check, so the monitor alerts: pause the monitor when you turn Orrery off on purpose.
 
 **The command.** `php artisan orrery:ping` prints the checks as a table and exits 0 when all pass, else 1 (also while Orrery is off). `--json` prints the body of the route. It needs no token. For a cron monitor such as healthchecks.io, report its result every few minutes:
 

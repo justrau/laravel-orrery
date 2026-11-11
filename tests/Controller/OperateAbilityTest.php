@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Controller;
 
 use Illuminate\Http\Request;
-use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Routing\Route;
 use Justrau\Orrery\Http\Controllers\PingController;
 use Justrau\Orrery\Http\Middleware\Authenticate;
@@ -66,7 +65,8 @@ final class OperateAbilityTest extends TestCase
     }
 
     /**
-     * Rejects: an exception that covers more than the one GET ping route, or a ping route that lost its throttle.
+     * Rejects: an exception that covers more than the one GET ping route, or a ping route that left the orrery group
+     * or runs the session middleware.
      */
     public function test_only_the_throttled_ping_route_has_no_authenticate_middleware(): void
     {
@@ -76,7 +76,8 @@ final class OperateAbilityTest extends TestCase
         foreach ($this->app['router']->getRoutes()->getRoutes() as $route) {
             if (self::isPing($route)) {
                 $exempt[] = implode('|', $route->methods()).' '.$route->uri();
-                $this->assertNotSame([], array_filter($route->gatherMiddleware(), static fn (mixed $middleware): bool => is_string($middleware) && str_starts_with($middleware, ThrottleRequests::class.':')));
+                $this->assertContains('orrery', $route->gatherMiddleware(), 'the ping keeps the orrery group');
+                $this->assertSame(PingController::STATELESS, $route->excludedMiddleware(), 'the ping runs no session, cookie or CSRF middleware');
             }
         }
 

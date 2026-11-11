@@ -126,10 +126,11 @@ return [
     ],
 
     // The monitoring ping, GET {path}/ping (and orrery:ping): a check for
-    // an uptime monitor that cannot sign in. Without a token the route
-    // answers 404. A request must send the token as `Authorization: Bearer`,
-    // the header X-Orrery-Token or ?token=; it is limited to 60 requests per
-    // minute and client. It fails (503) when the tick is older than
+    // an uptime monitor that cannot sign in. Without a token of at least 32
+    // characters the route answers 404. A request must send the token as
+    // `Authorization: Bearer`, the header X-Orrery-Token or ?token= (a
+    // header keeps it out of access logs); a client gets 429 after 60
+    // failed token checks in a minute. It fails (503) when the tick is older than
     // tick_max_age seconds, the package database or schema is not usable,
     // observations were dropped, or (long_waits true) a queue that is not
     // paused is over its long-wait limit.

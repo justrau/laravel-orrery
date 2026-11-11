@@ -26,6 +26,18 @@ final class PingRouteTest extends PingTestCase
             $app['config']->set('orrery.ping.long_waits', true);
         }
 
+        if ($this->name() === 'test_a_short_token_turns_the_ping_off') {
+            $app['config']->set('orrery.ping.token', str_repeat('a', 31));
+        }
+
+        if ($this->name() === 'test_a_host_sqlite_limiter_store_skips_the_limit') {
+            $file = sys_get_temp_dir().'/orrery-ping-cache-'.getmypid().'.sqlite';
+            touch($file);
+            $app['config']->set('database.connections.hostcache', ['driver' => 'sqlite', 'database' => $file, 'prefix' => '', 'foreign_key_constraints' => false]);
+            $app['config']->set('cache.stores.hostdb', ['driver' => 'database', 'connection' => 'hostcache', 'table' => 'cache']);
+            $app['config']->set('cache.limiter', 'hostdb');
+        }
+
         if ($this->name() === 'test_the_package_off_answers_disabled_after_the_token') {
             $app['config']->set('orrery.enabled', false);
         }
@@ -39,6 +51,131 @@ final class PingRouteTest extends PingTestCase
         $this->get('/orrery/ping')->assertNotFound();
         $this->get('/orrery/ping?token=anything')->assertNotFound();
         $this->get('/orrery/ping', ['Authorization' => 'Bearer '])->assertNotFound();
+    }
+
+    /**
+     * Rejects: a ping that runs the session, cookie or CSRF middleware of `web`: StartSession would store the URL
+     * with ?token= as `_previous.url` in a new session per monitor hit, and every answer would set cookies.
+     */
+    public function test_a_ping_with_a_query_token_starts_no_session_and_sets_no_cookie(): void
+    {
+        $directory = $this->sessionDirectory();
+        // After setUp: the harness checks the identity of the session driver (array) before the first migration.
+        $this->app['config']->set('session.driver', 'file');
+        $this->app['config']->set('session.files', $directory);
+        $this->app->forgetInstance('session');
+        $this->app->forgetInstance('session.store');
+
+        try {
+            $response = $this->get('/orrery/ping?token='.self::TOKEN)->assertOk();
+
+            self::assertSame([], $response->headers->getCookies());
+            self::assertSame([], glob($directory.'/*') ?: [], 'a session file was written');
+            // The dashboard on the same group still has its session (the test's environment works).
+            $this->get('/orrery/api/health');
+            self::assertNotSame([], glob($directory.'/*') ?: [], 'the dashboard wrote no session: the check proves nothing');
+        } finally {
+            array_map('unlink', glob($directory.'/*') ?: []);
+            @rmdir($directory);
+        }
+    }
+
+    /**
+     * Rejects: a ping route that copies the configured middleware instead of using the `orrery` group, so an
+     * application's addition to the group (an IP allow-list) does not cover it.
+     */
+    public function test_the_orrery_group_covers_the_ping(): void
+    {
+        $this->app['router']->pushMiddlewareToGroup('orrery', TeapotMiddleware::class);
+
+        $this->ping()->assertStatus(418);
+    }
+
+    /**
+     * Rejects: a limiter that counts successful checks, so a monitor that pings often gets 429.
+     */
+    public function test_a_monitor_with_the_right_token_is_never_rate_limited(): void
+    {
+        for ($i = 0; $i < 70; $i++) {
+            self::assertSame(200, $this->ping()->status(), "request {$i}");
+        }
+    }
+
+    /**
+     * Rejects: a ping without a limit on failed token checks, and a 429 that a cache may store or that
+     * compares the token first (a locked-out client learns nothing, also with the right token).
+     */
+    public function test_failed_token_checks_are_rate_limited(): void
+    {
+        for ($i = 0; $i < 60; $i++) {
+            self::assertSame(403, $this->get('/orrery/ping?token=wrong')->status(), "request {$i}");
+        }
+
+        $limited = $this->get('/orrery/ping?token=wrong')->assertStatus(429);
+        self::assertStringContainsString('no-store', (string) $limited->headers->get('Cache-Control'));
+        self::assertNotNull($limited->headers->get('Retry-After'));
+        $this->ping()->assertStatus(429);
+    }
+
+    /**
+     * Rejects: a ping without a token that reads or writes the cache (the limiter), and a 404 that a cache may keep.
+     */
+    public function test_without_a_token_the_cache_is_not_touched(): void
+    {
+        $this->app['config']->set('orrery.ping.token', null);
+        $events = [];
+        $this->app['events']->listen('Illuminate\Cache\Events\*', static function (string $event) use (&$events): void {
+            $events[] = $event;
+        });
+
+        $response = $this->get('/orrery/ping?token=x')->assertNotFound();
+
+        self::assertSame([], $events);
+        self::assertStringContainsString('no-store', (string) $response->headers->get('Cache-Control'));
+    }
+
+    /**
+     * Rejects: a limiter that writes a host SQLite file (D17) through a `database` cache store on it, and a skipped
+     * limit that /api/health does not report.
+     */
+    public function test_a_host_sqlite_limiter_store_skips_the_limit(): void
+    {
+        $file = (string) $this->app['config']->get('database.connections.hostcache.database');
+        $statements = [];
+        // Before each statement, also one that fails (the file has no cache table).
+        $this->app['db']->connection('hostcache')->beforeExecuting(static function (string $sql) use (&$statements): void {
+            $statements[] = $sql;
+        });
+
+        try {
+            for ($i = 0; $i < 65; $i++) {
+                self::assertSame(403, $this->get('/orrery/ping?token=wrong')->status(), "request {$i}");
+            }
+
+            self::assertSame([], $statements);
+            Orrery::auth(static fn (): bool => true);
+            $this->getJson('/orrery/api/health')->assertOk()->assertJsonPath('ping', ['token' => 'set', 'rate_limit' => 'off_host_sqlite']);
+        } finally {
+            @unlink($file);
+        }
+    }
+
+    /**
+     * Rejects: a token shorter than 32 characters that opens the ping, and a refusal that /api/health does not name.
+     */
+    public function test_a_short_token_turns_the_ping_off(): void
+    {
+        $this->get('/orrery/ping?token='.str_repeat('a', 31))->assertNotFound();
+
+        Orrery::auth(static fn (): bool => true);
+        $this->getJson('/orrery/api/health')->assertOk()->assertJsonPath('ping', ['token' => 'too_short', 'rate_limit' => null]);
+    }
+
+    public function test_health_reports_the_ping_state(): void
+    {
+        Orrery::auth(static fn (): bool => true);
+
+        $this->getJson('/orrery/api/health')->assertOk()->assertJsonPath('ping', ['token' => 'set', 'rate_limit' => 'on']);
     }
 
     /**
@@ -227,18 +364,6 @@ final class PingRouteTest extends PingTestCase
     }
 
     /**
-     * Rejects: a ping without a rate limit, so the token can be guessed at full speed.
-     */
-    public function test_requests_are_rate_limited(): void
-    {
-        for ($i = 0; $i < 60; $i++) {
-            self::assertNotSame(429, $this->get('/orrery/ping?token=wrong')->status(), "request {$i}");
-        }
-
-        $this->get('/orrery/ping?token='.self::TOKEN)->assertStatus(429);
-    }
-
-    /**
      * Rejects: a disabled package that answers anything but 503 disabled, or that answers it before the token check.
      */
     public function test_the_package_off_answers_disabled_after_the_token(): void
@@ -247,5 +372,16 @@ final class PingRouteTest extends PingTestCase
 
         $response = $this->ping()->assertStatus(503);
         self::assertSame(['status' => 'disabled'], $response->json());
+    }
+
+    private function sessionDirectory(): string
+    {
+        $directory = sys_get_temp_dir().'/orrery-ping-sessions-'.getmypid();
+
+        if (! is_dir($directory)) {
+            mkdir($directory, 0700, true);
+        }
+
+        return $directory;
     }
 }
