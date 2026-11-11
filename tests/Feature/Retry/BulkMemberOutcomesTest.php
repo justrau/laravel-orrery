@@ -67,7 +67,7 @@ final class BulkMemberOutcomesTest extends RetryTestCase
 
         $results = $this->runPage($frozen, null)->assertOk()->json('results');
 
-        self::assertEquals([$a => ['already_done', 'retried'], $b => ['accepted', null]], $this->outcomes($results));
+        self::assertSame(self::sorted([$a => ['already_done', 'retried'], $b => ['accepted', null]]), $this->outcomes($results));
         self::assertSame($published + 2, DB::table('jobs')->count(), 'one publication each: b by the run, a by the other operator');
     }
 
@@ -86,7 +86,7 @@ final class BulkMemberOutcomesTest extends RetryTestCase
 
         $results = $this->runPage($frozen, 2)->assertOk()->json('results');
 
-        self::assertEquals([$a => ['already_done', 'gone'], $b => ['accepted', null]], $this->outcomes($results));
+        self::assertSame(self::sorted([$a => ['already_done', 'gone'], $b => ['accepted', null]]), $this->outcomes($results));
         self::assertNull($this->providerRecord($b), 'b was forgotten by the run');
     }
 
@@ -115,7 +115,7 @@ final class BulkMemberOutcomesTest extends RetryTestCase
 
         $results = $this->runPage($frozen, $action === 'forget' ? 2 : null)->assertOk()->json('results');
 
-        self::assertEquals([$a => ['not_member', 'missing'], $b => ['accepted', null]], $this->outcomes($results));
+        self::assertSame(self::sorted([$a => ['not_member', 'missing'], $b => ['accepted', null]]), $this->outcomes($results));
         self::assertNotNull($this->providerRecord($a), 'the failed record of a is kept');
         self::assertSame($published + ($action === 'retry' ? 1 : 0), DB::table('jobs')->count(), 'a was not published');
     }
@@ -137,13 +137,13 @@ final class BulkMemberOutcomesTest extends RetryTestCase
 
         $first = $this->runPage($frozen, null)->assertOk();
 
-        self::assertEquals([$a => ['accepted', null], $b => ['uncertain', 'claim_uncertain']], $this->outcomes($first->json('results')));
+        self::assertSame(self::sorted([$a => ['accepted', null], $b => ['uncertain', 'claim_uncertain']]), $this->outcomes($first->json('results')));
         self::assertMatchesRegularExpression('/^[0-9a-f]{32}$/', (string) collect($first->json('results'))->firstWhere('id', $b)['operation_id']);
         self::assertSame($published + 1, DB::table('jobs')->count(), 'only a was published');
 
         $replay = $this->runPage($frozen, null)->assertOk();
 
-        self::assertEquals([$b => ['uncertain', 'operation_in_progress']], $this->outcomes($replay->json('results')), 'the held member is answered, never retried; a left the source');
+        self::assertSame(self::sorted([$b => ['uncertain', 'operation_in_progress']]), $this->outcomes($replay->json('results')), 'the held member is answered, never retried; a left the source');
         self::assertSame($published + 1, DB::table('jobs')->count(), 'the replay published nothing');
     }
 
@@ -161,7 +161,7 @@ final class BulkMemberOutcomesTest extends RetryTestCase
 
         $results = $this->runPage($frozen, 2)->assertOk()->json('results');
 
-        self::assertEquals([$a => ['accepted', null], $b => ['accepted', 'mirror_pending']], $this->outcomes($results));
+        self::assertSame(self::sorted([$a => ['accepted', null], $b => ['accepted', 'mirror_pending']]), $this->outcomes($results));
         self::assertNull($this->providerRecord($b), 'the record of b is deleted');
         self::assertSame('claimed', $this->operation((string) collect($results)->firstWhere('id', $b)['operation_id'])->state, 'the runner finishes it');
     }
@@ -186,7 +186,7 @@ final class BulkMemberOutcomesTest extends RetryTestCase
 
         $first = $this->runPage($frozen, 1)->assertOk();
 
-        self::assertEquals([$a => ['refused', 'provider_error']], $this->outcomes($first->json('results')));
+        self::assertSame(self::sorted([$a => ['refused', 'provider_error']]), $this->outcomes($first->json('results')));
         self::assertSame(['failed', null], [$this->rowOrFail($a)->status, $this->rowOrFail($a)->operation_id]);
         self::assertSame('aborted', $this->operation((string) $first->json('results.0.operation_id'))->state);
         self::assertNotNull($this->providerRecord($a));
@@ -194,12 +194,12 @@ final class BulkMemberOutcomesTest extends RetryTestCase
         $refuse = false;
         $replay = $this->runPage($frozen, 1)->assertOk();
 
-        self::assertEquals([$a => ['not_confirmed', null]], $this->outcomes($replay->json('results')), 'the claim slot of the confirmed total is spent');
+        self::assertSame(self::sorted([$a => ['not_confirmed', null]]), $this->outcomes($replay->json('results')), 'the claim slot of the confirmed total is spent');
         self::assertNotNull($this->providerRecord($a));
 
         $again = $this->runPage($this->freeze('forget')->assertOk(), 1)->assertOk();
 
-        self::assertEquals([$a => ['accepted', null]], $this->outcomes($again->json('results')), 'a new run tries again');
+        self::assertSame(self::sorted([$a => ['accepted', null]]), $this->outcomes($again->json('results')), 'a new run tries again');
         self::assertNull($this->providerRecord($a));
     }
 
@@ -218,14 +218,14 @@ final class BulkMemberOutcomesTest extends RetryTestCase
 
         $first = $this->runPage($frozen, null)->assertOk();
 
-        self::assertEquals([$a => ['refused', 'prepare_failed']], $this->outcomes($first->json('results')));
+        self::assertSame(self::sorted([$a => ['refused', 'prepare_failed']]), $this->outcomes($first->json('results')));
         self::assertSame(['refused' => 1], array_filter((array) $first->json('totals')));
         self::assertSame($published, DB::table('jobs')->count());
 
         unlink($this->file('throw-in-retry-until'));
         $replay = $this->runPage($frozen, null)->assertOk();
 
-        self::assertEquals([$a => ['accepted', null]], $this->outcomes($replay->json('results')));
+        self::assertSame(self::sorted([$a => ['accepted', null]]), $this->outcomes($replay->json('results')));
         self::assertSame($published + 1, DB::table('jobs')->count());
     }
 
@@ -262,7 +262,7 @@ final class BulkMemberOutcomesTest extends RetryTestCase
 
         $results = $this->runPage($frozen, null)->assertOk()->json('results');
 
-        self::assertEquals([$a => $expected], $this->outcomes($results));
+        self::assertSame(self::sorted([$a => $expected]), $this->outcomes($results));
         self::assertSame($published, DB::table('jobs')->count(), 'nothing was published');
     }
 
@@ -436,6 +436,20 @@ final class BulkMemberOutcomesTest extends RetryTestCase
     private function runPage(TestResponse $frozen, ?int $confirmed): TestResponse
     {
         return $this->actingAs(new User)->postJson('/orrery/api/bulk/run', ['token' => $frozen->json('frozen.token'), 'after' => null, 'confirmed_total' => $confirmed]);
+    }
+
+    /**
+     * The expected outcomes in the key order of outcomes(), so that a strict
+     * comparison tells a null code from 0, false or ''.
+     *
+     * @param  array<string, array{0: string, 1: ?string}>  $outcomes
+     * @return array<string, array{0: string, 1: ?string}>
+     */
+    private static function sorted(array $outcomes): array
+    {
+        ksort($outcomes);
+
+        return $outcomes;
     }
 
     /**

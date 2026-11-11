@@ -1873,10 +1873,15 @@ final class TestDbLogicTest extends TestCase
 
     /**
      * Rejects: a cleanup that waits for its interrupted poll helper with the wait builtin, or
-     * without a bound. Here the helper (a sleep of the status poll) ignores SIGTERM and lives
-     * 30 s, so such a cleanup ends after about 30 s; once, the wait builtin blocked for good on
-     * the anchor. The cleanup must poll it for at most the grace (0.5 s), then stop PHPUnit and
-     * remove the run's directory.
+     * without a bound. Here the helper (a sleep of the status poll) ignores SIGTERM and stays
+     * until this test releases it, so such a cleanup never ends; once, the wait builtin blocked
+     * for good on the anchor. The cleanup must poll it for at most the grace (0.5 s), then stop
+     * PHPUnit and remove the run's directory.
+     * The mode file exists before bin/test starts. In this mode the status wait is the first
+     * caller of sleep (the slot and the spawn barrier are off, and the other sleeps are in the
+     * EXIT trap), so its first poll takes the mode, wherever the stub is at that moment.
+     * Still passes: a cleanup that waits for the helper for a bounded time that is longer than
+     * the grace but shorter than the deadline below (the test measures no duration).
      */
     #[DataProvider('bashVersions')]
     public function test_an_interrupted_poll_wait_never_holds_the_cleanup_past_the_grace(string $label, ?string $bash): void
@@ -1885,6 +1890,7 @@ final class TestDbLogicTest extends TestCase
         $out = $this->makeTempDir();
         $hold = $this->makeTempDir();
         $mode = $this->base.'/sleep-mode';
+        touch($mode);
         $wrapper = $this->startProcess([...$this->wrapper('bin/test'), 'sqlite', '--sqlite-file', '--php='.PHP_BINARY], $this->fakeEnv($this->registry, [
             'PATH' => $this->fakeSleepDir().':'.getenv('PATH'),
             'ORRERY_FAKE_SLEEP_FILE' => $mode,
@@ -1898,21 +1904,24 @@ final class TestDbLogicTest extends TestCase
         try {
             $this->waitUntil(static fn (): bool => file_exists($hold.'/reached'), 20.0, 'the stub did not start: '.$wrapper->getErrorOutput());
             $stub = self::readJson(self::stubRecords($out)[0]);
-            // The next poll of the status wait takes the mode.
-            touch($mode);
-            $this->waitUntil(static fn (): bool => file_exists($mode.'.pid'), 10.0, 'the status wait did not start the held sleep');
+            // The same progress as the stub's start: the spawn, the join wait and the first poll.
+            $this->waitUntil(static fn (): bool => file_exists($mode.'.pid') || ! $wrapper->isRunning(), 20.0, 'the status wait did not start the held sleep');
+            self::assertTrue($wrapper->isRunning(), 'bin/test ended before its status wait: '.$wrapper->getErrorOutput());
             $helper = self::identityOf((int) trim((string) file_get_contents($mode.'.pid')));
 
-            $signalled = microtime(true);
             $wrapper->signal(15);
-            $this->waitUntil(static fn (): bool => ! $wrapper->isRunning(), 10.0, 'the cleanup waited for its held poll helper');
+            // The helper ends only when this test releases it, so any end of
+            // bin/test proves that its cleanup did not wait for it. The
+            // deadline only bounds a cleanup that hangs.
+            $this->waitUntil(static fn (): bool => ! $wrapper->isRunning(), 60.0, 'the cleanup waited for its held poll helper');
 
-            self::assertLessThan(10.0, microtime(true) - $signalled);
             self::assertSame(143, $wrapper->getExitCode(), $wrapper->getErrorOutput());
             self::assertTrue(self::isAlive($helper['pid']), 'the held sleep ended, so this control proves nothing');
             self::assertFalse(self::isAlive($stub['pid']), 'PHPUnit outlived bin/test');
             self::assertDirectoryDoesNotExist($stub['run_dir']);
         } finally {
+            touch($mode.'.release');
+
             if ($helper !== null) {
                 self::signalIdentity($helper, SIGKILL);
             }
@@ -1990,12 +1999,16 @@ final class TestDbLogicTest extends TestCase
         // The anchor stays until a SIGTERM (ORRERY_TEST_ANCHOR_STAYS), so the
         // stop below must signal it. Without the hook, the anchor ends by
         // itself once its group is empty, and on a loaded machine it can do
-        // that between two listings of the stop.
+        // that between two listings of the stop. The anchor and the
+        // descendant both live while this process lives: a fixed lifetime
+        // (60 s) ran out before the stop on a loaded machine, and the stop
+        // then signalled only the other one.
         $run = $this->runProcess([...$this->wrapper('bin/test'), 'mysql', '--php='.PHP_BINARY], $this->fakeEnv($this->registry, $path + [
             'ORRERY_TEST_PHPUNIT' => self::stubPath(),
             'ORRERY_STUB_OUT' => $out,
             'ORRERY_STUB_DESCENDANT' => '1',
-            'ORRERY_TEST_ANCHOR_STAYS' => '1',
+            'ORRERY_STUB_LIVE_WHILE' => (string) getmypid(),
+            'ORRERY_TEST_ANCHOR_STAYS' => (string) getmypid(),
         ]));
 
         self::assertSame(74, $run['exit'], $run['stderr']);
@@ -2039,9 +2052,12 @@ final class TestDbLogicTest extends TestCase
 
         // With the listing back, the recorded group is stopped, the anchor
         // last, and the run released.
-        // The grace leaves a loaded machine time to end the descendant after
-        // its SIGTERM; the stop returns as soon as the group is gone.
-        $stop = $this->testdb(['stop-children', $runId, '--grace=10'], $this->fakeEnv($this->registry, $path));
+        // The grace is not a window of this test: the stop returns as soon as
+        // the group is gone. It only has to be longer than the descendant's
+        // exit after its SIGTERM, which has no bound on a loaded machine; a
+        // descendant still exiting at the end of the grace gets SIGKILL, and
+        // the anchor too, so the order below would be lost (10 s was too short).
+        $stop = $this->testdb(['stop-children', $runId, '--grace=60'], $this->fakeEnv($this->registry, $path), 120.0);
         self::assertSame(0, $stop['exit'], $stop['stderr']);
         self::assertSame([$stub['descendant'], $stub['ppid']], $stop['json']['terminated'], 'the anchor was not stopped last: '.json_encode($stop['json']));
         self::assertSame([], $stop['json']['killed'], json_encode($stop['json']));
@@ -2683,19 +2699,27 @@ final class TestDbLogicTest extends TestCase
     {
         $this->useBash($label, $bash);
         // The nested run's child is held before its join until the outer run
-        // has closed its record, and released near the end of the outer grace
-        // period. The outer PHPUnit ignores SIGTERM, so the outer shutdown
-        // runs for its whole grace period. The inner bin/test inherits that
-        // ignored SIGTERM (bash cannot trap a signal that was ignored when it
-        // started), or it is frozen: either way it does not close its own
-        // record, so only the closed outer record refuses the join.
+        // has closed its record. The outer PHPUnit ignores SIGTERM, so the
+        // outer shutdown runs for its whole grace period. The inner bin/test
+        // inherits that ignored SIGTERM (bash cannot trap a signal that was
+        // ignored when it started), or it is frozen: either way it does not
+        // close its own record. The outer shutdown is held right after it
+        // closed its record and before it stops anything
+        // (ORRERY_TEST_REMOVAL_HOLD_AT=closed): the held join resumes there,
+        // while the inner supervisor and its own record are intact, so only
+        // the closed outer record can refuse it. A time window (resume 1.3 s
+        // after the close was seen, within the grace) let a slow poll miss
+        // the close, or resume after the stop or the removal.
         $out = $this->makeTempDir();
         $hold = $this->makeTempDir();
         $innerOut = $this->makeTempDir();
         $innerHold = $this->makeTempDir();
         $pause = $this->makeTempDir();
+        $removal = $this->makeTempDir();
         $outer = $this->startProcess([...$this->wrapper('bin/test'), 'sqlite', '--sqlite-file', '--php='.PHP_BINARY], $this->fakeEnv($this->registry, [
             'ORRERY_TEST_PHPUNIT' => self::stubPath(),
+            'ORRERY_TEST_REMOVAL_HOLD' => $removal,
+            'ORRERY_TEST_REMOVAL_HOLD_AT' => 'closed',
             'ORRERY_TEST_GRACE' => '2',
             'ORRERY_STUB_OUT' => $out,
             'ORRERY_STUB_HOLD' => $hold,
@@ -2721,16 +2745,19 @@ final class TestDbLogicTest extends TestCase
             }
 
             $outer->signal(15);
-            // A deadline, not a pause: on a loaded machine the outer bin/test
-            // needs longer to reach its shutdown. The order stays proved: the
-            // held join resumes only after the record is closed.
-            $this->waitUntil(static fn (): bool => (self::registryData($record['dir'])['leases'][$record['run']]['closing'] ?? false) === true, 30.0, 'the outer run did not close its record');
-            usleep(1_300_000);
+            // Deadlines only bound a hang: each wait ends at a marker.
+            $this->waitUntil(static fn (): bool => file_exists($removal.'/closed.reached') || ! $outer->isRunning(), 60.0, 'the outer run did not close its record');
+            self::assertFileExists($removal.'/closed.reached', 'the outer run ended without its held shutdown: '.$outer->getErrorOutput());
+            self::assertTrue(self::registryData($record['dir'])['leases'][$record['run']]['closing'] ?? false, 'the outer record is not closed');
             touch($pause.'/resume');
+            // The resumed join reads the closed outer record and ends the
+            // child; nothing is stopped yet.
+            $this->waitUntil(static fn (): bool => ! self::isAlive($child), 60.0, 'the held child did not end at the closed outer record');
+            self::assertTrue(self::isAlive($stub['nested']), 'the inner bin/test was stopped before the held join resumed');
+            touch($removal.'/closed.release');
             $outer->wait();
 
             self::assertSame(143, $outer->getExitCode(), $outer->getErrorOutput());
-            usleep(300_000);
             self::assertSame([], self::stubRecords($innerOut), 'the nested PHPUnit started after the outer record closed');
             self::assertFalse(self::isAlive($child), 'the held child outlived the outer run');
             self::assertFalse(self::isAlive($stub['nested']), 'the inner bin/test outlived the outer run');
@@ -2740,6 +2767,8 @@ final class TestDbLogicTest extends TestCase
             self::assertFileDoesNotExist($unmanaged.'/watch.log', 'the outer run removed its SQLite files while a nested process still ran');
             self::assertTrue(self::isAlive($siblingPid), 'an unrelated process was stopped');
         } finally {
+            touch($removal.'/closed.release');
+
             if ($freeze) {
                 self::signalIdentity($nested, SIGCONT);
             }

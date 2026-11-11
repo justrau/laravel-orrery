@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Scripts;
 
 use OrreryVerify\Docs;
+use OrreryVerify\FailedRecord;
 use OrreryVerify\Health;
 use OrreryVerify\Options;
 use OrreryVerify\VerifyFailure;
@@ -199,6 +200,43 @@ final class VerifyInstallTest extends TestCase
             $without = $clean;
             unset($without[$key]);
             self::assertNotSame([], Health::warnings($without), "an absent {$key} counted as clean");
+        }
+    }
+
+    /**
+     * Rejects: a check that reads failed_jobs once, right after the mirror
+     * shows the second failed cycle (the worker writes the record in its own
+     * JobFailed listener, which can run later), a check that accepts the
+     * record from before the retry or two records, and a wait without a
+     * deadline.
+     * Still passes: a new record that is not the one of the retried job's
+     * last attempt (the check reads only the count and the id).
+     */
+    public function test_the_retried_record_is_awaited_with_a_deadline(): void
+    {
+        $reads = [[0, null], [1, 7], [2, 9], [1, 9]];
+        $pauses = 0;
+        $read = static function () use (&$reads): array {
+            return array_shift($reads) ?? throw new RuntimeException('read after the new record');
+        };
+
+        self::assertSame(9, FailedRecord::awaitReplacement($read, 7, 60, 'no new record', pause: static function () use (&$pauses): void {
+            $pauses++;
+        }));
+        self::assertSame(3, $pauses, 'one pause after each read that is not the new record');
+
+        $clock = 0.0;
+
+        try {
+            FailedRecord::awaitReplacement(static fn (): array => [1, 7], 7, 5, 'no new record', now: static function () use (&$clock): float {
+                return $clock;
+            }, pause: static function () use (&$clock): void {
+                $clock += 1.0;
+            });
+            self::fail('the wait has no deadline');
+        } catch (VerifyFailure $failure) {
+            self::assertSame('no new record (waited 5 s)', $failure->getMessage());
+            self::assertSame(6.0, $clock, 'the wait stops at the first read after the deadline');
         }
     }
 }

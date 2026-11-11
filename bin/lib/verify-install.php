@@ -1133,6 +1133,8 @@ final class Runner
             throw new VerifyFailure("{$id}: failed_jobs has no record of the failed job");
         }
 
+        $recordId = $this->query($host, 'select id from failed_jobs where uuid = ?', [$uuid]);
+
         $this->step($id, "retry {$uuid} through the API");
         $retry = $operator->request('POST', $path."/api/jobs/{$uuid}/retry", ['occurrence_id' => (int) $failed['occurrence_id']]);
 
@@ -1152,10 +1154,12 @@ final class Runner
         }, 120, "{$id}: the retry did not finish (operation done, a second failed cycle)");
 
         $failed = $row('App\Jobs\VerifyFails');
-
-        if ($this->query($host, 'select count(*) from failed_jobs where uuid = ?', [$uuid]) !== 1) {
-            throw new VerifyFailure("{$id}: after the retry, failed_jobs does not hold exactly the new record");
-        }
+        FailedRecord::awaitReplacement(
+            fn (): ?array => $this->row($host, 'select count(*), max(id) from failed_jobs where uuid = ?', [$uuid], true),
+            $recordId,
+            60,
+            "{$id}: after the retry, failed_jobs does not hold exactly the new record",
+        );
 
         $this->step($id, "forget {$uuid} through the API");
         $forget = $operator->request('POST', $path."/api/jobs/{$uuid}/forget", ['occurrence_id' => (int) $failed['occurrence_id']]);
@@ -1355,15 +1359,7 @@ final class Runner
 
     private function waitFor(callable $condition, int $seconds, string $failure): void
     {
-        $deadline = microtime(true) + $seconds;
-
-        while (! $condition()) {
-            if (microtime(true) > $deadline) {
-                throw new VerifyFailure($failure." (waited {$seconds} s)");
-            }
-
-            usleep(500_000);
-        }
+        Wait::until($condition, $seconds, $failure);
     }
 
     /**
@@ -1463,6 +1459,69 @@ final class Runner
         $line = gmdate('H:i:s').' '.$text."\n";
         fwrite(STDOUT, $line);
         @file_put_contents($this->evidence.'/run.log', $line, FILE_APPEND);
+    }
+}
+
+/** A wait for a condition, with a deadline. */
+final class Wait
+{
+    /**
+     * Calls $condition until it is true. After the first false call past
+     * the deadline it throws.
+     *
+     * @param  callable(): bool  $condition
+     * @param  (callable(): float)|null  $now
+     * @param  (callable(): void)|null  $pause
+     */
+    public static function until(callable $condition, float $seconds, string $failure, ?callable $now = null, ?callable $pause = null): void
+    {
+        $now ??= static fn (): float => microtime(true);
+        $pause ??= static function (): void {
+            usleep(500_000);
+        };
+        $deadline = $now() + $seconds;
+
+        while (! $condition()) {
+            if ($now() > $deadline) {
+                throw new VerifyFailure($failure.' (waited '.$seconds.' s)');
+            }
+
+            $pause();
+        }
+    }
+}
+
+/**
+ * The failed_jobs record of a retried job. The worker writes it in the
+ * JobFailed listener of queue:work, which can run after the package wrote
+ * the failed cycle to the mirror. So the check waits for the record.
+ */
+final class FailedRecord
+{
+    /**
+     * Waits until failed_jobs holds exactly one record of the job and that
+     * record is not $oldId, the record from before the retry. Returns its id.
+     *
+     * @param  callable(): (array<int, mixed>|null)  $read  [count, max id] of the job's records
+     * @param  (callable(): float)|null  $now
+     * @param  (callable(): void)|null  $pause
+     */
+    public static function awaitReplacement(callable $read, int $oldId, float $seconds, string $failure, ?callable $now = null, ?callable $pause = null): int
+    {
+        $id = null;
+        Wait::until(static function () use ($read, $oldId, &$id): bool {
+            $row = $read();
+
+            if ($row === null || (int) $row[0] !== 1 || (int) $row[1] === $oldId) {
+                return false;
+            }
+
+            $id = (int) $row[1];
+
+            return true;
+        }, $seconds, $failure, $now, $pause);
+
+        return (int) $id;
     }
 }
 

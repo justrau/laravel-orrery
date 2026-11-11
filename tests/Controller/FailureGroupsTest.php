@@ -284,7 +284,7 @@ final class FailureGroupsTest extends ControllerTest
 
         $response = $this->listGroups(['from' => self::NOW - self::HOUR, 'to' => self::NOW])->assertOk();
 
-        self::assertEquals($expected === null ? null : self::NOW - $expected * 60, $response->json('retention_from'));
+        self::assertSame($expected === null ? null : self::NOW - $expected * 60, $response->json('retention_from'));
     }
 
     /**

@@ -295,8 +295,11 @@ trait RunsScripts
     /**
      * A directory with a fake `sleep` for PATH. While the file
      * ORRERY_FAKE_SLEEP_FILE exists, the next call removes it, ignores SIGTERM,
-     * writes its PID into <file>.pid and sleeps 30 s: a poll helper
-     * that a stop cannot end in time. Every other call runs /bin/sleep.
+     * writes its PID into <file>.pid and stays until <file>.release exists: a
+     * poll helper that a stop cannot end. It never ends by itself while the
+     * test runs, so a caller that waits for it never ends either. The bound
+     * of 300 s (the process bound of these tests) only ends it when a test
+     * died before its own cleanup. Every other call runs /bin/sleep.
      */
     protected function fakeSleepDir(): string
     {
@@ -307,7 +310,12 @@ trait RunsScripts
                 trap '' TERM
                 echo $$ >"$ORRERY_FAKE_SLEEP_FILE.pid.tmp"
                 mv "$ORRERY_FAKE_SLEEP_FILE.pid.tmp" "$ORRERY_FAKE_SLEEP_FILE.pid"
-                exec /bin/sleep 30
+                waited=0
+                while [ ! -e "$ORRERY_FAKE_SLEEP_FILE.release" ] && [ "$waited" -lt 3000 ]; do
+                    /bin/sleep 0.1
+                    waited=$((waited + 1))
+                done
+                exit 0
             fi
             exec /bin/sleep "$@"
 

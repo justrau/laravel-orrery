@@ -8,7 +8,9 @@
  * On SIGTERM it writes descendant-<pid>.json into the directory of its last
  * argument (as PHPUnit's stand-in, bin/test puts --log-events-text first):
  * whether the SQLite directory of the run still existed at that moment. Then
- * it exits. Without a signal it lives for 60 seconds.
+ * it exits. Without a signal it lives for 60 seconds, or, with
+ * ORRERY_STUB_LIVE_WHILE=<pid>, while process <pid> (the test) lives: then no
+ * lifetime can run out before the test stops it on a slow machine.
  */
 
 declare(strict_types=1);
@@ -27,8 +29,9 @@ pcntl_signal(SIGTERM, static function () use ($out, $sqlite): void {
 });
 
 touch($out.'/descendant-'.getmypid().'.ready');
+$holder = (int) getenv('ORRERY_STUB_LIVE_WHILE');
 $deadline = microtime(true) + 60;
 
-while (microtime(true) < $deadline) {
+while ($holder > 0 ? posix_kill($holder, 0) : microtime(true) < $deadline) {
     usleep(20_000);
 }
