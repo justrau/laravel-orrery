@@ -5,6 +5,7 @@ namespace Justrau\Orrery\Workers;
 use Illuminate\Container\Container;
 use Illuminate\Queue\WorkerOptions;
 use Justrau\Orrery\Database\Models\WorkerHeartbeat;
+use Justrau\Orrery\Listeners\RecordWorkerHeartbeat;
 use Justrau\Orrery\Observation\DatabaseDriverFilter;
 use Justrau\Orrery\Runtime\ProcessContext;
 use Justrau\Orrery\Runtime\Watcher;
@@ -25,14 +26,25 @@ use Throwable;
  *   option of the command line, else the connection's default queue.
  * - `current_queue` is the queue of the last reservation of this process.
  * - `options` is JSON: the WorkerOptions of WorkerStarting or Looping when a
- *   daemon raised them, else the options of the command line.
+ *   daemon raised them, else the options of the command line, and always
+ *   INTERVAL_OPTION: this process's heartbeat interval, so a reader judges
+ *   the row by its writer's interval (LiveWorkers::quietSeconds()). It is in
+ *   the same upsert: no extra statement.
+ * - forget() deletes this process's row when the worker stops normally
+ *   (Listeners\ForgetStoppedWorker).
  *
  * The write runs inside the watcher. The throttle and the degradation flush
  * are RecordWorkerHeartbeat's.
  */
 final class Heartbeats
 {
+    /** The key of the writer's heartbeat interval in `options`. */
+    public const INTERVAL_OPTION = 'orrery_heartbeat_seconds';
+
     // Process state: a container singleton.
+
+    /** Whether this process wrote its row and has not deleted it since. */
+    private bool $written = false;
 
     /** @var list<string>|null the queues from WorkerStarting or Looping */
     private ?array $subscribed = null;
@@ -98,9 +110,37 @@ final class Heartbeats
 
         if ($written === true) {
             $state->writtenQueue = $row['current_queue'];
+            $state->written = true;
         }
 
         return $written === true;
+    }
+
+    /**
+     * Deletes this process's row: one statement, inside the watcher, and
+     * none when this process wrote no row. Returns true when the delete ran.
+     */
+    public static function forget(): bool
+    {
+        $state = self::bound();
+
+        if (! $state->written) {
+            return false;
+        }
+
+        $id = ProcessContext::current()->identity();
+        $deleted = Watcher::instance()->run('heartbeat:forget', static function () use ($id): bool {
+            WorkerHeartbeat::query()->whereKey($id)->delete();
+
+            return true;
+        }, false);
+
+        if ($deleted === true) {
+            $state->written = false;
+            $state->writtenQueue = null;
+        }
+
+        return $deleted === true;
     }
 
     /**
@@ -185,6 +225,7 @@ final class Heartbeats
     private static function encodedOptions(): string
     {
         $options = self::bound()->options ?? ProcessContext::current()->workerEvidence()?->toArray() ?? [];
+        $options[self::INTERVAL_OPTION] = RecordWorkerHeartbeat::interval();
         $json = json_encode((object) $options, JSON_UNESCAPED_UNICODE | JSON_PARTIAL_OUTPUT_ON_ERROR);
 
         return is_string($json) ? $json : '{}';
