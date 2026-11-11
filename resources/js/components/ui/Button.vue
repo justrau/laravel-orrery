@@ -155,13 +155,13 @@
     }
 
     .o-button--primary {
-        background-color: var(--color-accent);
+        background-color: var(--color-accent-fill);
         color: var(--color-on-accent);
         font-weight: var(--font-weight-semibold);
     }
 
     .o-button--primary:hover:not(:disabled) {
-        background-color: color-mix(in srgb, var(--color-accent) 88%, var(--color-shade));
+        background-color: color-mix(in srgb, var(--color-accent-fill) 88%, var(--color-shade));
     }
 
     .o-button--danger {

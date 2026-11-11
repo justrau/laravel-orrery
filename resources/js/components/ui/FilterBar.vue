@@ -557,7 +557,7 @@
     }
 
     .o-filters__apply {
-        background-color: var(--color-accent);
+        background-color: var(--color-accent-fill);
         border: 0;
         border-radius: var(--radius-control);
         color: var(--color-on-accent);

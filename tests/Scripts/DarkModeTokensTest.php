@@ -72,6 +72,72 @@ final class DarkModeTokensTest extends TestCase
     }
 
     /**
+     * Rejects: white text (`--color-on-accent`) below WCAG AA (4.5:1) on the
+     * accent fill of a primary button in either scheme (the old #0A84FF and
+     * #3890F5), a light accent below AA as link text on the page, the
+     * sidebar or the subtle surface (the old #0A84FF), and an on-accent
+     * colour that is not white.
+     * Still passes: an accent of another hue, or a dark accent that is
+     * readable as text but too light for white text, as long as the fill
+     * token carries the white text.
+     */
+    public function test_accent_has_aa_contrast_for_white_text_and_as_text(): void
+    {
+        [$light, $dark] = $this->blocks($this->tokens());
+
+        foreach (['light' => $this->declarations($light), 'dark' => $this->declarations($dark)] as $scheme => $tokens) {
+            self::assertArrayHasKey('--color-accent-fill', $tokens, "{$scheme} accent fill token");
+            self::assertSame('#FFFFFF', strtoupper($tokens['--color-on-accent']), "{$scheme} on-accent is white");
+            self::assertGreaterThanOrEqual(4.5, $this->contrast($tokens['--color-on-accent'], $tokens['--color-accent-fill']), "{$scheme} white on --color-accent-fill");
+
+            foreach (['--color-bg', '--color-sidebar', '--color-subtle'] as $surface) {
+                self::assertGreaterThanOrEqual(4.5, $this->contrast($tokens['--color-accent'], $tokens[$surface]), "{$scheme} --color-accent on {$surface}");
+            }
+        }
+    }
+
+    /**
+     * Rejects: a style rule of a `.vue` file that puts `--color-on-accent`
+     * text or glyphs on a `--color-accent` background (the dark text accent
+     * is too light for white text) instead of `--color-accent-fill`.
+     * Still passes: white text on an accent background that another rule
+     * sets for the same element.
+     */
+    public function test_white_on_accent_uses_the_fill_token(): void
+    {
+        $root = dirname(__DIR__, 2).'/resources/js';
+        $found = [];
+        $fills = 0;
+
+        foreach (new RecursiveIteratorIterator(new RecursiveDirectoryIterator($root)) as $file) {
+            if (! $file instanceof SplFileInfo || $file->getExtension() !== 'vue') {
+                continue;
+            }
+
+            $source = (string) file_get_contents($file->getPathname());
+            preg_match_all('/<style\b[^>]*>(.*?)<\/style>/s', $source, $styles);
+
+            foreach ($styles[1] as $style) {
+                preg_match_all('/([^{}]+)\{([^{}]*)\}/', $style, $rules, PREG_SET_ORDER);
+
+                foreach ($rules as [, $selector, $body]) {
+                    if (preg_match('/background(?:-color)?\s*:\s*var\(--color-accent-fill\)/', $body) === 1) {
+                        $fills++;
+                    }
+
+                    if (preg_match('/background(?:-color)?\s*:\s*var\(--color-accent\)/', $body) === 1
+                        && str_contains($body, 'var(--color-on-accent)')) {
+                        $found[] = substr($file->getPathname(), strlen($root) + 1).': '.trim($selector);
+                    }
+                }
+            }
+        }
+
+        self::assertGreaterThanOrEqual(3, $fills, 'the primary button, the filter apply button and the checked box use the fill');
+        self::assertSame([], $found, 'white on --color-accent instead of --color-accent-fill');
+    }
+
+    /**
      * Rejects: a hard-coded colour, rgba() shadow or gradient in a style
      * block of a `.vue` file (the Sidebar logo gradient and the shadows
      * moved to tokens), which keeps its light value in the dark scheme.

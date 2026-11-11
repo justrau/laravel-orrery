@@ -10,7 +10,13 @@
  *
  * Dark mode follows the viewer's prefers-color-scheme (there is no toggle):
  * the block at the end gives every colour, shadow and gradient a dark value.
- * Body text keeps WCAG AA contrast in both schemes. Components take every
+ * Body text keeps WCAG AA contrast in both schemes. The accent is the
+ * colour of links, accent text, lines and rings; the accent fill is the
+ * background of white text and glyphs (`--color-on-accent`: the primary
+ * button, the filter apply button, a checked box). Both keep AA in both
+ * schemes: in light they are one blue, in dark the text accent must stay
+ * light on the dark surfaces and the fill dark under white text, so no one
+ * blue can do both. Components take every
  * colour and shadow from here; none writes one of its own.
  */
 :root {
@@ -22,7 +28,8 @@
     --color-text: #1D1D1F;
     --color-text-secondary: #6E6E73;
     --color-text-tertiary: #8E8E93;
-    --color-accent: #0A84FF;
+    --color-accent: #006BD8;
+    --color-accent-fill: #006BD8;
     --color-accent-tint: #E8F2FF;
     --color-warning: #FF9F0A;
     --color-warning-tint: #FFF4E5;
@@ -89,6 +96,7 @@
         --color-text-secondary: #AEAEB2;
         --color-text-tertiary: #8E8E93;
         --color-accent: #3890F5;
+        --color-accent-fill: #0C73EA;
         --color-accent-tint: #12304F;
         --color-warning: #FF9F0A;
         --color-warning-tint: #3A2A10;

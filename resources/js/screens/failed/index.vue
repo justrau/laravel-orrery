@@ -1238,8 +1238,8 @@
     }
 
     .o-check--on {
-        background-color: var(--color-accent);
-        border-color: var(--color-accent);
+        background-color: var(--color-accent-fill);
+        border-color: var(--color-accent-fill);
     }
 
     .o-check--on::after {
