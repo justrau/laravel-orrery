@@ -287,6 +287,18 @@ export function tagsSubtitle(now) {
 /** The rows of one page of a tag's list. */
 export const TAG_PER_PAGE = 50;
 
+/** The monitored tags read, with the lookup of the selected tag (null: none). */
+export function monitoredTagsRead(tag) {
+    return {url: '/api/tags', params: tag !== null && tag !== undefined ? {tag} : {}};
+}
+
+/** The read of a page of a tag's tab (tagListRequest()), as `{url, params}`; the screen's page size, TAG_PER_PAGE at first. */
+export function tagPageRead(tag, tab, page, perPage = TAG_PER_PAGE) {
+    const request = tagListRequest(tag, tab, page, perPage);
+
+    return {url: request.endpoint, params: request.params};
+}
+
 /**
  * The Tags screen's first reads for a route, as its created() asks them:
  * the monitored tags (with the lookup of the selected tag), and the first
@@ -295,13 +307,9 @@ export const TAG_PER_PAGE = 50;
 export function tagsFirstRequests(params, query) {
     const selected = routeTag(params, query);
     const tag = selected && selected.valid ? selected.tag : null;
-    const requests = [{url: '/api/tags', params: tag !== null ? {tag} : {}}];
+    const requests = [monitoredTagsRead(tag)];
 
-    if (tag !== null) {
-        const request = tagListRequest(tag, tabFromQuery(query), {order: 'desc', cursor: null}, TAG_PER_PAGE);
-
-        requests.push({url: request.endpoint, params: request.params});
-    }
+    if (tag !== null) requests.push(tagPageRead(tag, tabFromQuery(query), {order: 'desc', cursor: null}));
 
     return requests;
 }

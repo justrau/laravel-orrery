@@ -31,6 +31,8 @@
         writeFailure,
         writeResult,
         TAG_PER_PAGE,
+        monitoredTagsRead,
+        tagPageRead,
     } from './tags.js';
     import {tagLocation} from './tag-links.js';
 
@@ -194,8 +196,9 @@
                 if (!background) this.tags.loading = true;
 
                 try {
-                    const response = await this.$http.get(this.api('/api/tags'), {
-                        params: lookupFor !== null ? {tag: lookupFor} : {},
+                    const read = monitoredTagsRead(lookupFor);
+                    const response = await this.$http.get(this.api(read.url), {
+                        params: read.params,
                         handles: background ? BACKGROUND_STATUSES : SECTION_STATUSES,
                     });
 
@@ -220,7 +223,7 @@
                 if (this.tag === null) return;
 
                 const sequence = this.startRequest('view');
-                const request = tagListRequest(this.tag, this.tab, page, this.perPage);
+                const request = tagPageRead(this.tag, this.tab, page, this.perPage);
 
                 // The page that a retry asks again.
                 this.view.asked = page;
@@ -228,7 +231,7 @@
                 if (!background) this.view.loading = true;
 
                 try {
-                    const response = await this.$http.get(this.api(request.endpoint), {
+                    const response = await this.$http.get(this.api(request.url), {
                         params: request.params,
                         handles: background ? BACKGROUND_STATUSES : SECTION_STATUSES,
                     });

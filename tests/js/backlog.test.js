@@ -273,6 +273,11 @@ test('backlogDescription names the latest value, the gaps, the partly unknown pe
         'default: ready jobs, past 24 hours, up to 9 at 2027-01-15 08:24–08:36 UTC, 1 gap without data, 1 period partly without data (values are at least), Deploy v2 08:30 UTC.',
     );
     assert.equal(backlogDescription('x', slotsOf([null]), [], T), 'x, no data, 1 gap without data.');
+    assert.equal(
+        backlogDescription('x', [{index: 0, at: T, end: T + 720, value: 4, minutes: 12, unknownMinutes: 2}], [], T + 3600),
+        'x, up to at least 4 at 08:00–08:12 UTC, 1 period partly without data (values are at least).',
+        'a partly unknown latest slot is a lower bound',
+    );
     assert.equal(backlogDescription('x', slotsOf([5]), [], T + 60), 'x, 5 at 08:00 UTC.');
 });
 // Rejects: more labels than a small card holds, labels off the round times of the display zone, or labels outside

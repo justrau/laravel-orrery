@@ -14,10 +14,9 @@
     import GroupInspector from './GroupInspector.vue';
     import {
         GROUPS_BULK_STORAGE_KEY,
-        LATEST_PATH,
         LATEST_ROWS,
-        MARKER_LEAD_SECONDS,
-        groupWindowParams,
+        failedReads,
+        groupDetailRead,
         MAX_GROUP_KEYS,
         GROUP_PAGE,
         RANGES,
@@ -31,7 +30,6 @@
         groupCountAtLeast,
         groupQueuesText,
         groupsSource,
-        latestParams,
         liveWindow,
         markerName,
         latestSubtitle,
@@ -408,10 +406,6 @@
                 return this.refresh(true);
             },
 
-            groupParams(live, extra = {}) {
-                return groupWindowParams(live, this.queue, extra);
-            },
-
             /**
              * One poll: the live window moves to now, and every part of the
              * screen reads it. Each response is applied only while its poll is
@@ -422,18 +416,20 @@
              */
             refresh(background = false) {
                 const sequence = this.startRequest('screen');
-                const now = nowSeconds();
-                const live = liveWindow(this.rangeInfo.seconds, now);
+                const reads = failedReads({range: this.range, queue: this.queue, offset: this.offset, group: this.selectedKey}, nowSeconds());
+                const live = reads.window;
+                // A group that this refresh selects (the first one of the list) reads its detail in selectGroup().
+                const selectedBefore = this.selectedKey;
                 const current = () => this.isCurrentRequest('screen', sequence);
                 const apply = assign => data => {
                     if (current()) assign(data);
                 };
                 const requests = [];
 
-                if (this.usesLiveList) {
+                if (reads.groups === null) {
                     this.applyLiveList();
                 } else {
-                    requests.push(this.get('/api/failures/groups', this.groupParams(live, this.offset ? {offset: this.offset} : {}), background)
+                    requests.push(this.get(reads.groups.url, reads.groups.params, background)
                         // A body of another shape (a login page answered with 200) is a failed read, never "no groups".
                         .then(data => bodyWith(data, 'groups'))
                         .then(apply(data => {
@@ -458,18 +454,18 @@
                 }
 
                 requests.push(
-                    this.get(LATEST_PATH, latestParams(LATEST_ROWS), background).then(data => bodyWith(data, 'jobs')).then(apply(data => {
+                    this.get(reads.latest.url, reads.latest.params, background).then(data => bodyWith(data, 'jobs')).then(apply(data => {
                         this.failedList = data;
                         this.latestError = null;
                     })).catch(error => {
                         if (current()) this.latestError = this.errorText(error);
                     }),
-                    this.get('/api/markers', {since: live.from - MARKER_LEAD_SECONDS}, background).then(apply(data => {
+                    this.get(reads.markers.url, reads.markers.params, background).then(apply(data => {
                         this.markers = data && Array.isArray(data.markers) ? data.markers : [];
                     })),
                 );
 
-                if (this.selectedKey) {
+                if (this.selectedKey && this.selectedKey === selectedBefore) {
                     requests.push(this.loadDetail(live, background));
                 }
 
@@ -516,7 +512,9 @@
 
                 const sequence = this.startRequest('detail');
 
-                return this.get(`/api/failures/groups/${key}`, this.groupParams(live), background)
+                const read = groupDetailRead(key, live, this.queue);
+
+                return this.get(read.url, read.params, background)
                     .then(objectBody)
                     .then(data => {
                         if (this.isCurrentRequest('detail', sequence) && this.selectedKey === key) {

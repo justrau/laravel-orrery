@@ -594,30 +594,39 @@ export function groupWindowParams(window, queue, extra = {}) {
     return params;
 }
 
+/** The read of one group's detail in a window: `GET /api/failures/groups/{key}`. */
+export function groupDetailRead(key, window, queue) {
+    return {url: `/api/failures/groups/${key}`, params: groupWindowParams(window, queue), timeKeys: ['from', 'to']};
+}
+
 /**
- * The Failure groups screen's first reads for a route query, as its
- * refresh() asks them: the group list (not for the live past hour of all
- * queues, which comes from the shell), the latest failed jobs, the markers
- * and the selected group. The window keys are computed from the clock, so
- * they match within the prefetch tolerance (support/prefetch.js).
+ * The reads of one refresh of the Failure groups screen for a view
+ * ({range, queue, offset, group}) at `now`: `{window, groups, latest,
+ * markers, detail}`. `groups` is null for the live past hour of all queues
+ * (the screen takes it from the shell), `detail` null without a group. The
+ * screen's refresh() and the route's first load (failedFirstRequests())
+ * both build their reads here, so a prefetch is always the screen's read.
+ */
+export function failedReads(view, now) {
+    const window = liveWindow(rangeOf(view.range).seconds, now);
+    const live = view.range === '1h' && !view.queue && !view.offset;
+
+    return {
+        window,
+        groups: live ? null : {url: '/api/failures/groups', params: groupWindowParams(window, view.queue, view.offset ? {offset: view.offset} : {}), timeKeys: ['from', 'to']},
+        latest: {url: LATEST_PATH, params: latestParams(LATEST_ROWS)},
+        markers: {url: '/api/markers', params: {since: window.from - MARKER_LEAD_SECONDS}, timeKeys: ['since']},
+        detail: view.group ? groupDetailRead(view.group, window, view.queue) : null,
+    };
+}
+
+/**
+ * The Failure groups screen's first reads for a route query (failedReads()
+ * of the URL's view): the group list (not for the live past hour of all
+ * queues), the latest failed jobs, the markers and the selected group.
  */
 export function failedFirstRequests(query, now) {
-    const view = failedView(query);
-    const window = liveWindow(rangeOf(view.range).seconds, now);
-    const requests = [];
+    const reads = failedReads(failedView(query), now);
 
-    if (!(view.range === '1h' && !view.queue && view.offset === 0)) {
-        requests.push({url: '/api/failures/groups', params: groupWindowParams(window, view.queue, view.offset ? {offset: view.offset} : {}), timeKeys: ['from', 'to']});
-    }
-
-    requests.push(
-        {url: LATEST_PATH, params: latestParams(LATEST_ROWS)},
-        {url: '/api/markers', params: {since: window.from - MARKER_LEAD_SECONDS}, timeKeys: ['since']},
-    );
-
-    if (view.group) {
-        requests.push({url: `/api/failures/groups/${view.group}`, params: groupWindowParams(window, view.queue), timeKeys: ['from', 'to']});
-    }
-
-    return requests;
+    return [reads.groups, reads.latest, reads.markers, reads.detail].filter(Boolean);
 }

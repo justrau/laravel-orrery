@@ -201,7 +201,9 @@ export function backlogDescription(label, slots, markerTitles = [], now = nowSec
     const parts = [label];
 
     if (latest) {
-        parts.push(`${latest.minutes > 1 ? 'up to ' : ''}${formatCount(latest.value)} at ${slotTime(latest, now)}`);
+        const bound = latest.minutes > 1 ? (latest.unknownMinutes > 0 ? 'up to at least ' : 'up to ') : '';
+
+        parts.push(`${bound}${formatCount(latest.value)} at ${slotTime(latest, now)}`);
     } else {
         parts.push('no data');
     }

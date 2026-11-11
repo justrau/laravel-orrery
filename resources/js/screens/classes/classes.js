@@ -376,12 +376,22 @@ export function classFailure(error) {
 /** The span of the class charts when the screen opens. */
 export const DEFAULT_SPAN = '1h';
 
+/** The classes read of a window (minutes). */
+export function classesRead(window) {
+    return {url: '/api/classes', params: {minutes: window}};
+}
+
+/** The series read of a class over a span. */
+export function seriesRead(name, span) {
+    return {url: '/api/classes/series', params: seriesParams(name, span)};
+}
+
 /** The Job classes screen's first reads for a route query: the classes of the window, and the selected class's series. */
 export function classesFirstRequests(query) {
-    const requests = [{url: '/api/classes', params: {minutes: windowFromQuery(query)}}];
+    const requests = [classesRead(windowFromQuery(query))];
     const selected = selectedFromQuery(query);
 
-    if (selected !== null) requests.push({url: '/api/classes/series', params: seriesParams(selected, DEFAULT_SPAN)});
+    if (selected !== null) requests.push(seriesRead(selected, DEFAULT_SPAN));
 
     return requests;
 }

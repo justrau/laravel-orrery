@@ -29,6 +29,8 @@ import {
     writeResult,
     TAG_PER_PAGE,
     tagsFirstRequests,
+    monitoredTagsRead,
+    tagPageRead,
 } from '../../resources/js/screens/tags/tags.js';
 
 const NBSP = ' ';
@@ -268,4 +270,12 @@ test('tagsFirstRequests: the monitored tags with the lookup, and the selected ta
     ]);
     assert.deepEqual(tagsFirstRequests({}, {}), [{url: '/api/tags', params: {}}]);
     assert.deepEqual(tagsFirstRequests({}, {tag: ' \0'}), [{url: '/api/tags', params: {}}]);
+});
+
+// Rejects: a screen and a route load that build the tag reads apart (drift: a read twice), a page read that
+// ignores the viewer's page size, or a lookup sent without a selected tag.
+test('monitoredTagsRead and tagPageRead: one builder for the screen and the first load', () => {
+    assert.deepEqual(tagsFirstRequests({tag: 'a'}, {tab: 'failed'}), [monitoredTagsRead('a'), tagPageRead('a', 'failed', {order: 'desc', cursor: null})]);
+    assert.deepEqual(monitoredTagsRead(null), {url: '/api/tags', params: {}});
+    assert.equal(tagPageRead('a', 'all', {order: 'desc', cursor: null}, 25).params.per_page, 25);
 });

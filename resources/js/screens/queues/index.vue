@@ -208,6 +208,11 @@
                 return !this.selectedRow;
             },
 
+            /** The selection that the route names, as one key. */
+            routeSelection() {
+                return JSON.stringify([this.connection, this.queue]);
+            },
+
             routeSelected() {
                 return !!(this.connection && this.queue);
             },
@@ -336,11 +341,9 @@
                 },
             },
 
-            connection() {
-                this.selectionChanged();
-            },
-
-            queue() {
+            // One watcher for both props: a route that changes the connection and the queue (from /queues to a
+            // queue) is one change of selection, so its failures are read once.
+            routeSelection() {
                 this.selectionChanged();
             },
 

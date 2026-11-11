@@ -32,6 +32,8 @@ import {
     windowLine,
     DEFAULT_SPAN,
     classesFirstRequests,
+    classesRead,
+    seriesRead,
 } from '../../resources/js/screens/classes/classes.js';
 
 const NOW = 1790000000; // 2026-09-21 14:13:20 UTC
@@ -384,4 +386,10 @@ test('classesFirstRequests: the classes of the window, and the selected class\'s
         {url: '/api/classes/series', params: {name: 'App\\Jobs\\X', minutes: 60}},
     ]);
     assert.deepEqual(classesFirstRequests({}), [{url: '/api/classes', params: {minutes: 60}}]);
+});
+
+// Rejects: a screen and a route load that build the class reads apart (drift: a read twice).
+test('classesRead and seriesRead: one builder for the screen and the first load', () => {
+    assert.deepEqual(classesFirstRequests({minutes: '15', class: 'X'}), [classesRead(15), seriesRead('X', DEFAULT_SPAN)]);
+    assert.deepEqual(seriesRead('X', '24h'), {url: '/api/classes/series', params: {name: 'X', minutes: 1440}});
 });

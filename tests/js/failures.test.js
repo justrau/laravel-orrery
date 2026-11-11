@@ -47,6 +47,8 @@ import {
     LATEST_ROWS,
     failedFirstRequests,
     groupWindowParams,
+    failedReads,
+    groupDetailRead,
 } from '../../resources/js/screens/failed/failures.js';
 
 // Rejects: an unknown range key that gives undefined, and a lookup by label instead of key.
@@ -519,4 +521,22 @@ test('failedFirstRequests: the reads of the first refresh() for a route', () => 
 test('groupWindowParams: the window, the queue when set, and the extra keys', () => {
     assert.deepEqual(groupWindowParams({from: 1, to: 2}, ''), {from: 1, to: 2});
     assert.deepEqual(groupWindowParams({from: 1, to: 2}, 'q', {offset: 50}), {from: 1, to: 2, offset: 50, queue: 'q'});
+});
+
+// Rejects: a screen refresh and a route load that build their reads apart (they would drift, and the prefetch
+// would not be taken: a read twice), a group list read for the live past hour, or a detail read without a group.
+// Still passes: a builder that returns the reads in another key order.
+test('failedReads: one builder for the screen\'s refresh and the route\'s first load', () => {
+    const now = 1_800_000_000;
+    const query = {range: '24h', queue: 'database:default', group: 'b'.repeat(64)};
+    const reads = failedReads(failedView(query), now);
+
+    assert.deepEqual(failedFirstRequests(query, now), [reads.groups, reads.latest, reads.markers, reads.detail]);
+    assert.deepEqual(reads.window, {from: now - 86400, to: now});
+    assert.deepEqual(reads.detail, groupDetailRead('b'.repeat(64), reads.window, 'database:default'));
+
+    const live = failedReads({range: '1h', queue: '', offset: 0, group: null}, now);
+
+    assert.equal(live.groups, null);
+    assert.equal(live.detail, null);
 });

@@ -38,6 +38,8 @@
         windowFromQuery,
         windowLine,
         DEFAULT_SPAN,
+        classesRead,
+        seriesRead,
     } from './classes';
 
     /** The statuses that a read of this screen shows itself (no global alert on every poll). */
@@ -230,7 +232,9 @@
                     this.loadError = null;
                 }
 
-                return this.get('/api/classes', {minutes: window}, background)
+                const read = classesRead(window);
+
+                return this.get(read.url, read.params, background)
                     .then(body => {
                         if (this.unmounted || !this.isCurrentRequest('classes', sequence)) return;
 
@@ -271,7 +275,9 @@
                     this.seriesStale = null;
                 }
 
-                return this.get('/api/classes/series', seriesParams(this.selected, this.effectiveSpan), background)
+                const read = seriesRead(this.selected, this.effectiveSpan);
+
+                return this.get(read.url, read.params, background)
                     .then(body => {
                         if (this.unmounted || !this.isCurrentRequest('series', sequence) || key !== this.currentSeriesKey) return;
 
