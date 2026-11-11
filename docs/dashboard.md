@@ -25,13 +25,20 @@
 - **Batches:** Laravel's job batches with their progress and member counts. Retry failed members starts a bulk run; "Cancel batch…" cancels an open batch.
 - **Job classes:** the completed, failed and pushed jobs and the average runtime per class over 15 or 60 minutes.
 - **Tags:** the monitored tags and their jobs.
-- **Workers:** the live workers and their current jobs. A worker is live when it wrote a heartbeat in the last 60 seconds (or in the last two `workers.heartbeat_seconds`, when that is longer) or holds a reservation that did not expire. A live worker is **quiet** when its last heartbeat is older than two `workers.heartbeat_seconds` (30 seconds by default) and it holds no reservation that did not expire: it has an amber dot and says how long it has had no heartbeat, for example a worker that was killed with SIGKILL. A worker that runs a long job writes no heartbeat, but its reservation keeps it live. A quiet worker stays in the list until it is no longer live. The Overview and the Queues screen show "Workers quiet" for a queue whose every worker is quiet. The children of `queue:listen` show under their parent.
+- **Workers:** the live workers and their current jobs. Each worker is judged by how often it writes its heartbeat: its write period is the largest of its own `workers.heartbeat_seconds` (15 by default; 0, a write on every loop, counts as 15), its `--sleep` and its `--rest`, because an idle worker writes once per loop.
+  - A worker is **quiet** when its last heartbeat is older than two write periods plus 5 seconds (35 seconds by default) and it holds no reservation that did not expire. It has an amber dot and says how long it has had no heartbeat, for example a worker that was killed with SIGKILL.
+  - A worker is listed while its heartbeat is younger than the quiet window plus 25 seconds, and at least 60 seconds (60 seconds by default), or while it holds a reservation that did not expire. So a killed worker is quiet for at least 25 seconds before it leaves the list.
+  - A worker that runs a long job writes no heartbeat. On a queue connection that Orrery instruments, its reservation keeps it live. On an uninstrumented connection (`swap_connector` off, or another package's queue class: the footer names it) Orrery cannot see whose job is running, so such a worker without a recent heartbeat has a grey dot, "Worker state unknown", not quiet.
+  - A worker that stops normally (`queue:restart`, `--max-jobs`, `--max-time`, `--stop-when-empty`, `--once`, a terminate) removes its row and leaves the list at once. A worker killed after a job timed out keeps its row, because the job can still be reserved.
+  - The children of `queue:listen` show under their parent. `queue:listen` runs one child at a time, so only its newest child shows (and an older child that still holds a reservation). When the `queue:listen` process stops, its last child turns quiet and then leaves the list.
+  - The Overview and the Queues screen show "Workers quiet" for a queue whose every worker is quiet, and "Worker state unknown" when every worker is quiet or unknown and at least one is unknown.
+  - The heartbeat time comes from the worker host's clock, and the dashboard compares it with the web host's clock. Keep the clocks of every host in sync (NTP), or healthy workers can look quiet.
 
 The old paths `/`, `/dashboard`, `/metrics…`, `/monitoring…`, `/failed/<id>`, `/failed-legacy` and `/jobs/<type>…` redirect to these screens.
 
 - The write buttons show only for users with `operateOrrery`.
 - Times show in the browser's time zone, or in `orrery.display_timezone`. Every absolute time has its zone label.
-- From 1024 px, drag the handle on the sidebar's right edge to change its width, or focus the handle and use the arrow keys (Shift for bigger steps); a double click resets it. The browser keeps the width.
+- From 1024 px, drag the handle on the sidebar's right edge to change its width, or focus the handle and use the arrow keys (Shift for bigger steps), Home and End; Enter or a double click resets it. The browser keeps the width; a narrower window shrinks the sidebar for a while, and the kept width comes back when the window is wide again.
 - Below 1024 px the sidebar is behind a toggle, and below 768 px a list and its detail are two screens. The keyboard reaches every control, and Escape closes a sheet, the inspector or the sidebar.
 - The dashboard follows the dark or light appearance of the operating system (the browser's `prefers-color-scheme`). It has no toggle of its own.
 
