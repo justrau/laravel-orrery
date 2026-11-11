@@ -117,6 +117,8 @@ export function columnsOf(status) {
             return ['job', 'queue', 'signals', 'rule', 'time'];
         case 'retrying':
             return ['job', 'operation', 'time'];
+        case 'unknown':
+            return ['job', 'reason', 'attempts', 'time'];
         default:
             return ['job', 'attempts', 'runtime', 'time'];
     }

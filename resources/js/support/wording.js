@@ -31,6 +31,14 @@ export const AWAITING_REASONS = Object.freeze({
     sqlite_reads_not_allowed: "Waiting for an operator: Orrery may not read the application's SQLite file on its own. Run php artisan orrery:resolve {id}.",
 });
 
+/** The `unknown_reason` of an unknown job: why its outcome is not known. */
+export const UNKNOWN_REASONS = Object.freeze({
+    absent: 'The job left the jobs table, and no outcome was observed.',
+    blind_gap: 'Orrery was off or not observing when the job left the jobs table, so its outcome was not observed. No stuck-job alert is sent for it.',
+    connection_removed: 'Its queue connection is no longer configured, and no configured queue table holds the job.',
+    bulk_unresolved: 'Orrery could not find the job of this bulk push in the jobs table.',
+});
+
 /** The `result` of a retry or forget, and the `outcome` of a bulk or group item. */
 export const OUTCOMES = Object.freeze({
     accepted: 'Accepted.',
@@ -193,6 +201,24 @@ function lookup(table, key, values, fallback) {
 /** The sentence of a history or cycle source. */
 export function sourceText(source) {
     return lookup(SOURCES, source, {}, SOURCES.unknown);
+}
+
+/** The short label of each unknown reason, for a table cell: never the raw code. */
+export const UNKNOWN_REASON_LABELS = Object.freeze({
+    absent: 'left the queue unobserved',
+    blind_gap: 'Orrery was off or not observing',
+    connection_removed: 'connection removed',
+    bulk_unresolved: 'bulk job not found',
+});
+
+/** The short label of an unknown job's reason; a missing or new one is "reason unknown". */
+export function unknownReasonLabel(reason) {
+    return lookup(UNKNOWN_REASON_LABELS, reason, {}, 'reason unknown');
+}
+
+/** The sentence of an unknown job's reason; a missing or new reason says that the reason is not known. */
+export function unknownReasonText(reason) {
+    return lookup(UNKNOWN_REASONS, reason, {}, 'The reason is not known.');
 }
 
 /** The sentence of an awaiting reason; `values.id` is the operation id. */

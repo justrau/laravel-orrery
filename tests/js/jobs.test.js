@@ -96,9 +96,11 @@ test('columnsOf and timeColumn give each tab its columns and order column', () =
     assert.deepEqual(columnsOf('stuck'), ['job', 'queue', 'signals', 'rule', 'time']);
     assert.deepEqual(columnsOf('retrying'), ['job', 'operation', 'time']);
 
-    for (const status of ['completed', 'silenced', 'unknown']) {
+    for (const status of ['completed', 'silenced']) {
         assert.deepEqual(columnsOf(status), ['job', 'attempts', 'runtime', 'time'], status);
     }
+
+    assert.deepEqual(columnsOf('unknown'), ['job', 'reason', 'attempts', 'time'], 'an unknown row says why, and has no runtime');
 
     assert.equal(timeColumn('pending'), 'pushed_at');
     assert.equal(timeColumn('running'), 'reserved_at');

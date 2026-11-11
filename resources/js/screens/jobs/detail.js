@@ -20,7 +20,7 @@
 import {isUuid} from '../../support/lists.js';
 import {queuePath} from '../../support/redirects.js';
 import {formatCount, formatLocal, relativeTime, timeZoneLabel, toSeconds} from '../../support/time.js';
-import {awaitingText, codeText, itemText, outcomeText, sourceText, stateText} from '../../support/wording.js';
+import {awaitingText, codeText, itemText, outcomeText, sourceText, stateText, unknownReasonText} from '../../support/wording.js';
 import {enforcedRuleText, terminalText, timeoutValue, triesSourceText, triesValue} from './rules.js';
 import {tagLocation} from '../tags/tag-links.js';
 
@@ -226,6 +226,10 @@ export function headerFacts(detail, now) {
         facts.push({label: 'Failed', value: timeWithAge(detail.failed_at, now)});
     } else if (detail.status === 'completed' || detail.status === 'unknown') {
         facts.push({label: 'Finished', value: timeWithAge(detail.finished_at, now)});
+    }
+
+    if (detail.status === 'unknown') {
+        facts.push({label: 'Why unknown', value: unknownReasonText(detail.unknown_reason)});
     }
 
     facts.push({label: 'Runtime', value: runtimeText(detail.runtime_ms)});

@@ -18,7 +18,24 @@ import {
     sourceText,
     stateLabel,
     stateText,
+    unknownReasonLabel,
+    unknownReasonText,
 } from '../../resources/js/support/wording.js';
+
+// Rejects: a blind-gap loss worded like any other lost job, a raw reason code, and a missing or new reason shown as blank.
+test('unknownReasonText and unknownReasonLabel word every unknown reason', () => {
+    assert.match(unknownReasonText('blind_gap'), /^Orrery was off or not observing/);
+    assert.equal(unknownReasonLabel('blind_gap'), 'Orrery was off or not observing');
+    assert.equal(unknownReasonText('absent'), 'The job left the jobs table, and no outcome was observed.');
+    assert.equal(unknownReasonLabel('absent'), 'left the queue unobserved');
+    assert.equal(unknownReasonLabel('connection_removed'), 'connection removed');
+    assert.equal(unknownReasonLabel('bulk_unresolved'), 'bulk job not found');
+
+    for (const reason of [null, undefined, '', 'later_reason']) {
+        assert.equal(unknownReasonText(reason), 'The reason is not known.', String(reason));
+        assert.equal(unknownReasonLabel(reason), 'reason unknown', String(reason));
+    }
+});
 
 // Rejects: a template filled with "undefined" or "null" or an empty text for a missing value (unknown is never blank), and a fill that reads markup as anything but text.
 test('fill puts stored values into a template and a dash for a missing one', () => {

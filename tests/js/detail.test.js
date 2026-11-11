@@ -232,6 +232,20 @@ test('headerFacts lists the identity and the times, unknown as "—"', () => {
     assert.equal(fast.Runtime, '0 ms (last attempt)', '0 is a measured value, not unknown');
     assert.equal(fast.Finished, `${T_TEXT} · just now`);
     assert.equal(fast.Attempts, '5 in this cycle · never retried');
+    assert.equal(fast['Why unknown'], undefined, 'only an unknown row says why it is unknown');
+});
+
+// Rejects: an unknown job without its reason (a blind-gap loss would read like any lost job), the raw code, and a missing reason shown as blank.
+test('headerFacts says why an unknown row is unknown', () => {
+    const blind = Object.fromEntries(headerFacts(failedDetail({status: 'unknown', unknown_reason: 'blind_gap'}), T).map(fact => [fact.label, fact.value]));
+    assert.match(blind['Why unknown'], /^Orrery was off or not observing/);
+    assert.match(blind['Why unknown'], /No stuck-job alert/);
+
+    const absent = Object.fromEntries(headerFacts(failedDetail({status: 'unknown', unknown_reason: 'absent'}), T).map(fact => [fact.label, fact.value]));
+    assert.equal(absent['Why unknown'], 'The job left the jobs table, and no outcome was observed.');
+
+    const missing = Object.fromEntries(headerFacts(failedDetail({status: 'unknown', unknown_reason: null}), T).map(fact => [fact.label, fact.value]));
+    assert.equal(missing['Why unknown'], 'The reason is not known.');
 });
 
 // Rejects: Retry or Forget offered without canOperate, on a held row, on a row that is not failed, without a usable occurrence id, or when the server says no; Resolve without an awaiting operation; and a read-only reason shown as its raw code.

@@ -12,7 +12,7 @@
     import {mergeQuery} from '../../support/filters.js';
     import {filterKey, filtersFromQuery, pageRows, queryProblem, searchLimitedText} from '../../support/lists.js';
     import {formatClock, nowSeconds, timeZoneLabel} from '../../support/time.js';
-    import {codeText} from '../../support/wording.js';
+    import {codeText, unknownReasonLabel, unknownReasonText} from '../../support/wording.js';
     import {
         autoLoadApplies,
         attemptsText,
@@ -609,6 +609,8 @@
             signalText,
             tagChips,
             timeHeader,
+            unknownReasonLabel,
+            unknownReasonText,
             workerCell,
         },
 
@@ -627,6 +629,7 @@
             operation: 'Operation',
             signals: 'Signals and facts',
             rule: 'Enforced rule',
+            reason: 'Why unknown',
         },
     };
 </script>
@@ -800,6 +803,8 @@
                                         <span v-else-if="column === 'queue'" class="o-jobs__clip" :title="queueTitle(row)">{{ row.queue }}</span>
 
                                         <span v-else-if="column === 'attempts' || column === 'attempt'">{{ row.attempts }}</span>
+
+                                        <span v-else-if="column === 'reason'" class="o-jobs__clip" :title="unknownReasonText(row.unknown_reason)">{{ unknownReasonLabel(row.unknown_reason) }}</span>
 
                                         <span v-else-if="column === 'runtime'" :class="{'o-jobs__unknown': row.runtime_ms === null}">{{ runtimeText(row.runtime_ms) }}</span>
 
@@ -1394,6 +1399,7 @@
     .o-jobs__col--lease { width: 180px; }
     .o-jobs__col--operation { width: 250px; }
     .o-jobs__col--rule { width: 200px; }
+    .o-jobs__col--reason { width: 240px; }
     .o-jobs__col--time { text-align: right; width: 116px; }
 
     .o-jobs__table--pending .o-jobs__col--queue { width: 140px; }
