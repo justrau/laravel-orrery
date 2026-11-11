@@ -107,6 +107,7 @@ export function normalizeClasses(data) {
                 complete: row.complete === true,
             })),
         truncated: data.truncated === true,
+        capped: data.capped === true,
         unknownMinutes: unknownCount !== null && unknownCount > 0
             ? {count: unknownCount, first: toSeconds(unknown.first), last: toSeconds(unknown.last)}
             : null,
@@ -147,8 +148,12 @@ export function runtimeText(ms) {
     return formatDuration(value / 1000);
 }
 
-/** The notice of the uncounted minutes of the window (P-5), or null when every minute was counted. */
-export function unknownNotice(unknown) {
+/**
+ * The notice of the uncounted minutes of the window (P-5), or null when
+ * every minute was counted. A capped read says why: the row bound of the
+ * read left those minutes out.
+ */
+export function unknownNotice(unknown, capped = false) {
     if (!unknown || !(unknown.count > 0)) return null;
 
     const zone = timeZoneLabel(unknown.first);
@@ -156,6 +161,10 @@ export function unknownNotice(unknown) {
         ? `${formatHourMinute(unknown.first)} ${zone}`
         : `${formatHourMinute(unknown.first)} to ${formatHourMinute(unknown.last)} ${zone}`;
     const minutes = unknown.count === 1 ? '1 minute' : `${formatCount(unknown.count)} minutes`;
+
+    if (capped) {
+        return `${minutes} in this window could not be counted (${range}): the window has more job class rows than the read takes (dashboard.class_rows), for example job names that change per job. Sums that include them are lower bounds and read “at least”, and the list shows the busiest classes of the counted minutes.`;
+    }
 
     return `${minutes} in this window could not be counted (${range}). Sums that include them are lower bounds and read “at least”.`;
 }

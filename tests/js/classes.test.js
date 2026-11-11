@@ -106,6 +106,8 @@ test('normalizeClasses keeps unknown values unknown', () => {
     assert.deepEqual(data.classes[0], {name: 'A', completed: 12, failed: null, pushed: null, runtimeAvgMs: null, complete: false});
     assert.deepEqual(data.classes[1], {name: 'B', completed: 3, failed: 0, pushed: 5, runtimeAvgMs: 10, complete: true});
     assert.equal(data.truncated, true);
+    assert.equal(data.capped, false);
+    assert.equal(normalizeClasses(classesResponse({capped: true})).capped, true);
     assert.deepEqual(data.unknownMinutes, {count: 3, first: MINUTE - 900, last: MINUTE - 780});
     assert.equal(data.from, MINUTE - 59 * 60);
     assert.equal(data.retentionFrom.pushed, MINUTE - 3600);
@@ -160,6 +162,20 @@ test('unknownNotice names the uncounted minutes once', () => {
     );
     assert.equal(
         unknownNotice({count: 1, first: MINUTE - 900, last: MINUTE - 900}),
+        '1 minute in this window could not be counted (13:58 UTC). Sums that include them are lower bounds and read “at least”.',
+    );
+});
+
+// Rejects: a capped read whose notice does not say why the minutes were not counted, a reason on a read
+// that was not capped, and a reason without the uncounted minutes.
+test('unknownNotice says why when the read was capped', () => {
+    assert.equal(
+        unknownNotice({count: 2, first: MINUTE - 900, last: MINUTE - 840}, true),
+        '2 minutes in this window could not be counted (13:58 to 13:59 UTC): the window has more job class rows than the read takes (dashboard.class_rows), for example job names that change per job. Sums that include them are lower bounds and read “at least”, and the list shows the busiest classes of the counted minutes.',
+    );
+    assert.equal(unknownNotice(null, true), null);
+    assert.equal(
+        unknownNotice({count: 1, first: MINUTE - 900, last: MINUTE - 900}, false),
         '1 minute in this window could not be counted (13:58 UTC). Sums that include them are lower bounds and read “at least”.',
     );
 });
