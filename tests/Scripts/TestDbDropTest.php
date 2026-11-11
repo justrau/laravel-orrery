@@ -150,14 +150,14 @@ final class TestDbDropTest extends TestCase
     {
         $sqlite = $this->runProcess([...$this->wrapper('bin/test'), 'sqlite', '--drop-database', '--php='.PHP_BINARY], $this->fakeEnv($this->registry));
         self::assertSame(64, $sqlite['exit']);
-        self::assertStringContainsString('--drop-database applies to mysql and pgsql with a lease', $sqlite['stderr']);
+        self::assertStringContainsString('--drop-database applies to mysql, pgsql and mariadb with a lease', $sqlite['stderr']);
 
         $ci = $this->runProcess([...$this->wrapper('bin/test'), 'mysql', '--no-provision', '--drop-database', '--php='.PHP_BINARY], $this->fakeEnv($this->registry, [
             'ORRERY_TEST_DATABASE' => 'orrery_ci_1_2',
             'ORRERY_TEST_TOKEN' => str_repeat('a', 32),
         ]));
         self::assertSame(64, $ci['exit']);
-        self::assertStringContainsString('--drop-database applies to mysql and pgsql with a lease', $ci['stderr']);
+        self::assertStringContainsString('--drop-database applies to mysql, pgsql and mariadb with a lease', $ci['stderr']);
 
         $sleeper = $this->spawnSleeper();
         $generated = $this->testdb(['admit', 'run_1_0000000d', (string) $sleeper['pid'], $sleeper['start'], 'orrery_a7_gen', '--generated', '--drop-at-release', '--engine=mysql'], $this->fakeEnv($this->registry));
