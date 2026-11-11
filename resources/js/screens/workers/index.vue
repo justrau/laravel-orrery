@@ -1,6 +1,6 @@
 <script>
     import InspectorLayout from '../../shell/InspectorLayout.vue';
-    import {heartbeatAge, workerState} from '../../shell/data.js';
+    import {heartbeatAge, workerState, workerStateNote} from '../../shell/data.js';
     import {live, setToolbar} from '../../shell/store';
     import {formatDuration, formatLocal, nowSeconds, relativeTime} from '../../support/time';
 
@@ -50,18 +50,14 @@
                 return new Set(this.workers.map(worker => worker.host)).size;
             },
 
-            quietCount() {
-                return this.workers.filter(worker => workerState(worker, this.now).key === 'quiet').length;
-            },
-
             subtitle() {
                 if (!this.ready) return this.error ? 'Workers unknown' : null;
 
                 const workers = `${this.workers.length} ${this.workers.length === 1 ? 'worker' : 'workers'}`;
-                const quiet = this.quietCount ? ` · ${this.quietCount} quiet` : '';
+                const states = workerStateNote(this.workers, this.now);
 
                 return this.workers.length
-                    ? `${workers} on ${this.hosts} ${this.hosts === 1 ? 'host' : 'hosts'}${quiet} · a recent heartbeat or a live lease`
+                    ? `${workers} on ${this.hosts} ${this.hosts === 1 ? 'host' : 'hosts'}${states} · a recent heartbeat or a live lease`
                     : 'No live workers';
             },
         },

@@ -191,15 +191,23 @@ const EXPANDED_KEY = 'orreryAttentionExpanded';
  * The attention items (the same items as the sidebar's attentionCount();
  * only the order is this function's), most important first:
  *
- * 1. stalled queues: over the limit, not paused by a definite cause, and no
- *    worker can drain them (`processes` 0, or every worker quiet:
- *    `quiet_processes` equals `processes`); largest oldest wait first;
+ * 1. stalled queues: over the limit, not paused by a definite cause, on an
+ *    instrumented connection, and no worker can drain them (`processes` 0,
+ *    or every worker quiet: `quiet_processes` equals `processes`); largest
+ *    oldest wait first. On an uninstrumented connection (`instrumented`
+ *    false) a busy worker leaves the list (no lease names it), so 0 workers
+ *    is no proof: such a queue is tier 3, "workers unknown
+ *    (uninstrumented)";
  * 2. active failure groups: a last failure in the last
  *    ACTIVE_FAILURE_SECONDS; largest count first (an at-least count by its
  *    lower bound, an unknown count last), then newest last failure;
- * 3. backed-up queues with a live worker, or with an unknown worker count
- *    (never stalled by a guess; the detail says "workers unknown"); the
- *    largest oldest wait ÷ threshold first, an unknown ratio last;
+ * 3. backed-up queues with a live worker, with workers of unknown state
+ *    (`unknown_state_processes`: a worker of unknown state can be busy, so
+ *    quiet and unknown workers together are never stalled; the detail names
+ *    them: "2 workers of unknown state", "1 quiet, 1 of unknown state"),
+ *    with an unknown worker count ("workers unknown"), or on an
+ *    uninstrumented connection; never stalled by a guess. The largest
+ *    oldest wait ÷ threshold first, an unknown ratio last;
  * 4. fading failure groups: a last failure 5 to 15 minutes ago, newest
  *    first.
  *
@@ -219,15 +227,19 @@ export function attentionItems(workload, groupsData, markers, now) {
             const since = overLimitSinceText(row, now);
             const workers = num(row.processes);
             const quiet = num(row.quiet_processes);
-            const stalled = workers !== null && (workers === 0 || quiet === workers);
+            const unknownState = num(row.unknown_state_processes) || 0;
+            const uninstrumented = row.instrumented === false;
+            const stalled = !uninstrumented && workers !== null && (workers === 0 || quiet === workers);
             const age = num(row.oldest_age);
             const threshold = num(row.threshold);
             const why = !stalled ? '' : (workers === 0 ? ' has no worker and' : ' has only quiet workers and');
             const detail = [
                 `${countOf(row.length)} ready on ${countOf(row.processes)} ${workers === 1 ? 'worker' : 'workers'}`,
                 since ? `over the limit ${since}` : null,
+                stalled ? null : workerStateNote(quiet || 0, unknownState),
                 ...attentionPauseNotes(pauseState(row)),
                 workers === null ? 'workers unknown' : null,
+                workers === 0 && uninstrumented ? 'workers unknown (uninstrumented)' : null,
             ].filter(Boolean).join(' · ');
 
             return {
@@ -298,16 +310,32 @@ export function attentionSplit(items, shown = ATTENTION_SHOWN) {
     return list.length <= shown + 1 ? {visible: list, hidden: []} : {visible: list.slice(0, shown), hidden: list.slice(shown)};
 }
 
-/** The stacked items' button: "Show 13 more · 9 queues over limit, 4 failure groups". */
-export function attentionSummary(hidden) {
+/**
+ * The stacked items' button: "Show 13 more · 9 queues over limit, 4 failure
+ * groups". `moreGroups` ({count, atLeast}, or null) are the recent groups
+ * without a notice of their own, which also show only after expanding: they
+ * count with the groups, and an at-least count makes the total "at least".
+ */
+export function attentionSummary(hidden, moreGroups = null) {
     const queues = hidden.filter(item => item.type === 'queue').length;
-    const groups = hidden.length - queues;
+    const extra = moreGroups && num(moreGroups.count) > 0 ? num(moreGroups.count) : 0;
+    const atLeast = extra > 0 && moreGroups.atLeast === true ? 'at least ' : '';
+    const groups = hidden.length - queues + extra;
     const parts = [
         queues ? `${formatCount(queues)} ${queues === 1 ? 'queue' : 'queues'} over limit` : null,
-        groups ? `${formatCount(groups)} failure ${groups === 1 ? 'group' : 'groups'}` : null,
+        groups ? `${atLeast}${formatCount(groups)} failure ${groups === 1 ? 'group' : 'groups'}` : null,
     ].filter(Boolean);
 
-    return `Show ${formatCount(hidden.length)} more · ${parts.join(', ')}`;
+    return `Show ${atLeast}${formatCount(hidden.length + extra)} more · ${parts.join(', ')}`;
+}
+
+/** The worker-state note of a backed-up queue: "2 workers of unknown state", "1 quiet, 1 of unknown state", "1 quiet", or null. */
+function workerStateNote(quiet, unknown) {
+    if (quiet > 0 && unknown > 0) return `${formatCount(quiet)} quiet, ${formatCount(unknown)} of unknown state`;
+    if (unknown > 0) return `${formatCount(unknown)} ${unknown === 1 ? 'worker' : 'workers'} of unknown state`;
+    if (quiet > 0) return `${formatCount(quiet)} quiet`;
+
+    return null;
 }
 
 /** Whether this browser tab expanded the attention list (sessionStorage through support/storage.js; false when it cannot be read). */

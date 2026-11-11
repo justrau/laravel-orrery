@@ -985,6 +985,18 @@ export function workerState(worker, now) {
 }
 
 /**
+ * The Workers subtitle's state part: " · 1 quiet · 2 unknown" (workerState()
+ * of each row at `now`), or "" when every worker is live.
+ */
+export function workerStateNote(workers, now) {
+    const keys = (Array.isArray(workers) ? workers : []).map(worker => workerState(worker, now).key);
+    const quiet = keys.filter(key => key === 'quiet').length;
+    const unknown = keys.filter(key => key === 'unknown').length;
+
+    return `${quiet ? ` · ${quiet} quiet` : ''}${unknown ? ` · ${unknown} unknown` : ''}`;
+}
+
+/**
  * The footer of the shell from its live data ({ health, workers,
  * healthError }, shell/store.js `live`): null before anything loaded. While
  * the health read fails, the footer says "Watcher health unknown": the last

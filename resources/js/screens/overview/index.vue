@@ -246,17 +246,21 @@
                 return this.allItems.filter(item => item.type === 'queue' || ++groups <= MAX_GROUP_NOTICES);
             },
 
-            /** The notices shown in full and the ones stacked behind the "Show more" button (attentionSplit()). */
-            attention() {
+            /**
+             * The notices shown in full and the ones stacked behind the "Show
+             * more" button (attentionSplit()). Not `attention`: that is the
+             * sidebar's count, which the subtitle reads.
+             */
+            attentionStack() {
                 return attentionSplit(this.items);
             },
 
             shownItems() {
-                return this.attentionExpanded ? this.items : this.attention.visible;
+                return this.attentionExpanded ? this.items : this.attentionStack.visible;
             },
 
             attentionToggleText() {
-                return this.attentionExpanded ? 'Show fewer' : attentionSummary(this.attention.hidden);
+                return this.attentionExpanded ? 'Show fewer' : attentionSummary(this.attentionStack.hidden, this.moreGroups);
             },
 
             /** The recent groups without a notice of their own: { count, atLeast }, or null. */
@@ -342,6 +346,19 @@
         },
 
         watch: {
+            /**
+             * A poll that empties the stack removes the button: when it has
+             * the focus, the focus moves to the list instead of the page.
+             * The watcher runs before the DOM update, while the button exists.
+             */
+            'attentionStack.hidden.length'(count) {
+                const toggle = this.$refs.attentionToggle;
+
+                if (count === 0 && toggle && document.activeElement === toggle) {
+                    this.$nextTick(() => this.$refs.attentionList && this.$refs.attentionList.focus());
+                }
+            },
+
             subtitle: {
                 immediate: true,
                 handler(subtitle) {
@@ -581,7 +598,7 @@
                 </template>
             </notice>
 
-            <div id="orrery-attention-list" class="o-overview__notices" data-attention-list>
+            <div id="orrery-attention-list" ref="attentionList" class="o-overview__notices" tabindex="-1" data-attention-list>
                 <template v-for="item in shownItems" :key="item.key">
                     <notice v-if="item.type === 'queue'" tone="warning" :title="item.title" :detail="item.detail"
                             data-attention-item="queue" :data-key="item.key">
@@ -609,14 +626,14 @@
                 </template>
             </div>
 
-            <div v-if="attention.hidden.length && !attentionExpanded" class="o-attention-stack" aria-hidden="true" data-attention-stack>
+            <div v-if="attentionStack.hidden.length && !attentionExpanded" class="o-attention-stack" aria-hidden="true" data-attention-stack>
                 <span class="o-attention-stack__edge"></span>
                 <span class="o-attention-stack__edge o-attention-stack__edge--back"></span>
             </div>
-            <button v-if="attention.hidden.length" type="button" class="o-attention-toggle" aria-controls="orrery-attention-list"
+            <button v-if="attentionStack.hidden.length" ref="attentionToggle" type="button" class="o-attention-toggle" aria-controls="orrery-attention-list"
                     :aria-expanded="attentionExpanded ? 'true' : 'false'" data-attention-toggle @click="toggleAttention">{{ attentionToggleText }}</button>
 
-            <notice v-if="moreGroups && (attentionExpanded || !attention.hidden.length)" tone="danger" data-more-groups
+            <notice v-if="moreGroups && (attentionExpanded || !attentionStack.hidden.length)" tone="danger" data-more-groups
                     :title="`${moreGroups.atLeast ? 'At least ' : ''}${moreGroups.count.toLocaleString()} more failure ${moreGroups.count === 1 ? 'group' : 'groups'} failed in the last 15 minutes`">
                 <template #link>
                     <o-button variant="link" to="/failed">Show all</o-button>

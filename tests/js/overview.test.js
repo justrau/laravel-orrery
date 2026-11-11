@@ -313,6 +313,36 @@ test('attentionItems orders backed-up queues by wait over limit, and an unknown 
     assert.equal(items[1].title, 'unknown has waited 1 min 40 s, over its 60 s limit');
 });
 
+// Rejects: "has no worker" (tier 1) for a queue of an uninstrumented connection, where a busy
+// worker drops off the list (no lease names it), and a detail without the reason. It would still
+// pass another wording before "(uninstrumented)".
+test('attentionItems never calls a queue of an uninstrumented connection stalled', () => {
+    const items = attentionItems([
+        queueRow('foreign', {processes: 0, instrumented: false}),
+        queueRow('own', {processes: 0, instrumented: true}),
+    ], null, [], NOW);
+
+    assert.deepEqual(items.map(item => [item.key, item.tier]), [['queue:database:own', 1], ['queue:database:foreign', 3]]);
+    assert.match(items[1].detail, /workers unknown \(uninstrumented\)$/);
+    assert.equal(items[1].title, 'foreign has waited 1 min 30 s, over its 60 s limit');
+});
+
+// Rejects: a rule `quiet + unknown === workers` → stalled (a worker of unknown state can be busy),
+// and a detail that says only "on 2 workers" without the unknown and quiet counts.
+test('attentionItems keeps queues with workers of unknown state in tier 3 and names them', () => {
+    const items = attentionItems([
+        queueRow('all unknown', {processes: 2, quiet_processes: 0, unknown_state_processes: 2}),
+        queueRow('mixed', {processes: 2, quiet_processes: 1, unknown_state_processes: 1}),
+        queueRow('one unknown', {processes: 1, quiet_processes: 0, unknown_state_processes: 1}),
+    ], null, [], NOW);
+
+    assert.deepEqual(items.map(item => item.tier), [3, 3, 3]);
+    const byKey = Object.fromEntries(items.map(item => [item.key, item.detail]));
+    assert.equal(byKey['queue:database:all unknown'], '120 ready on 2 workers · 2 workers of unknown state');
+    assert.equal(byKey['queue:database:mixed'], '120 ready on 2 workers · 1 quiet, 1 of unknown state');
+    assert.equal(byKey['queue:database:one unknown'], '120 ready on 1 worker · 1 worker of unknown state');
+});
+
 // Rejects: an at-least count compared above a larger exact count, an unknown count ranked first,
 // fading groups ordered by count, and ties that follow the input order (cards that jump between polls).
 test('attentionItems orders groups by count then last failure, and breaks ties by key', () => {
@@ -358,6 +388,19 @@ test('attentionSummary counts the hidden items by type', () => {
     assert.equal(attentionSummary(items(1, 1)), 'Show 2 more · 1 queue over limit, 1 failure group');
     assert.equal(attentionSummary(items(0, 2)), 'Show 2 more · 2 failure groups');
     assert.equal(attentionSummary(items(2, 0)), 'Show 2 more · 2 queues over limit');
+});
+
+// Rejects: a summary that leaves out the failure groups without a notice of their own (they show
+// only after expanding), and an exact total while those groups are an at-least count.
+test('attentionSummary counts the groups without a notice of their own', () => {
+    const items = (queues, groups) => [
+        ...Array.from({length: queues}, () => ({type: 'queue'})),
+        ...Array.from({length: groups}, () => ({type: 'group'})),
+    ];
+
+    assert.equal(attentionSummary(items(2, 1), {count: 4, atLeast: false}), 'Show 7 more · 2 queues over limit, 5 failure groups');
+    assert.equal(attentionSummary(items(2, 0), {count: 1, atLeast: true}), 'Show at least 3 more · 2 queues over limit, at least 1 failure group');
+    assert.equal(attentionSummary(items(2, 0), null), 'Show 2 more · 2 queues over limit');
 });
 
 // Rejects: a storage that throws into the page, and a stored value other than "1" read as expanded.

@@ -10,6 +10,7 @@ import {
     isShapeError,
     heartbeatAge,
     workerState,
+    workerStateNote,
     listBody,
     objectBody,
     awaitingOperations,
@@ -1142,6 +1143,22 @@ test('workerState: a live worker with an old heartbeat is live through its lease
     assert.deepEqual(workerState({state: 'live', heartbeat_fresh: true, active_leases: 1, quiet_seconds: 35, last_seen_at: NOW - 45}, NOW), lease);
     assert.deepEqual(workerState({state: 'live', heartbeat_fresh: true, active_leases: 1, quiet_seconds: 35, last_seen_at: NOW - 20}, NOW), {key: 'live', label: 'Fresh heartbeat'});
     assert.deepEqual(workerState({state: 'live', heartbeat_fresh: true, active_leases: 1, last_seen_at: NOW - 45}, NOW), {key: 'live', label: 'Fresh heartbeat'});
+});
+
+// Rejects: a subtitle that counts the quiet workers but not the ones of unknown state, and a
+// missing state counted as live (it is unknown).
+test('workerStateNote counts the quiet and the unknown workers', () => {
+    const workers = [
+        {state: 'quiet', last_seen_at: NOW - 50},
+        {state: 'unknown'},
+        {state: 'live', heartbeat_fresh: true},
+        {},
+    ];
+
+    assert.equal(workerStateNote(workers, NOW), ' · 1 quiet · 2 unknown');
+    assert.equal(workerStateNote([{state: 'unknown'}], NOW), ' · 1 unknown');
+    assert.equal(workerStateNote([{state: 'live'}], NOW), '');
+    assert.equal(workerStateNote(null, NOW), '');
 });
 
 // Rejects: an unknown state (a worker of an uninstrumented connection) drawn as quiet or live.
