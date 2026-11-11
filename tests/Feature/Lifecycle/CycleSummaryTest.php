@@ -10,6 +10,7 @@ use Justrau\Orrery\Lifecycle\CycleSummaries;
 use Justrau\Orrery\Listeners\ObserveJobFailed;
 use Justrau\Orrery\Tests\Feature\Jobs\FailingJob;
 use Justrau\Orrery\Tests\Feature\Lifecycle\Jobs\ScriptedJob;
+use Justrau\Orrery\Tests\Feature\Workers\WorkerFixtures;
 use Justrau\Orrery\Tests\Support\Barrier;
 use Justrau\Orrery\Tests\Support\WorkerProcess;
 use PHPUnit\Framework\Attributes\DataProvider;
@@ -21,6 +22,8 @@ use PHPUnit\Framework\Attributes\Group;
  */
 final class CycleSummaryTest extends CycleTestCase
 {
+    use WorkerFixtures;
+
     /**
      * Rejects: a summary written at the failure.
      */
@@ -147,8 +150,18 @@ final class CycleSummaryTest extends CycleTestCase
         self::assertSame($tries, (int) $row->worker_tries);
         self::assertSame($timeout, (int) $row->worker_timeout);
 
-        // A later heartbeat of another worker must not change the frozen values.
-        $this->mirror()->table('orrery_worker_heartbeats')->update(['options' => json_encode(['tries' => 99, 'timeout' => 99])]);
+        // A later heartbeat must not change the frozen values. A stopped
+        // --once worker deletes its own row (ForgetStoppedWorker), a listen
+        // child keeps it, so the test writes the rows itself: one under the
+        // failing worker's id and one of another worker, with other values.
+        self::assertNotNull($row->reserved_by);
+        $this->mirror()->table('orrery_worker_heartbeats')->delete();
+        $later = ['options' => json_encode(['tries' => 99, 'timeout' => 99])];
+        $this->insertHeartbeats([
+            $this->heartbeatRow('web-1', 1, ['worker_id' => (string) $row->reserved_by] + $later),
+            $this->heartbeatRow('web-2', 2, $later),
+        ]);
+        self::assertSame(2, $this->mirror()->table('orrery_worker_heartbeats')->count());
 
         $this->nativeRetry();
         self::assertNotNull($queue->pop());
