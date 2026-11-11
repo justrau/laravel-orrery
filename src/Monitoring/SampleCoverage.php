@@ -458,11 +458,11 @@ final class SampleCoverage
         $bucket = $sqlite ? 'CAST('.$column.' / 60 AS INTEGER)' : 'FLOOR('.$column.' / 60)';
         // Each series expression, keyed by its alias in the select.
         $names = match ($scope) {
-            'queue' => $binary ? ['c' => 'CAST(`connection` AS BINARY)', 'q' => 'CAST(`queue` AS BINARY)'] : ['c' => '"connection"', 'q' => '"queue"'],
-            'job' => $binary ? ['n' => 'CAST(`name` AS BINARY)'] : ['n' => '"name"'],
+            'queue' => $binary ? ['orrery_c' => 'CAST(`connection` AS BINARY)', 'orrery_q' => 'CAST(`queue` AS BINARY)'] : ['orrery_c' => '"connection"', 'orrery_q' => '"queue"'],
+            'job' => $binary ? ['orrery_n' => 'CAST(`name` AS BINARY)'] : ['orrery_n' => '"name"'],
             default => [],
         };
-        $select = $bucket.' AS bucket';
+        $select = $bucket.' AS orrery_bucket';
 
         foreach ($names as $alias => $expression) {
             $select .= ', '.$expression.' AS '.$alias;
@@ -477,7 +477,7 @@ final class SampleCoverage
         // MySQL and MariaDB group by the select aliases: MariaDB's
         // ONLY_FULL_GROUP_BY (Laravel's strict mode) does not match a
         // selected expression with the same expression in GROUP BY.
-        $groups = $binary ? 'bucket' : $bucket;
+        $groups = $binary ? 'orrery_bucket' : $bucket;
 
         foreach ($names as $alias => $expression) {
             $groups .= ', '.($binary ? $alias : $expression);
@@ -487,12 +487,12 @@ final class SampleCoverage
         $query->selectRaw($select)->groupByRaw($groups);
 
         if ($rowLimit !== null) {
-            $query->orderByRaw('bucket DESC')->limit($rowLimit + 1);
+            $query->orderByRaw('orrery_bucket DESC')->limit($rowLimit + 1);
         }
 
         $read = $query->get();
         $past = $rowLimit === null ? null : $read->get($rowLimit);
-        $cut = $past === null ? null : (int) $past->bucket * SampleCounts::MINUTE;
+        $cut = $past === null ? null : (int) $past->orrery_bucket * SampleCounts::MINUTE;
         $used = $rowLimit === null ? $read->count() : min($read->count(), $rowLimit);
         // Each row is freed once it is read.
         $items = $read->all();
@@ -500,7 +500,7 @@ final class SampleCoverage
 
         foreach ($items as $index => $row) {
             unset($items[$index]);
-            $minute = (int) $row->bucket * SampleCounts::MINUTE;
+            $minute = (int) $row->orrery_bucket * SampleCounts::MINUTE;
 
             // The minutes at or before the cut are unknown: no counts, no label.
             if ($cut !== null && $minute <= $cut) {
@@ -545,14 +545,14 @@ final class SampleCoverage
         }
 
         if ($scope === 'job') {
-            $name = (string) ($row->n ?? '');
+            $name = (string) ($row->orrery_n ?? '');
 
             return [SampleCounts::series('job', $name), ['name' => $name] + $none];
         }
 
-        $connection = (string) ($row->c ?? '');
+        $connection = (string) ($row->orrery_c ?? '');
         $connection = $aliases[$connection] ?? $connection;
-        $queue = (string) ($row->q ?? '');
+        $queue = (string) ($row->orrery_q ?? '');
 
         return [SampleCounts::series('queue', $connection, $queue), ['connection' => $connection, 'queue' => $queue, 'name' => null]];
     }

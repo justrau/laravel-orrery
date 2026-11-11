@@ -48,13 +48,14 @@ use Throwable;
  *   Linux), and a connection that drops later still reconnects once.
  *
  * The settings per engine:
- * - MySQL and MariaDB: PDO::ATTR_AUTOCOMMIT true; the init command is the
- *   application's followed by `SET SESSION autocommit = 1,
- *   innodb_lock_wait_timeout = 5, lock_wait_timeout = 5`; after connect
- *   `SET SESSION max_execution_time = <ms>` (MariaDB: max_statement_time).
- *   When the application's init command names an isolation level, the
- *   package adds `SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ`
- *   after its own statement, so the package session runs at MySQL's default.
+ * - MySQL and MariaDB: PDO::ATTR_AUTOCOMMIT true; the application's init
+ *   command stays unchanged; after connect one statement
+ *   `SET SESSION autocommit = 1, innodb_lock_wait_timeout = 5,
+ *   lock_wait_timeout = 5, max_execution_time = <ms>` (MariaDB:
+ *   max_statement_time), so it works with multi-statements off. When the
+ *   application's init command names an isolation level, the package then
+ *   runs `SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ`, so the
+ *   package session runs at MySQL's default.
  *   orrery.sessions.pooled never applies to them.
  * - Postgres, not pooled: isolation READ COMMITTED, then one exec() of
  *   `SET lock_timeout = '5s'; SET statement_timeout = <ms>; SET
