@@ -219,7 +219,7 @@
             <router-link v-for="item in jobItems" :key="item.key" :to="item.to" class="o-nav-item"
                          :class="{'o-nav-item--active': isActive(item)}" :title="item.title" :data-nav="item.key">
                 <icon :name="item.icon" class="o-nav-item__icon" />
-                <span class="o-nav-item__label">{{ item.label }}</span>
+                <span class="o-nav-item__label o-nav-item__label--fixed">{{ item.label }}</span>
                 <span v-if="item.count" class="o-nav-item__count">{{ item.count }}</span>
             </router-link>
 
@@ -255,7 +255,7 @@
             <router-link v-for="item in monitoringItems" :key="item.key" :to="item.to" class="o-nav-item"
                          :class="{'o-nav-item--active': isActive(item)}" :title="item.title || null">
                 <icon :name="item.icon" class="o-nav-item__icon" />
-                <span class="o-nav-item__label">{{ item.label }}</span>
+                <span class="o-nav-item__label o-nav-item__label--fixed">{{ item.label }}</span>
                 <span v-if="item.count" class="o-nav-item__count">{{ item.count }}</span>
             </router-link>
         </div>
@@ -404,7 +404,15 @@
         font-size: var(--text-table);
         font-variant-numeric: tabular-nums;
         font-weight: var(--font-weight-regular);
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
         white-space: nowrap;
+    }
+
+    /* A fixed nav label (Batches, Tags, …) keeps its words; its count shrinks first. */
+    .o-nav-item__label--fixed {
+        flex: 1 0 auto;
     }
 
     .o-nav-item__state {

@@ -14,6 +14,10 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 - **The sidebar groups the queues by jobs table.** Each set of connections that share one jobs table has its own section, headed with the connection names ("Queues · database, database-long"), and a queue shows only its name. Before, one section was headed "Queues · database" after the queue driver, which read like a connection named `database`, and a queue name on two connections showed as "default (database)".
 
+### Fixed
+
+- **A long running-batch count truncated the sidebar's "Batches" label** (to "Bat…"). An "at least" count now reads "50+ running", with "At least 50 running batches" in its title, and the fixed nav labels keep their words while the count shrinks first.
+
 ## [0.3.0] - 2026-11-11
 
 ### Added

@@ -1048,7 +1048,8 @@ export function runningBatches(data) {
 
 /**
  * The sidebar count of the running batches (runningBatches()): `{text,
- * title}`. A known zero shows nothing; no known running batch while some
+ * title}`. An "at least" count is "50+ running", with the words in the
+ * title. A known zero shows nothing; no known running batch while some
  * could not be read is unknown ("—"), never a silent zero. `failed` (the
  * last read failed) and a read whose count is unknown (`count` null: the
  * list could not be read, runningBatches() null) are unknown too; only
@@ -1061,7 +1062,10 @@ export function batchesCount(batches, failed = false) {
 
     if (batches.count === 0) return batches.atLeast ? {text: '—', title: 'Running batches unknown'} : {text: null, title: null};
 
-    return {text: `${batches.atLeast ? 'at least ' : ''}${formatCount(batches.count)} running`, title: null};
+    // "50+" keeps the aside short, so the label "Batches" never truncates; the title says "at least".
+    return batches.atLeast
+        ? {text: `${formatCount(batches.count)}+ running`, title: `At least ${formatCount(batches.count)} running batches`}
+        : {text: `${formatCount(batches.count)} running`, title: null};
 }
 
 /** A list body of a live read; a body of another shape throws, so the part is a failed read, not an empty list. */

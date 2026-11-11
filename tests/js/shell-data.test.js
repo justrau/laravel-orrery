@@ -1058,7 +1058,8 @@ test('listBody and objectBody throw on a body of the wrong shape', () => {
 test('batchesCount says unknown when no running batch is known but some may run', () => {
     assert.deepEqual(batchesCount({count: 0, atLeast: true}), {text: '—', title: 'Running batches unknown'});
     assert.deepEqual(batchesCount({count: 0, atLeast: false}), {text: null, title: null});
-    assert.deepEqual(batchesCount({count: 3, atLeast: true}), {text: 'at least 3 running', title: null});
+    // A short aside, so the nav label "Batches" never truncates; the title keeps the words.
+    assert.deepEqual(batchesCount({count: 50, atLeast: true}), {text: '50+ running', title: 'At least 50 running batches'});
     assert.deepEqual(batchesCount({count: 1200, atLeast: false}), {text: '1,200 running', title: null});
     // Before the first read nothing; a failed read or an unreadable list is unknown, never "no running batch".
     assert.deepEqual(batchesCount(null), {text: null, title: null});
