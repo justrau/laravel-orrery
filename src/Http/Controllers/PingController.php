@@ -29,10 +29,12 @@ use Throwable;
  *   (read raw), compared with hash_equals(); missing or wrong: 403 with an
  *   empty body.
  * - Failed token checks are limited (MAX_FAILURES per minute and client,
- *   Laravel's RateLimiter on `cache.limiter` or the default store): a
- *   client past the limit gets 429 before the comparison. A right token
- *   never counts, and a 404 never touches the cache. On a store that writes
- *   a host SQLite file (D17) the limit is skipped, and /api/health says so.
+ *   an IPv6 client by its /64: clientKey(); Laravel's RateLimiter on
+ *   `cache.limiter` or the default store): a client past the limit gets
+ *   429 before the comparison. A right token never counts, and a 404 never
+ *   touches the cache. On a missing store, or one that writes a host SQLite
+ *   file (D17), the limit is skipped; on an `array` or `null` store it keeps
+ *   nothing between requests. /api/health says which (state()).
  * - The package off: 503 `{"status": "disabled"}`.
  * - Else Monitoring\Ping: 200 when every check passes, else 503.
  *
@@ -78,7 +80,7 @@ class PingController
 
         /** @var string $token */
         $limiter = self::limiter();
-        $key = 'orrery-ping:'.sha1((string) $request->ip());
+        $key = 'orrery-ping:'.sha1(self::clientKey((string) $request->ip()));
 
         if ($limiter !== null && self::guarded(static fn (): bool => $limiter->tooManyAttempts($key, self::MAX_FAILURES)) === true) {
             $retry = self::guarded(static fn (): int => $limiter->availableIn($key)) ?? 60;
@@ -148,16 +150,25 @@ class PingController
     /**
      * The ping's configuration for /api/health: `token` `missing`,
      * `too_short` (the route answers 404) or `set`; `rate_limit` `on`,
-     * `off_host_sqlite` (the limiter's store writes a host SQLite file, so
-     * failed checks are not limited) or null while the route is off.
+     * `off` or null while the route is off, and `rate_limit_off` the reason:
+     * `host_sqlite` (the limiter's store writes a host SQLite file, so the
+     * limit is skipped), `store_missing` (no such store: the limit is
+     * skipped) or `store_not_persistent` (an `array` or `null` store keeps
+     * nothing between requests).
      *
-     * @return array{token: 'missing'|'too_short'|'set', rate_limit: 'on'|'off_host_sqlite'|null}
+     * @return array{token: 'missing'|'too_short'|'set', rate_limit: 'on'|'off'|null, rate_limit_off: 'host_sqlite'|'store_missing'|'store_not_persistent'|null}
      */
     public static function state(): array
     {
         $token = self::tokenState(config('orrery.ping.token'));
 
-        return ['token' => $token, 'rate_limit' => $token !== 'set' ? null : (self::limiterStoreSafe() ? 'on' : 'off_host_sqlite')];
+        if ($token !== 'set') {
+            return ['token' => $token, 'rate_limit' => null, 'rate_limit_off' => null];
+        }
+
+        $off = self::limiterOff();
+
+        return ['token' => $token, 'rate_limit' => $off === null ? 'on' : 'off', 'rate_limit_off' => $off];
     }
 
     /**
@@ -172,22 +183,80 @@ class PingController
         return strlen($token) < self::MIN_TOKEN_LENGTH ? 'too_short' : 'set';
     }
 
-    /** The limiter, or null on a store that writes a host SQLite file. */
+    /**
+     * The limiter key of a client address: an IPv4 address whole (also one
+     * mapped into IPv6), an IPv6 address by its /64 network, because one
+     * client usually holds a whole /64 and could rotate through it.
+     */
+    public static function clientKey(string $ip): string
+    {
+        if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV6) === false) {
+            return 'v4:'.$ip;
+        }
+
+        $packed = inet_pton($ip);
+
+        if ($packed === false || strlen($packed) !== 16) {
+            return 'ip:'.$ip;
+        }
+
+        if (str_starts_with($packed, str_repeat("\0", 10)."\xff\xff")) {
+            return 'v4:'.inet_ntop(substr($packed, 12));
+        }
+
+        return 'v6:'.bin2hex(substr($packed, 0, 8));
+    }
+
+    /** The limiter, or null on a store that is missing or writes a host SQLite file. */
     private static function limiter(): ?RateLimiter
     {
-        if (! self::limiterStoreSafe()) {
+        if (in_array(self::limiterOff(), ['host_sqlite', 'store_missing'], true)) {
             return null;
         }
 
         return self::guarded(static fn (): RateLimiter => Container::getInstance()->make(RateLimiter::class));
     }
 
-    /** Whether Laravel's limiter store (`cache.limiter`, else the default store) writes no host SQLite file. */
-    private static function limiterStoreSafe(): bool
+    /**
+     * Why Laravel's limiter store (`cache.limiter`, else the default store)
+     * does not limit across requests, or null when it does.
+     *
+     * @return 'host_sqlite'|'store_missing'|'store_not_persistent'|null
+     */
+    private static function limiterOff(): ?string
     {
-        $store = config('cache.limiter');
+        $config = config();
+        $store = $config->get('cache.limiter');
+        $store = is_string($store) && $store !== '' ? $store : $config->get('cache.default');
 
-        return Container::getInstance()->make(HostFiles::class)->cacheIsSafe(is_string($store) && $store !== '' ? $store : null);
+        if (! is_string($store) || ! is_array($config->get("cache.stores.{$store}"))) {
+            return 'store_missing';
+        }
+
+        if (! Container::getInstance()->make(HostFiles::class)->cacheIsSafe($store)) {
+            return 'host_sqlite';
+        }
+
+        return self::persists($store, 0) ? null : 'store_not_persistent';
+    }
+
+    /** Whether a store keeps its values between requests: not `array` or `null`; a failover store when one of its stores does. */
+    private static function persists(string $store, int $depth): bool
+    {
+        $definition = config("cache.stores.{$store}");
+        $driver = is_array($definition) ? ($definition['driver'] ?? null) : null;
+
+        if ($driver === 'failover' && $depth < 5) {
+            foreach ((array) ($definition['stores'] ?? []) as $inner) {
+                if (is_string($inner) && is_array(config("cache.stores.{$inner}")) && self::persists($inner, $depth + 1)) {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        return is_string($driver) && ! in_array($driver, ['array', 'null'], true);
     }
 
     /**

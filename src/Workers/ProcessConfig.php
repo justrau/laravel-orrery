@@ -147,7 +147,8 @@ final class ProcessConfig
                 .'WorkingDirectory='.str_replace('%', '%%', $this->path)."\n"
                 ."ExecStart={$exec}\n"
                 ."Restart=always\n"
-                ."RestartSec=5\n"
+                // 1 s: every clean recycle (queue:restart, --max-jobs, --max-time) waits this long too.
+                ."RestartSec=1\n"
                 ."KillSignal=SIGTERM\n"
                 .'TimeoutStopSec='.($timeout === 0 ? 'infinity' : (string) ($timeout + 30))."\n"
                 ."\n"

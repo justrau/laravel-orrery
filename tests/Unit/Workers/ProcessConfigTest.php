@@ -104,7 +104,7 @@ final class ProcessConfigTest extends TestCase
             WorkingDirectory=/srv/my app
             ExecStart=/usr/bin/php "/srv/my app/artisan" queue:work database --queue=high,default --name=default --tries=3 --timeout=90
             Restart=always
-            RestartSec=5
+            RestartSec=1
             KillSignal=SIGTERM
             TimeoutStopSec=120
 
@@ -123,7 +123,7 @@ final class ProcessConfigTest extends TestCase
             WorkingDirectory=/srv/my app
             ExecStart=/usr/bin/php "/srv/my app/artisan" queue:work database "--queue=it's big,low prio" --name=reports --timeout=0 --sleep=0.5 --backoff=1,5,10 --memory=256 --max-jobs=500 --max-time=3600 --rest=1 --force
             Restart=always
-            RestartSec=5
+            RestartSec=1
             KillSignal=SIGTERM
             TimeoutStopSec=infinity
 

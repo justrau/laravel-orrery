@@ -150,9 +150,9 @@ use Throwable;
  *   It reads no database.
  *
  * - `ping`: the monitoring ping's configuration (PingController::state()):
- *   `token` `missing`, `too_short` (the route answers 404) or `set`, and
- *   `rate_limit` `on`, `off_host_sqlite` (failed token checks are not
- *   limited: the limiter's store writes a host SQLite file) or null.
+ *   `token` `missing`, `too_short` (the route answers 404) or `set`;
+ *   `rate_limit` `on`, `off` or null (no route), and `rate_limit_off`
+ *   `host_sqlite`, `store_missing` or `store_not_persistent`.
  * - `guard_invalid`: whether the guard that Authenticate
  *   asks for its 401 rule (`orrery.guard`; null or '' for the default guard)
  *   cannot be used. True when the value is not a string, has a dot, names no

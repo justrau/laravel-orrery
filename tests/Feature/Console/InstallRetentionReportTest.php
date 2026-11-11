@@ -96,5 +96,14 @@ final class InstallRetentionReportTest extends TestCase
         $this->app['config']->set('orrery.ping.token', 'short');
         self::assertSame(0, Artisan::call('orrery:install'));
         self::assertStringContainsString('ORRERY_PING_TOKEN is shorter than 32 characters', Artisan::output());
+
+        // A long token on the harness's array store: the limit keeps nothing between requests.
+        $this->app['config']->set('orrery.ping.token', str_repeat('t', 40));
+        self::assertSame(0, Artisan::call('orrery:install'));
+        self::assertStringContainsString('keeps nothing between requests', Artisan::output());
+
+        $this->app['config']->set('cache.limiter', 'no_such_store');
+        self::assertSame(0, Artisan::call('orrery:install'));
+        self::assertStringContainsString('no_such_store', Artisan::output());
     }
 }

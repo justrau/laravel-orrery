@@ -367,8 +367,19 @@ class InstallCommand extends Command
             $this->components->warn('ORRERY_PING_TOKEN is shorter than '.PingController::MIN_TOKEN_LENGTH.' characters: the ping route stays off (404) until you set a longer token.');
         }
 
-        if ($state['rate_limit'] === 'off_host_sqlite') {
-            $this->components->warn('The cache store of the rate limiter (cache.limiter, else the default store) writes your SQLite database: the ping does not limit failed token checks. Use another store for cache.limiter.');
+        $limiter = config('cache.limiter');
+        $store = is_string($limiter) && $limiter !== '' ? $limiter : config('cache.default');
+        $store = is_string($store) ? $store : '(none)';
+
+        $reason = match ($state['rate_limit_off']) {
+            'host_sqlite' => 'writes your SQLite database, which Orrery does not write automatically: the ping does not limit failed token checks',
+            'store_missing' => 'is not a store of cache.stores: the ping does not limit failed token checks',
+            'store_not_persistent' => 'keeps nothing between requests (an array or null store): the ping limits failed token checks only within one process',
+            default => null,
+        };
+
+        if ($reason !== null) {
+            $this->components->warn("The rate limiter's cache store \"{$store}\" (cache.limiter, else the default store) {$reason}. Set cache.limiter to a shared store such as redis, memcached or a database store off your SQLite file.");
         }
     }
 

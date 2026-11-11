@@ -184,6 +184,13 @@ final class Ping
      * not count. Web, command and tick windows also count failed dashboard
      * reads and skipped tick phases, so they do not count either.
      *
+     * The read scans orrery_health_events: only `started_at` has an index,
+     * and a window that started before the range can still count (it ended,
+     * or had its last error, in it), so no index range finds every match.
+     * Health retention bounds the table (closed windows for
+     * `health.retention_days`), and a window exists only while something
+     * degraded.
+     *
      * @return Check
      */
     private static function observations(Watcher $watcher, PackageSession $sessions, float $now, int $maxAge): array

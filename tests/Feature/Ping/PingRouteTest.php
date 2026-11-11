@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Ping;
 
 use Justrau\Orrery\Database\Schema\PackageSchema;
+use Justrau\Orrery\Http\Controllers\PingController;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Maintenance\TickOutcome;
 use Justrau\Orrery\Monitoring\LongWaitIncidents;
@@ -160,7 +161,7 @@ final class PingRouteTest extends PingTestCase
 
             self::assertSame([], $statements);
             Orrery::auth(static fn (): bool => true);
-            $this->getJson('/orrery/api/health')->assertOk()->assertJsonPath('ping', ['token' => 'set', 'rate_limit' => 'off_host_sqlite']);
+            $this->getJson('/orrery/api/health')->assertOk()->assertJsonPath('ping', ['token' => 'set', 'rate_limit' => 'off', 'rate_limit_off' => 'host_sqlite']);
         } finally {
             @unlink($file);
         }
@@ -174,14 +175,56 @@ final class PingRouteTest extends PingTestCase
         $this->get('/orrery/ping?token='.str_repeat('a', 31))->assertNotFound();
 
         Orrery::auth(static fn (): bool => true);
-        $this->getJson('/orrery/api/health')->assertOk()->assertJsonPath('ping', ['token' => 'too_short', 'rate_limit' => null]);
+        $this->getJson('/orrery/api/health')->assertOk()->assertJsonPath('ping', ['token' => 'too_short', 'rate_limit' => null, 'rate_limit_off' => null]);
     }
 
-    public function test_health_reports_the_ping_state(): void
+    /**
+     * Rejects: a rate limit reported as on when its store keeps nothing between requests (the harness's `array`
+     * store, a `null` store) or does not exist, and one reported as off on a store that persists.
+     */
+    public function test_health_reports_whether_the_limit_persists(): void
     {
         Orrery::auth(static fn (): bool => true);
+        $health = fn (): mixed => $this->getJson('/orrery/api/health')->assertOk()->json('ping');
 
-        $this->getJson('/orrery/api/health')->assertOk()->assertJsonPath('ping', ['token' => 'set', 'rate_limit' => 'on']);
+        self::assertSame(['token' => 'set', 'rate_limit' => 'off', 'rate_limit_off' => 'store_not_persistent'], $health());
+
+        $this->app['config']->set('cache.stores.nothing', ['driver' => 'null']);
+        $this->app['config']->set('cache.limiter', 'nothing');
+        self::assertSame(['token' => 'set', 'rate_limit' => 'off', 'rate_limit_off' => 'store_not_persistent'], $health());
+
+        $this->app['config']->set('cache.limiter', 'no_such_store');
+        self::assertSame(['token' => 'set', 'rate_limit' => 'off', 'rate_limit_off' => 'store_missing'], $health());
+        // A missing store limits nothing and breaks nothing.
+        $this->get('/orrery/ping?token=wrong')->assertForbidden();
+
+        $this->app['config']->set('cache.stores.files', ['driver' => 'file', 'path' => sys_get_temp_dir().'/orrery-ping-limiter-'.getmypid()]);
+        $this->app['config']->set('cache.limiter', 'files');
+        self::assertSame(['token' => 'set', 'rate_limit' => 'on', 'rate_limit_off' => null], $health());
+    }
+
+    /**
+     * Rejects: a limiter key per IPv6 address, so a client with a /64 rotates addresses to dodge the limit, and a key
+     * that merges different /64 networks or IPv4 addresses.
+     */
+    public function test_ipv6_clients_share_a_limit_per_64_network(): void
+    {
+        for ($i = 0; $i < 60; $i++) {
+            $this->withServerVariables(['REMOTE_ADDR' => '2001:db8:1:2::'.dechex($i + 1)])->get('/orrery/ping?token=wrong')->assertForbidden();
+        }
+
+        $this->withServerVariables(['REMOTE_ADDR' => '2001:db8:1:2:ffff::9'])->get('/orrery/ping?token=wrong')->assertStatus(429);
+        $this->withServerVariables(['REMOTE_ADDR' => '2001:db8:1:3::1'])->get('/orrery/ping?token=wrong')->assertForbidden();
+        $this->withServerVariables(['REMOTE_ADDR' => '192.0.2.1'])->get('/orrery/ping?token=wrong')->assertForbidden();
+    }
+
+    public function test_the_limiter_key_groups_ipv6_by_64_and_keeps_ipv4_whole(): void
+    {
+        self::assertSame(PingController::clientKey('2001:db8:1:2::1'), PingController::clientKey('2001:db8:1:2:abcd:ef01:2345:6789'));
+        self::assertNotSame(PingController::clientKey('2001:db8:1:2::1'), PingController::clientKey('2001:db8:1:3::1'));
+        self::assertNotSame(PingController::clientKey('192.0.2.1'), PingController::clientKey('192.0.2.2'));
+        self::assertSame(PingController::clientKey('192.0.2.1'), PingController::clientKey('::ffff:192.0.2.1'), 'an IPv4-mapped address is its IPv4 address');
+        self::assertNotSame(PingController::clientKey('::ffff:192.0.2.1'), PingController::clientKey('::ffff:192.0.2.2'));
     }
 
     /**

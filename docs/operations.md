@@ -124,7 +124,7 @@ Orrery never starts or supervises workers. You can declare the worker layout tha
 default (2 processes): php artisan queue:work database --queue=high,default --name=default --tries=3 --timeout=60
 ```
 
-`supervisor` prints one program per pool. `stopwaitsecs` is the pool's timeout plus 30 seconds, because supervisord must wait longer than the longest job before it kills a worker. A job class with its own `$timeout` can run longer than the pool's `--timeout`: then raise `stopwaitsecs` (and `TimeoutStopSec` for systemd) above that job's timeout. `startsecs=1` and `startretries=60` keep a program out of the `FATAL` state during a database outage of up to about 30 minutes: a worker that loses its connection exits at once, and supervisord retries it with growing pauses. The paths must be absolute:
+`supervisor` prints one program per pool. `stopwaitsecs` is the pool's timeout plus 30 seconds, because supervisord must wait longer than the longest job before it kills a worker. A job class with its own `$timeout` can run longer than the pool's `--timeout`: then raise `stopwaitsecs` (and `TimeoutStopSec` for systemd) above that job's timeout. `startsecs=1` and `startretries=60` keep a program out of the `FATAL` state when its workers fail at boot, for example while the database is down: supervisord retries a process that exits within its first second with growing pauses (1 s, 2 s, and so on), which covers about 30 minutes. A worker that loses its connection while it runs (Laravel 13's worker sleeps a second, then exits) has run longer than `startsecs`, so `autorestart` starts it again at once. The paths must be absolute:
 
 ```ini
 [program:laravel-default]
@@ -143,7 +143,7 @@ stdout_logfile=/var/www/app/storage/logs/laravel-default.log
 stopwaitsecs=90
 ```
 
-`systemd` prints one template unit per pool, with its enable line as a comment. `TimeoutStopSec` is the timeout plus 30 seconds (`infinity` for `timeout` 0). `StartLimitIntervalSec=0` and `RestartSec=5` keep restarting a worker that exits during a database restart: with systemd's default start limit (5 starts in 10 seconds) the unit would stay down. `ExecStart` needs absolute paths: a bare `--php` (such as `php`) is looked up on the `PATH` of the shell that runs `orrery:workers`, and the command fails when it is not found:
+`systemd` prints one template unit per pool, with its enable line as a comment. `TimeoutStopSec` is the timeout plus 30 seconds (`infinity` for `timeout` 0). `StartLimitIntervalSec=0` and `RestartSec=1` keep restarting a worker that exits during a database restart: with systemd's default start limit (5 starts in 10 seconds) the unit would stay down. `RestartSec` also delays each clean recycle (`queue:restart`, `--max-jobs`, `--max-time`) by that second; a longer value would spare the database during an outage at the cost of slower recycles. `ExecStart` needs absolute paths: a bare `--php` (such as `php`) is looked up on the `PATH` of the shell that runs `orrery:workers`, and the command fails when it is not found:
 
 ```ini
 # /etc/systemd/system/laravel-default@.service
