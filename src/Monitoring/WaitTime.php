@@ -47,8 +47,8 @@ use Throwable;
  * database, table and retry_after of the queue object that the queue manager
  * holds (target()), on that database connection's observer session. The
  * backlog read is one grouped read of the table, byte-exact: grouped by the
- * bytes of the queue (MySQL: GROUP BY CAST(queue AS BINARY), with that
- * expression selected; Postgres and SQLite compare bytes under their
+ * bytes of the queue (MySQL and MariaDB: CAST(queue AS BINARY) selected
+ * and grouped by its alias; Postgres and SQLite compare bytes under their
  * default collations), so `HIGH` beside a requested `high` is a row of its
  * own.
  *
@@ -848,7 +848,9 @@ final class WaitTime
         $expiredBefore = $time - $retryAfter;
         // The grouping by the queue's bytes keeps HIGH and high apart.
         $rows = $this->jobs($target)
-            ->when($binary, static fn (Builder $query) => $query->groupByRaw('CAST(`queue` AS BINARY)')->selectRaw(
+            // By the alias: MariaDB's ONLY_FULL_GROUP_BY does not match the
+            // selected CAST() with the same CAST() in GROUP BY.
+            ->when($binary, static fn (Builder $query) => $query->groupByRaw('queue_bytes')->selectRaw(
                 'CAST(`queue` AS BINARY) AS queue_bytes, '
                 .'SUM(CASE WHEN reserved_at IS NULL AND available_at <= ? THEN 1 ELSE 0 END) AS ready, '
                 .'MIN(CASE WHEN reserved_at IS NULL AND available_at <= ? THEN available_at END) AS ready_oldest, '

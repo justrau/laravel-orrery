@@ -48,13 +48,14 @@ use Throwable;
  *   Linux), and a connection that drops later still reconnects once.
  *
  * The settings per engine:
- * - MySQL and MariaDB: PDO::ATTR_AUTOCOMMIT true; the init command is the
- *   application's followed by `SET SESSION autocommit = 1,
- *   innodb_lock_wait_timeout = 5, lock_wait_timeout = 5`; after connect
- *   `SET SESSION max_execution_time = <ms>` (MariaDB: max_statement_time).
- *   When the application's init command names an isolation level, the
- *   package adds `SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ`
- *   after its own statement, so the package session runs at MySQL's default.
+ * - MySQL and MariaDB: PDO::ATTR_AUTOCOMMIT true; the application's init
+ *   command stays unchanged; after connect one statement
+ *   `SET SESSION autocommit = 1, innodb_lock_wait_timeout = 5,
+ *   lock_wait_timeout = 5, max_execution_time = <ms>` (MariaDB:
+ *   max_statement_time), so it works with multi-statements off. When the
+ *   application's init command names an isolation level, the package then
+ *   runs `SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ`, so the
+ *   package session runs at MySQL's default.
  *   orrery.sessions.pooled never applies to them.
  * - Postgres, not pooled: isolation READ COMMITTED, then one exec() of
  *   `SET lock_timeout = '5s'; SET statement_timeout = <ms>; SET
@@ -969,20 +970,23 @@ final class PackageSession
             : (int) constant('PDO::MYSQL_ATTR_INIT_COMMAND');
     }
 
-    /**
-     * The MySQL and MariaDB statement that every package session runs at
-     * connect, after the application's init command.
-     */
-    /** Added after an application init command that names an isolation level (MySQL, MariaDB). */
+    /** Run after an application init command that names an isolation level (MySQL, MariaDB). */
     public const MYSQL_ISOLATION_STATEMENT = 'SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ';
 
-    public static function mysqlSessionStatement(int $lockWaitSeconds = self::LOCK_WAIT_SECONDS): string
+    /**
+     * The MySQL and MariaDB statement that every package session runs at
+     * connect, after the application's init command: one statement, so it
+     * works with multi-statements off. $timeoutAssignment is the statement
+     * timeout (`max_execution_time = …` or MariaDB's `max_statement_time =
+     * …`), or null for none.
+     */
+    public static function mysqlSessionStatement(int $lockWaitSeconds = self::LOCK_WAIT_SECONDS, ?string $timeoutAssignment = null): string
     {
         return sprintf(
             'SET SESSION autocommit = 1, innodb_lock_wait_timeout = %d, lock_wait_timeout = %d',
             $lockWaitSeconds,
             $lockWaitSeconds,
-        );
+        ).($timeoutAssignment === null ? '' : ', '.$timeoutAssignment);
     }
 
     /**
@@ -1326,19 +1330,9 @@ final class PackageSession
             case 'mariadb':
                 $options[PDO::ATTR_TIMEOUT] = $this->connectTimeoutSeconds();
                 $options[PDO::ATTR_AUTOCOMMIT] = true;
-                $attribute = self::mysqlInitCommandAttribute();
-                $existing = trim((string) ($options[$attribute] ?? ''), " \t\n\r;");
-                // A line break first: an application command that ends in a
-                // `-- comment` must not swallow the package settings.
-                $options[$attribute] = ($existing === '' ? '' : $existing."\n;\n").self::mysqlSessionStatement($this->lockWaitSeconds());
-
-                // An application init command that sets an isolation level
-                // (for example READ UNCOMMITTED) must not reach the package
-                // session: it gets MySQL's own default level back, which is
-                // safe with every binary log format.
-                if (preg_match('/isolation/i', $existing) === 1) {
-                    $options[$attribute] .= ";\n".self::MYSQL_ISOLATION_STATEMENT;
-                }
+                // The application's init command stays as it is: the
+                // package settings follow it as their own statements
+                // (afterConnect()), so they never depend on multi-statements.
                 break;
 
             case 'pgsql':
@@ -1520,7 +1514,7 @@ final class PackageSession
 
         if ($pdo instanceof PDO) {
             $this->applyToFactoryPdo($pdo, $driver, $pooled);
-            $this->afterConnect($pdo, $driver, $pooled, $sibling);
+            $this->afterConnect($pdo, $config, $driver, $pooled, $sibling);
 
             return $pdo;
         }
@@ -1544,12 +1538,19 @@ final class PackageSession
             throw new InvalidArgumentException("Laravel's connector returned no PDO for the package session [{$sessionName}].");
         }
 
-        $this->afterConnect($pdo, $driver, $pooled, $sibling);
+        $this->afterConnect($pdo, $config, $driver, $pooled, $sibling);
 
         return $pdo;
     }
 
-    private function afterConnect(PDO $pdo, string $driver, bool $pooled, bool $sibling = false): void
+    /**
+     * The package settings of a new PDO, each one statement. On MySQL and
+     * MariaDB they run after the application's init command, which the
+     * connect ran.
+     *
+     * @param  array<string, mixed>  $config
+     */
+    private function afterConnect(PDO $pdo, array $config, string $driver, bool $pooled, bool $sibling = false): void
     {
         $timeout = $this->statementTimeoutMs();
 
@@ -1564,10 +1565,25 @@ final class PackageSession
 
             case 'mysql':
             case 'mariadb':
+                $assignment = null;
+
                 if ($timeout !== null) {
-                    $pdo->exec($this->isMariaDb($pdo, $driver)
-                        ? sprintf('SET SESSION max_statement_time = %.3F', $timeout / 1000)
-                        : sprintf('SET SESSION max_execution_time = %d', $timeout));
+                    $assignment = $this->isMariaDb($pdo, $driver)
+                        ? sprintf('max_statement_time = %.3F', $timeout / 1000)
+                        : sprintf('max_execution_time = %d', $timeout);
+                }
+
+                $pdo->exec(self::mysqlSessionStatement($this->lockWaitSeconds(), $assignment));
+
+                // An application init command that sets an isolation level
+                // (for example READ UNCOMMITTED) must not reach the package
+                // session: it gets MySQL's own default level back, which is
+                // safe with every binary log format.
+                $options = is_array($config['options'] ?? null) ? $config['options'] : [];
+                $init = $options[self::mysqlInitCommandAttribute()] ?? null;
+
+                if (is_string($init) && preg_match('/isolation/i', $init) === 1) {
+                    $pdo->exec(self::MYSQL_ISOLATION_STATEMENT);
                 }
                 break;
 
@@ -1601,7 +1617,6 @@ final class PackageSession
             case 'mysql':
             case 'mariadb':
                 $pdo->setAttribute(PDO::ATTR_AUTOCOMMIT, true);
-                $pdo->exec(self::mysqlSessionStatement($this->lockWaitSeconds()));
                 break;
 
             case 'pgsql':

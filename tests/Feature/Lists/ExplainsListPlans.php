@@ -37,6 +37,7 @@ trait ExplainsListPlans
     private function problems(Connection $connection, string $sql, array $bindings, string $table, ?string $index, int $bound, bool $strict = true): array
     {
         return match ($connection->getDriverName()) {
+            'mariadb' => self::markTestSkipped('The plan checks read the EXPLAIN output of MySQL; MariaDB has another one (EXPLAIN FORMAT=JSON and ANALYZE differ), so no plan check runs on MariaDB.'),
             'sqlite' => $this->sqliteProblems($connection, $sql, $bindings, $connection->getTablePrefix().$table, $index),
             'pgsql' => $this->pgsqlProblems($connection, $sql, $bindings, $connection->getTablePrefix().$table, $index, $bound, $strict),
             default => $this->mysqlProblems($connection, $sql, $bindings, $connection->getTablePrefix().$table, $index, $bound),

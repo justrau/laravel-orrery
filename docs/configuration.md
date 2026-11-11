@@ -43,6 +43,7 @@
 | `dashboard.measure_cache_seconds` | `5` | How long the dashboard reads share one queue measurement through the default cache store. `0` turns it off. |
 | `dashboard.list_count_cap` | `10000` | The largest Jobs list total (at least 101). |
 | `dashboard.search_candidates` | `50000` | The rows that a filtered Jobs search examines per page. Then the answer says so, and the next page continues. |
+| `dashboard.class_rows` | `36060` | The per-class rows that the Classes screen reads in all, newest minute first: enough for 500 classes in every minute of the hour. With more, the older minutes are not counted, and every sum is "at least". |
 | `stuck.release_threshold`, `stuck.attempt_threshold` | `20`, `20` | The thresholds of the "repeated releases" and "attempts not capped" signals. `false` turns that signal off. |
 | `stuck.worker_silence_seconds` | `60` | A running job's worker is silent when its reservation expired and its last heartbeat is this old. |
 | `stuck.notify` | `true` (`ORRERY_STUCK_NOTIFY`) | Send the stuck-job notifications. `false` keeps the event only. |

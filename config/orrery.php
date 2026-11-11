@@ -239,6 +239,13 @@ return [
         // per request, in the list's order; then the answer says
         // `search_limited` and the next page continues the scan.
         'search_candidates' => 50000,
+
+        // The Classes screen (GET /api/classes) reads at most this many
+        // per-class rows in all, newest minute first: enough for 500 classes
+        // in every minute of the hour. With more (for example job names that
+        // change per job), the older minutes are shown as not counted and
+        // every sum as "at least".
+        'class_rows' => 36060,
     ],
 
     // The stuck-job signals: GET /api/jobs/stuck and the job detail.

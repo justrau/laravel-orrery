@@ -136,7 +136,7 @@
 
             /** The uncounted minutes of the window, named once (P-5), or null. */
             notice() {
-                return this.shown ? unknownNotice(this.shown.unknownMinutes) : null;
+                return this.shown ? unknownNotice(this.shown.unknownMinutes, this.shown.capped) : null;
             },
 
             /** The Jobs list on the selected class over the window of its chart (else of the table). */

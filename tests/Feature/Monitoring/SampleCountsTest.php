@@ -1708,7 +1708,8 @@ final class SampleCountsTest extends RetentionTestCase
             if ($other->getDriverName() === 'pgsql') {
                 self::assertSame('55P03', $error->getCode(), $error->getMessage());
             } else {
-                self::assertSame(3572, $error->errorInfo[1] ?? null, $error->getMessage());
+                // MySQL's NOWAIT error; MariaDB reports a NOWAIT miss as a lock wait timeout.
+                self::assertSame($other->getDriverName() === 'mariadb' ? 1205 : 3572, $error->errorInfo[1] ?? null, $error->getMessage());
             }
 
             return true;

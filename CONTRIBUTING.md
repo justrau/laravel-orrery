@@ -27,7 +27,7 @@ Run as few tests as possible. Never run two test runs at the same time.
   bin/test pgsql --drop-database -- tests/Feature/X.php
   ```
 
-  `bin/test mysql` and `bin/test pgsql` start the project's own test containers (`orrery-testing`, on `127.0.0.1:33106` and `127.0.0.1:54336`) and give each run its own database. Put the `bin/test` options directly after the engine. `bin/test --help` prints every option. Never point the test variables at a database server that you use for other work.
+  `bin/test mysql`, `bin/test pgsql` and `bin/test mariadb` start the project's own test containers (`orrery-testing`, on `127.0.0.1:33106`, `127.0.0.1:54336` and `127.0.0.1:33108`) and give each run its own database. Put the `bin/test` options directly after the engine. `bin/test --help` prints every option. Never point the test variables at a database server that you use for other work.
 - The process tests start real workers. They need a shared database, so they skip on in-memory SQLite: run them on a SQLite file or a server engine.
 - A test that runs DDL or changes the schema or a database setting carries `#[Tests\Support\FreshSchema]`.
 - The whole suites (`composer test:all`, the server suites, `composer test:docker`) and the full support matrix (`bin/matrix`) run rarely: after a large change, and once at the release gate.

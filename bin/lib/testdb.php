@@ -46,22 +46,23 @@ namespace OrreryTestDb;
 
 const PROJECT = 'orrery-testing';
 // The default services. A command without --alt checks, starts and marks only them.
-const SERVICES = ['mysql', 'postgres'];
-// The services of the Compose profile "alt": a second server of each engine.
+const SERVICES = ['mysql', 'postgres', 'mariadb'];
+// The services of the Compose profile "alt": a second server of MySQL and of Postgres.
 const ALT_SERVICES = ['mysql-alt', 'pgsql-alt'];
 // Every service of the project, in the order that status lists them.
-const ALL_SERVICES = ['mysql', 'postgres', 'mysql-alt', 'pgsql-alt'];
-const ENGINE_SERVICES = ['mysql' => ['mysql'], 'pgsql' => ['postgres'], 'all' => ['mysql', 'postgres']];
-// The alt service of each engine. An --alt lease records it too.
+const ALL_SERVICES = ['mysql', 'postgres', 'mariadb', 'mysql-alt', 'pgsql-alt'];
+const ENGINE_SERVICES = ['mysql' => ['mysql'], 'pgsql' => ['postgres'], 'mariadb' => ['mariadb'], 'all' => ['mysql', 'postgres', 'mariadb']];
+// The alt service of each engine. An --alt lease records it too. MariaDB has none (altServices()).
 const ENGINE_ALT_SERVICES = ['mysql' => ['mysql-alt'], 'pgsql' => ['pgsql-alt'], 'all' => ['mysql-alt', 'pgsql-alt']];
-// The engine of each service: MySQL or Postgres.
-const SERVICE_ENGINES = ['mysql' => 'mysql', 'postgres' => 'pgsql', 'mysql-alt' => 'mysql', 'pgsql-alt' => 'pgsql'];
+// The client of each MySQL-family service: the MariaDB image has no `mysql` client.
+const MYSQL_CLIENTS = ['mysql' => 'mysql', 'mysql-alt' => 'mysql', 'mariadb' => 'mariadb'];
 // The port that a Postgres service listens on inside its container.
 const PGSQL_CONTAINER_PORTS = ['postgres' => 5432, 'pgsql-alt' => 5433];
-const DEFAULT_PORTS = ['mysql' => 33106, 'postgres' => 54336, 'mysql-alt' => 33107, 'pgsql-alt' => 54337];
+const DEFAULT_PORTS = ['mysql' => 33106, 'postgres' => 54336, 'mariadb' => 33108, 'mysql-alt' => 33107, 'pgsql-alt' => 54337];
 const PORT_VARIABLES = [
     'mysql' => 'ORRERY_TEST_MYSQL_PORT',
     'postgres' => 'ORRERY_TEST_PGSQL_PORT',
+    'mariadb' => 'ORRERY_TEST_MARIADB_PORT',
     'mysql-alt' => 'ORRERY_TEST_MYSQL_ALT_PORT',
     'pgsql-alt' => 'ORRERY_TEST_PGSQL_ALT_PORT',
 ];
@@ -1541,9 +1542,12 @@ interface Ops
 
     /**
      * Starts or confirms the default services, and with $alt also the
-     * services of the profile "alt".
+     * services of the profile "alt". With $only, just those services (the
+     * services of one engine).
+     *
+     * @param  list<string>|null  $only
      */
-    public function up(bool $alt = false): void;
+    public function up(bool $alt = false, ?array $only = null): void;
 
     public function readMarker(string $service): ?string;
 
@@ -1687,10 +1691,10 @@ final class DockerOps implements Ops
         return false;
     }
 
-    public function up(bool $alt = false): void
+    public function up(bool $alt = false, ?array $only = null): void
     {
-        fwrite(STDERR, 'testdb: no live lease, so docker compose up --wait starts or confirms the orrery-testing services'.($alt ? ' with the profile alt' : '')."\n");
-        [$status, , $err] = $this->compose(['up', '--detach', '--wait', '--wait-timeout', '180'], 300.0, $alt);
+        fwrite(STDERR, 'testdb: no live lease, so docker compose up --wait starts or confirms the orrery-testing services'.($only === null ? '' : ' '.implode(', ', $only)).($alt ? ' with the profile alt' : '')."\n");
+        [$status, , $err] = $this->compose(['up', '--detach', '--wait', '--wait-timeout', '180', ...($only ?? [])], 300.0, $alt);
 
         if ($status !== 0) {
             throw new Failure('docker compose up failed: '.trim($err), EXIT_OPERATION);
@@ -1704,7 +1708,7 @@ final class DockerOps implements Ops
     {
         return $this->compose([
             'exec', '-T', '--env', 'MYSQL_PWD='.PASSWORD, $service,
-            'mysql', '--user=root', '--batch', '--skip-column-names', '--execute='.$sql,
+            MYSQL_CLIENTS[$service], '--user=root', '--batch', '--skip-column-names', '--execute='.$sql,
         ], 120.0, in_array($service, ALT_SERVICES, true));
     }
 
@@ -1729,9 +1733,12 @@ final class DockerOps implements Ops
         return $this->compose($arguments, 120.0, in_array($service, ALT_SERVICES, true));
     }
 
+    /**
+     * A MySQL or MariaDB service: one SQL dialect for the markers and the databases.
+     */
     private static function isMysql(string $service): bool
     {
-        return (SERVICE_ENGINES[$service] ?? null) === 'mysql';
+        return isset(MYSQL_CLIENTS[$service]);
     }
 
     /**
@@ -2017,17 +2024,18 @@ final class FakeOps implements Ops
         return in_array($port, $this->load()['ports_taken'], true);
     }
 
-    public function up(bool $alt = false): void
+    public function up(bool $alt = false, ?array $only = null): void
     {
         $this->hold('up');
-        $state = $this->record('up', ['alt' => $alt]);
+        $state = $this->record('up', $only === null ? ['alt' => $alt] : ['alt' => $alt, 'only' => $only]);
         $unhealthy = [];
 
-        // Like Compose: without the profile, the alt services stay as they are.
-        foreach ($alt ? ALL_SERVICES : SERVICES as $service) {
+        // Like Compose: without the profile, the alt services stay as they are; with names, only those services.
+        foreach ($only ?? ($alt ? ALL_SERVICES : SERVICES) as $service) {
             $current = &$state['services'][$service];
+            // Like Compose: each service runs the definition of its own last start.
             $recreate = $current['state'] !== 'running'
-                || $state['running_definition'] !== $state['definition']
+                || ($current['definition'] ?? $state['running_definition']) !== $state['definition']
                 || $current['ports'] !== [$this->ports[$service]];
 
             if ($recreate) {
@@ -2038,6 +2046,7 @@ final class FakeOps implements Ops
             }
 
             $current['state'] = 'running';
+            $current['definition'] = $state['definition'];
             $current['health'] = $state['health_after_up'][$service] ?? 'healthy';
             $current['ports'] = [$this->ports[$service]];
 
@@ -2048,7 +2057,10 @@ final class FakeOps implements Ops
             unset($current);
         }
 
-        $state['running_definition'] = $state['definition'];
+        if ($only === null) {
+            $state['running_definition'] = $state['definition'];
+        }
+
         $this->save($state);
 
         if ($unhealthy !== []) {
@@ -2301,10 +2313,26 @@ final class App
     private static function engineServices(string $engine): array
     {
         if (! isset(ENGINE_SERVICES[$engine])) {
-            throw new Failure("invalid engine {$engine}: expected mysql, pgsql or all", EXIT_USAGE);
+            throw new Failure("invalid engine {$engine}: expected mysql, pgsql, mariadb or all", EXIT_USAGE);
         }
 
         return ENGINE_SERVICES[$engine];
+    }
+
+    /**
+     * The alt services of an engine (--alt). MariaDB has no alt server.
+     *
+     * @return list<string>
+     */
+    private static function altServices(string $engine): array
+    {
+        self::engineServices($engine);
+
+        if (! isset(ENGINE_ALT_SERVICES[$engine])) {
+            throw new Failure("--alt: the engine {$engine} has no alt server", EXIT_USAGE);
+        }
+
+        return ENGINE_ALT_SERVICES[$engine];
     }
 
     /**
@@ -2485,19 +2513,22 @@ final class App
      *
      * Without $alt it covers the default services only. With $alt (up --alt,
      * admit --alt) it covers the alt services too: under a live lease they
-     * must already be running with the token, else it starts them. A new
-     * token goes to every running service, a running alt service included,
-     * so a later --alt call under a live lease finds matching markers.
+     * must already be running with the token, else it starts them. With
+     * $only (an admission: the services of its engine) it covers only
+     * those, so a MySQL run never needs the Postgres or MariaDB server. A
+     * new token goes to every running service, the uncovered ones included,
+     * so a later call for them under a live lease finds matching markers.
      *
      * @param  array<string, mixed>  $data
+     * @param  list<string>|null  $only
      * @return string "kept" or "new"
      */
-    private function ensureServices(array &$data, bool $alt = false): string
+    private function ensureServices(array &$data, bool $alt = false, ?array $only = null): string
     {
         $ops = $this->ops();
         $ports = Environment::ports();
         $services = $ops->services();
-        $covered = $alt ? ALL_SERVICES : SERVICES;
+        $covered = $only ?? ($alt ? ALL_SERVICES : SERVICES);
 
         if ($data['leases'] !== []) {
             $holders = implode(', ', array_keys($data['leases']));
@@ -2555,7 +2586,7 @@ final class App
             }
         }
 
-        $ops->up($alt);
+        $ops->up($alt, $only);
         $agree = $data['token'] !== null;
 
         foreach ($covered as $service) {
@@ -2571,12 +2602,10 @@ final class App
         $token = bin2hex(random_bytes(16));
         $marked = $covered;
 
-        if (! $alt) {
-            // up() without the profile left the alt services as they were.
-            foreach (ALT_SERVICES as $service) {
-                if ($services[$service]['state'] === 'running' && $services[$service]['health'] === 'healthy') {
-                    $marked[] = $service;
-                }
+        // up() left the uncovered services as they were: a running one gets the new token too.
+        foreach (ALL_SERVICES as $service) {
+            if (! in_array($service, $marked, true) && $services[$service]['state'] === 'running' && $services[$service]['health'] === 'healthy') {
+                $marked[] = $service;
             }
         }
 
@@ -2694,7 +2723,7 @@ final class App
         $alt = isset($options['alt']);
         // An --alt lease also holds its names on the alt service of its
         // engine, so the admission creates and the release drops them there.
-        $services = [...self::engineServices($engine), ...($alt ? ENGINE_ALT_SERVICES[$engine] : [])];
+        $services = [...self::engineServices($engine), ...($alt ? self::altServices($engine) : [])];
         $paths = [];
 
         if (isset($options['path'])) {
@@ -2710,7 +2739,8 @@ final class App
                 throw new Failure("run {$runId} already has a lease", EXIT_USAGE);
             }
 
-            $generation = $this->ensureServices($data, $alt);
+            // Only the servers of the run's engine: a MySQL run never needs the Postgres or MariaDB server.
+            $generation = $this->ensureServices($data, $alt, $services);
             $this->dropOrphans($data);
 
             foreach ([$base, $mirror] as $name) {
@@ -2958,7 +2988,7 @@ final class App
             $default = $runId !== null ? $data['leases'][$runId]['engine'] : 'all';
             $engine = (string) ($options['engine'] ?? $default);
             $alt = isset($options['alt']) || ($runId !== null && ! isset($options['engine']) && ($data['leases'][$runId]['alt'] ?? false));
-            $services = [...self::engineServices($engine), ...($alt ? ENGINE_ALT_SERVICES[$engine] : [])];
+            $services = [...self::engineServices($engine), ...($alt ? self::altServices($engine) : [])];
             $status = $this->ops()->services();
 
             foreach ($services as $service) {
@@ -3997,7 +4027,7 @@ function usage(): string
           validate-name <base>                    check a base name and derive its mirror name
           up [--alt]                              start or verify the services, marker and token;
                                                   --alt: the alt services too (they start only without a live lease)
-          admit <run-id> <pid> <start|auto> <base> --generated|--explicit [--drop-at-release] [--engine=mysql|pgsql|all] [--path=<dir>] [--alt]
+          admit <run-id> <pid> <start|auto> <base> --generated|--explicit [--drop-at-release] [--engine=mysql|pgsql|mariadb|all] [--path=<dir>] [--alt]
                                                   take a lease and both names, then recreate the databases;
                                                   --drop-at-release: the release drops an explicit name too;
                                                   --alt: also on the alt service of the engine

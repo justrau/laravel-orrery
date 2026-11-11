@@ -163,6 +163,7 @@ final class TagsPlanTest extends TestCase
     private function problems(Connection $connection, string $sql, array $bindings, string $table, ?string $index, int $bound, bool $count): array
     {
         return match ($connection->getDriverName()) {
+            'mariadb' => self::markTestSkipped('The plan checks read the EXPLAIN output of MySQL; MariaDB has another one (EXPLAIN FORMAT=JSON and ANALYZE differ), so no plan check runs on MariaDB.'),
             'sqlite' => $this->sqliteProblems($connection, $sql, $bindings, $table, $index),
             'pgsql' => $this->pgsqlProblems($connection, $sql, $bindings, $table, $index, $bound, $count),
             default => $this->mysqlProblems($connection, $sql, $bindings, $table, $index, $bound, $count),

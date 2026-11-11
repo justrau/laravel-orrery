@@ -157,7 +157,10 @@ final class DeployedCommandTest extends TestCase
         // MySQL: a session of this database that runs the locking read of the lock row now.
         // information_schema.innodb_trx does not list that waiter in this container (it showed
         // only the holder), and performance_schema is off, so the processlist is the proof.
-        return (int) $mirror->selectOne("select count(*) as waits from information_schema.processlist where db = database() and id <> connection_id() and command in ('Query', 'Execute') and info like '%deploy_marker_lock%for update%'")->waits;
+        // MariaDB shows a prepared statement with its placeholders, not the bound key.
+        $statement = $mirror->getDriverName() === 'mariadb' ? '%orrery_settings%for update%' : '%deploy_marker_lock%for update%';
+
+        return (int) $mirror->selectOne("select count(*) as waits from information_schema.processlist where db = database() and id <> connection_id() and command in ('Query', 'Execute') and info like ?", [$statement])->waits;
     }
 
     /**

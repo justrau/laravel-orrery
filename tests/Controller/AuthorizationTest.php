@@ -1578,7 +1578,7 @@ final class AuthorizationTest extends TestCase
         $sql = match ($connection->getDriverName()) {
             'sqlite' => "SELECT m.name, p.name FROM sqlite_master AS m JOIN pragma_table_info(m.name) AS p
                 WHERE m.type = 'table' AND m.name NOT LIKE 'sqlite\\_%' ESCAPE '\\' ORDER BY m.name, p.cid",
-            'mysql' => "SELECT c.TABLE_NAME, c.COLUMN_NAME FROM information_schema.COLUMNS AS c
+            'mysql', 'mariadb' => "SELECT c.TABLE_NAME, c.COLUMN_NAME FROM information_schema.COLUMNS AS c
                 JOIN information_schema.TABLES AS t ON t.TABLE_SCHEMA = c.TABLE_SCHEMA AND t.TABLE_NAME = c.TABLE_NAME
                 WHERE c.TABLE_SCHEMA = DATABASE() AND t.TABLE_TYPE = 'BASE TABLE' ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION",
             'pgsql' => "SELECT c.relname, a.attname FROM pg_catalog.pg_class AS c
@@ -1654,6 +1654,9 @@ final class AuthorizationTest extends TestCase
             $selects[] = match ($driver) {
                 'sqlite' => 'SELECT '.$name.' AS t, '.$this->sqliteRow($columns).' AS r FROM "'.$table.'"',
                 'pgsql' => 'SELECT '.$name.'::text AS t, x::text AS r FROM "'.$table.'" AS x',
+                // MariaDB: the hex of each value's bytes (its JSON_ARRAY() keeps the column
+                // collations, which a union cannot mix, and loses the bytes of a blob); NULL stays null.
+                'mariadb' => 'SELECT CONVERT('.$name.' USING utf8mb4) COLLATE utf8mb4_bin AS t, CONVERT(JSON_ARRAY('.implode(', ', array_map(static fn (string $column): string => 'HEX(CAST(`'.$column.'` AS BINARY))', $columns)).') USING utf8mb4) COLLATE utf8mb4_bin AS r FROM `'.$table.'`',
                 default => 'SELECT '.$name.' AS t, JSON_ARRAY('.implode(', ', array_map(static fn (string $column): string => '`'.$column.'`', $columns)).') AS r FROM `'.$table.'`',
             };
         }
@@ -1763,7 +1766,7 @@ final class AuthorizationTest extends TestCase
     {
         return match ($connection->getDriverName()) {
             'sqlite' => "CAST(X'{$hex}' AS TEXT)",
-            'mysql' => "CONVERT(X'{$hex}' USING utf8mb4)",
+            'mysql', 'mariadb' => "CONVERT(X'{$hex}' USING utf8mb4)",
             default => "convert_from('\\x{$hex}'::bytea, 'UTF8')",
         };
     }

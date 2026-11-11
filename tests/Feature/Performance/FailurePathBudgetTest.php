@@ -49,6 +49,7 @@ final class FailurePathBudgetTest extends TestCase
     private const MIRROR = [
         'sqlite' => self::FAILING_ATTEMPT,
         'mysql' => self::FAILING_ATTEMPT,
+        'mariadb' => self::FAILING_ATTEMPT,
         'pgsql' => [
             'select orrery_jobs', 'begin', 'update orrery_jobs', 'select orrery_jobs', 'insert orrery_job_history returning', 'select orrery_job_history', 'update orrery_jobs', 'commit',
             'update orrery_jobs',
@@ -67,6 +68,7 @@ final class FailurePathBudgetTest extends TestCase
     private const FAILED_TABLE = [
         'sqlite' => ['laravel: insert failed_jobs returning'],
         'mysql' => ['laravel: insert failed_jobs'],
+        'mariadb' => ['laravel: insert failed_jobs'],
         'pgsql' => ['laravel: select capability', 'laravel: insert failed_jobs returning'],
     ];
 

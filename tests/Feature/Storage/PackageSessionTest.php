@@ -1117,7 +1117,7 @@ final class PackageSessionTest extends TestCase
      */
     public function test_mysql_init_command_with_a_comment_keeps_the_package_settings(): void
     {
-        $this->skipUnlessDriver('mysql');
+        $this->skipUnlessDriver('mysql', 'mariadb');
         $options = (array) $this->app['config']->get('database.connections.'.TestEnvironment::PRIMARY.'.options', []);
         $this->defineConnection('commented_init', TestEnvironment::PRIMARY, ['options' => [PackageSession::mysqlInitCommandAttribute() => 'SET @c4a_marker = 7 -- the application note'] + $options]);
 
@@ -1127,6 +1127,86 @@ final class PackageSessionTest extends TestCase
         self::assertSame(5, (int) $session->scalar('select @@session.lock_wait_timeout'));
         self::assertSame(5, (int) $session->scalar('select @@session.innodb_lock_wait_timeout'));
         self::assertSame(1, (int) $session->scalar('select @@autocommit'));
+    }
+
+    /**
+     * The application turns multi-statements off (PDO's MySQL attribute),
+     * with and without an init command of its own, and with one that sets
+     * an isolation level.
+     *
+     * Rejects: package settings that ride on the application's init command
+     * (with multi-statements off, the joined command fails at connect); a
+     * package that drops the application's init command, or that runs its
+     * settings before it (the isolation stays the application's).
+     */
+    public function test_mysql_package_settings_work_with_multi_statements_off(): void
+    {
+        $this->skipUnlessDriver('mysql', 'mariadb');
+        $options = (array) $this->app['config']->get('database.connections.'.TestEnvironment::PRIMARY.'.options', []);
+        $multi = defined('Pdo\Mysql::ATTR_MULTI_STATEMENTS')
+            ? (int) constant('Pdo\Mysql::ATTR_MULTI_STATEMENTS')
+            : (int) constant('PDO::MYSQL_ATTR_MULTI_STATEMENTS');
+        $init = PackageSession::mysqlInitCommandAttribute();
+        $this->defineConnection('single_plain', TestEnvironment::PRIMARY, ['options' => [$multi => false] + $options]);
+        $this->defineConnection('single_init', TestEnvironment::PRIMARY, ['options' => [$multi => false, $init => 'SET @l36_marker = 7'] + $options]);
+        $this->defineConnection('single_isolation', TestEnvironment::PRIMARY, ['options' => [$multi => false, $init => 'SET SESSION TRANSACTION ISOLATION LEVEL READ UNCOMMITTED'] + $options]);
+
+        self::assertSame(7, (int) $this->app['db']->connection('single_init')->scalar('select @l36_marker'), "The control: the application's own connection runs its init command.");
+        self::assertSame('READ-UNCOMMITTED', $this->app['db']->connection('single_isolation')->scalar('select @@session.transaction_isolation'));
+
+        foreach (['single_plain', 'single_init', 'single_isolation'] as $name) {
+            $session = $this->packageSession()->for($name);
+
+            foreach (['first connect', 'after a reconnect'] as $round) {
+                if ($round === 'after a reconnect') {
+                    $session->reconnect();
+                }
+
+                self::assertSame(1, (int) $session->scalar('select @@autocommit'), "{$name}, {$round}: autocommit.");
+                self::assertSame(5, (int) $session->scalar('select @@session.lock_wait_timeout'), "{$name}, {$round}: lock_wait_timeout.");
+                self::assertSame(5, (int) $session->scalar('select @@session.innodb_lock_wait_timeout'), "{$name}, {$round}: innodb_lock_wait_timeout.");
+                // MariaDB's max_statement_time is in seconds.
+                $timeout = $this->testEnvironment()->driver === 'mariadb'
+                    ? (int) round((float) $session->scalar('select @@session.max_statement_time') * 1000)
+                    : (int) $session->scalar('select @@session.max_execution_time');
+                self::assertSame(PackageSession::DEFAULT_STATEMENT_TIMEOUT_MS, $timeout, "{$name}, {$round}: the statement timeout.");
+            }
+        }
+
+        self::assertSame(7, (int) $this->packageSession()->for('single_init')->scalar('select @l36_marker'), "The application's init command still runs on the package session.");
+        self::assertSame('REPEATABLE-READ', $this->packageSession()->for('single_isolation')->scalar('select @@session.transaction_isolation'), "The package's isolation comes after the application's init command.");
+        self::assertSame('SET @l36_marker = 7', $this->app['config']->get('database.connections.single_init.options')[$init], "The application's configuration is unchanged.");
+
+        // The server default is REPEATABLE READ too, so the statements decide: the isolation
+        // statement follows only an application init command that names an isolation level.
+        $sent = [];
+        PackageSession::usePdoFactoryForTesting(function (string $name, array $config) use (&$sent): PDO {
+            $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s', $config['host'], $config['port'], $config['database']);
+            $pdo = new class($dsn, (string) $config['username'], (string) $config['password']) extends PDO
+            {
+                /** @var list<string> */
+                public array $sent = [];
+
+                public function exec(string $statement): int|false
+                {
+                    $this->sent[] = $statement;
+
+                    return parent::exec($statement);
+                }
+            };
+            $sent[$name] = $pdo;
+
+            return $pdo;
+        });
+        PackageSession::releaseAll();
+
+        foreach (['single_init', 'single_isolation'] as $name) {
+            $this->packageSession()->for($name)->select('select 1');
+        }
+
+        $isolation = static fn (string $name): bool => in_array(PackageSession::MYSQL_ISOLATION_STATEMENT, $sent[PackageSession::NAME_PREFIX.$name]->sent ?? [], true);
+        self::assertFalse($isolation('single_init'), 'no isolation statement without an isolation in the init command');
+        self::assertTrue($isolation('single_isolation'));
     }
 
     private function packageSession(): PackageSession

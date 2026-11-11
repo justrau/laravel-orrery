@@ -11,7 +11,7 @@
 
 ### Per engine
 
-- MySQL and MariaDB: autocommit, `innodb_lock_wait_timeout` and `lock_wait_timeout` 5, `max_execution_time` (MariaDB `max_statement_time`) from `sessions.statement_timeout_ms`. An application init command that names an isolation level gets `REPEATABLE READ` after it.
+- MySQL and MariaDB: autocommit, `innodb_lock_wait_timeout` and `lock_wait_timeout` 5, `max_execution_time` (MariaDB `max_statement_time`) from `sessions.statement_timeout_ms`, in one `SET` right after the connect. The application's init command stays unchanged and runs first; the package never adds to it, so its settings work with multi-statements off. An application init command that names an isolation level gets `REPEATABLE READ` after it, as a statement of its own.
 - Postgres, direct: `READ COMMITTED`, `lock_timeout = '5s'`, `statement_timeout`, `idle_in_transaction_session_timeout = '30s'`.
 - Postgres, pooled (`sessions.pooled`, read by `PackageSession::pooledSetting()`: true, a boolean word or a list of names, also comma-separated; or Laravel's `pooled`/`direct` keys): no session `SET`. Transactions begin with `SET LOCAL` timeouts in one `exec()`; each autocommit statement carries its own `SET LOCAL`. Only the server's default `search_path` is supported; relations are named with their schema. Namespace-changing `server_options` are refused (`PooledSessionRefused`).
 - SQLite: `busy_timeout` 5000 ms. On a host file only `busy_timeout` and `foreign_key_constraints`; an automatic session opens it read-only, an operator session read-write.

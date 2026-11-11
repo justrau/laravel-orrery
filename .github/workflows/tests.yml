@@ -96,7 +96,7 @@ jobs:
 
     services:
       mysql:
-        image: mysql:8.4
+        image: mysql:8.4@sha256:a81d043930e51745522bd5c430961cf8286f0a23f0a9a2a6e0108f7ea71b0902
         env:
           MYSQL_ROOT_PASSWORD: orrery
         ports:
@@ -108,7 +108,7 @@ jobs:
           --health-retries 30
           --health-start-period 30s
       postgres:
-        image: postgres:18
+        image: postgres:18@sha256:e3d24f6906d0760bf4da0dae872415391ededefad23fd471c47dc53b0ddf3c42
         env:
           POSTGRES_PASSWORD: orrery
         ports:
@@ -193,5 +193,81 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: matrix-php${{ matrix.php }}-laravel${{ matrix.laravel }}-${{ matrix.dependencies }}${{ matrix.variant_key }}
+          path: .matrix/ci/
+          if-no-files-found: warn
+
+  # The MariaDB leg (MARIADB_LEGS of bin/lib/matrix.php): the latest PHP and
+  # Laravel on the latest MariaDB LTS release, the image pinned by its
+  # digest. bin/matrix --ci runs MariaDB only when --db names it, so the
+  # legs above need no MariaDB service. The leg also runs its file SQLite
+  # runs and the scripts group, as every leg does.
+  mariadb:
+    needs: recent
+    if: needs.recent.outputs.run == 'true'
+    name: PHP 8.5, Laravel 13, latest, MariaDB
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    services:
+      mariadb:
+        image: mariadb:12.3@sha256:d46e102fa8b9b72bfcdeb56f9dd538742092119dc8b11f31fe662605cd234cd9
+        env:
+          MARIADB_ROOT_PASSWORD: orrery
+        ports:
+          - 33108:3306
+        options: >-
+          --health-cmd "mariadb-admin ping --host=127.0.0.1 --user=root --password=orrery --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+          --health-start-period 30s
+
+    env:
+      ORRERY_TEST_DATABASE: orrery_ci_${{ github.run_id }}_mariadb
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.5'
+          extensions: dom, pdo_mysql, pdo_sqlite, pcntl, posix
+          coverage: none
+          tools: composer:v2
+
+      - name: Provision the databases and the endpoint marker
+        env:
+          MARIADB_CONTAINER: ${{ job.services.mariadb.id }}
+        run: |
+          set -euo pipefail
+          base=$ORRERY_TEST_DATABASE
+          php -n bin/lib/testdb.php validate-name "$base"
+          token=$(php -n -r 'echo bin2hex(random_bytes(16));')
+
+          docker exec --env MYSQL_PWD=orrery "$MARIADB_CONTAINER" mariadb --user=root --execute "
+            CREATE DATABASE \`${base}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            CREATE DATABASE \`${base}_mirror\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            CREATE DATABASE orrery_marker;
+            CREATE TABLE orrery_marker.marker (token VARCHAR(64) NOT NULL PRIMARY KEY);
+            INSERT INTO orrery_marker.marker (token) VALUES ('${token}');"
+
+          echo "ORRERY_TEST_TOKEN=${token}" >>"$GITHUB_ENV"
+
+      - name: Run the leg
+        run: |
+          set -euo pipefail
+          bin/matrix --ci --run-id=ci --php=8.5 --laravel=13 --no-lowest --db=mariadb \
+            "--php-binary=8.5=$(command -v php)" \
+            "--composer=$(command -v composer)"
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: matrix-php8.5-laravel13-latest-mariadb
           path: .matrix/ci/
           if-no-files-found: warn

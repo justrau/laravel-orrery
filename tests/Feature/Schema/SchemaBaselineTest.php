@@ -33,7 +33,7 @@ use Justrau\Orrery\Tests\TestCase;
  * It runs DDL, so it has its own schema (#[FreshSchema]).
  *
  * Until the tag v0.1.0 a schema change edits create() in place and
- * captures the three fixtures again: run this class once per engine with
+ * captures the four fixtures again: run this class once per engine with
  * ORRERY_CAPTURE_SCHEMA_BASELINE=1 and ORRERY_TEST_PREFIX=pfx_ (for example
  * `ORRERY_CAPTURE_SCHEMA_BASELINE=1 ORRERY_TEST_PREFIX=pfx_ bin/test mysql
  * -- --filter test_the_baseline_and_the_upgrade_migrations`; that test
@@ -53,7 +53,7 @@ final class SchemaBaselineTest extends TestCase
     private const FIXTURE_TABLE = 'orrery_fixture_notes';
 
     /** The engine that the fixture of a driver was captured on. */
-    private const ENGINES = ['sqlite' => 'sqlite', 'mysql' => 'mysql', 'pgsql' => 'pgsql'];
+    private const ENGINES = ['sqlite' => 'sqlite', 'mysql' => 'mysql', 'pgsql' => 'pgsql', 'mariadb' => 'mariadb'];
 
     /**
      * Rejects: a baseline whose names the placeholder replacement

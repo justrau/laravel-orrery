@@ -17,6 +17,7 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 - **Clear a queue from the dashboard.** "Clear waiting jobs…" on the Queues screen counts the waiting jobs first (`POST /orrery/api/queues/waiting`), then clears them (`POST /orrery/api/queues/clear`) within 15 seconds per request; both take `{connection, queue}` in the JSON body. It shares its code with `orrery:clear`. A clear whose later batch fails answers with the counts so far.
 - **Run a delayed job now.** "Run now…" on the detail of a delayed job (`POST /orrery/api/jobs/{uuid}/run-now`) makes it available at once, by the workers' clock, and adds a `run_now` history entry.
 - **Cancel a batch.** "Cancel batch…" on an open batch (`POST /orrery/api/batches/{id}/cancel`) marks it cancelled and finished, as `$batch->cancel()` does. Laravel's `BatchCanceled` event is not dispatched.
+- **MariaDB is tested.** The test suite and the nightly matrix run on MariaDB 12.3, the latest LTS release, with Laravel's `mariadb` driver: `bin/test mariadb` locally, and a MariaDB job in CI.
 - **The event `OperatorActionPerformed`** and one `info` log line for each of these actions, with the actor. There is no stored activity log.
 
 ### Changed
@@ -28,6 +29,13 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 - `orrery:clear` also deletes the mirror rows of the other connection names on the same jobs table, compares the queue name byte by byte (on MySQL `high` no longer clears `HIGH`), and refuses a queue connection that is inside a transaction.
 - `GET /orrery/api/queues/{connection}/{queue}/history` is now `GET /orrery/api/queues/history?connection=&queue=`: a browser resolved `.` and `..` segments of a queue name in the path, so `x/../default` read another queue.
 - `GET /orrery/api/jobs/{uuid}` adds `chained` (pending jobs) and `actions.delete`, `actions.pending_reason` and `actions.run_now`.
+
+### Fixed
+
+- **A stopped commit walk no longer holds later observations.** When an `afterCommit` callback of the application threw before the package's callback, every later observation of that connection waited until the end of the job, command or request, and a long-running command lost them at the count cap. Now the next observation sees that the walk is no longer on the call stack: the stopped transaction's observations are counted in `unverified`, and the later ones are written at once or at their own commit.
+- **MySQL package sessions work with multi-statements off.** The package settings (autocommit, the lock waits, the statement timeout) were joined to the application's `PDO::MYSQL_ATTR_INIT_COMMAND`, so an application that set an init command and turned `PDO::MYSQL_ATTR_MULTI_STATEMENTS` off got a syntax error at each package connect. The application's init command now stays unchanged, and the package runs its settings as one statement after the connect.
+- **MariaDB: the counts and the backlog read work in strict mode.** With Laravel's `strict` (`ONLY_FULL_GROUP_BY`), MariaDB refused the grouped reads of the per-minute counts, the job classes, the queue history and the backlog measurement, because it does not match a selected `CAST()` with the same `CAST()` in `GROUP BY`. These reads now group by their select aliases on MySQL and MariaDB.
+- **`GET /orrery/api/classes` has a memory bound.** It read every per-class sample of its window, so job names that change per job made it grow without a bound. Now the whole read takes at most `dashboard.class_rows` rows (default 36060, enough for 500 classes in every minute of the hour), newest minute first. With more, some minutes are unknown (`unknown_minutes`), every sum is "at least", and the new field `capped` is `true`.
 
 ## [0.1.0] - 2026-11-10
 

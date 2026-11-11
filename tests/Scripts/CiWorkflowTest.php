@@ -123,6 +123,66 @@ final class CiWorkflowTest extends TestCase
     }
 
     /**
+     * Rejects: a nightly matrix without the MariaDB leg, a MariaDB job that runs another engine
+     * (no --db=mariadb, so bin/matrix --ci would run no MariaDB run), that skips the recent-commit
+     * gate, shares a database name with a leg job or an artifact name, runs the reuse schema mode,
+     * or uses an image that a tag alone names (not pinned by digest) or that is not the release of
+     * the local compose service.
+     * Still passes: a digest that is not the digest of the tag in its name (only Docker can show that).
+     */
+    public function test_the_mariadb_leg_is_its_own_job_with_a_pinned_image(): void
+    {
+        $workflow = self::workflow('tests.yml');
+        $job = $workflow['jobs']['mariadb'];
+
+        self::assertSame('recent', $job['needs']);
+        self::assertSame("needs.recent.outputs.run == 'true'", $job['if']);
+        self::assertGreaterThanOrEqual(self::LONGEST_LEG_MINUTES * 1.5, $job['timeout-minutes']);
+        self::assertLessThanOrEqual(self::GITHUB_JOB_LIMIT_MINUTES, $job['timeout-minutes']);
+        self::assertSame(['mariadb'], array_keys($job['services']));
+
+        $compose = Yaml::parseFile(self::root().'/docker/testing/compose.yaml');
+        $image = $job['services']['mariadb']['image'];
+        self::assertMatchesRegularExpression('/^mariadb:[0-9.]+@sha256:[0-9a-f]{64}$/D', $image);
+        self::assertSame($compose['services']['mariadb']['image'], explode('@', $image)[0], 'CI and the local server run one release');
+        self::assertSame(['33108:3306'], $job['services']['mariadb']['ports']);
+
+        self::assertSame('orrery_ci_${{ github.run_id }}_mariadb', $job['env']['ORRERY_TEST_DATABASE']);
+        self::assertNotSame($workflow['jobs']['leg']['env']['ORRERY_TEST_DATABASE'], $job['env']['ORRERY_TEST_DATABASE']);
+
+        $script = implode("\n", array_column($job['steps'], 'run'));
+        self::assertStringContainsString('bin/matrix --ci ', $script);
+        self::assertStringContainsString('--php=8.5 --laravel=13 --no-lowest --db=mariadb', $script);
+        self::assertStringNotContainsString('--schema=reuse', $script);
+
+        $artifact = array_values(array_filter($job['steps'], static fn (array $step): bool => str_starts_with((string) ($step['uses'] ?? ''), 'actions/upload-artifact')))[0];
+        self::assertSame('matrix-php8.5-laravel13-latest-mariadb', $artifact['with']['name']);
+    }
+
+    /**
+     * Rejects: a service container image that a tag alone names (a moved tag changes CI without a
+     * commit), and an image of another release than the local test server of its engine.
+     * Still passes: a digest that is not the digest of the tag in its name.
+     */
+    public function test_every_service_image_is_pinned_by_digest_to_the_local_release(): void
+    {
+        $compose = Yaml::parseFile(self::root().'/docker/testing/compose.yaml')['services'];
+        $seen = 0;
+
+        foreach (glob(self::root().'/.github/workflows/*.yml') ?: [] as $file) {
+            foreach (self::workflow(basename($file))['jobs'] as $id => $job) {
+                foreach ($job['services'] ?? [] as $name => $service) {
+                    $seen++;
+                    self::assertMatchesRegularExpression('/^[a-z0-9.-]+:[0-9.]+@sha256:[0-9a-f]{64}$/D', $service['image'], basename($file)." {$id} {$name}");
+                    self::assertSame($compose[$name]['image'], explode('@', $service['image'])[0], basename($file)." {$id} {$name}: CI and the local server run one release");
+                }
+            }
+        }
+
+        self::assertGreaterThanOrEqual(5, $seen);
+    }
+
+    /**
      * Rejects: a workflow that grants more than read access to the contents, that keeps the
      * checkout credentials, or that uses an action by a tag or a branch instead of a commit SHA.
      * Still passes: a SHA that is not the commit of the release its comment names.

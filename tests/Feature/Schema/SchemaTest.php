@@ -416,7 +416,8 @@ final class SchemaTest extends TestCase
      */
     public function test_time_columns_are_decimal_epoch_seconds(): void
     {
-        $driver = $this->mirror()->getDriverName();
+        // MariaDB reports the types of MySQL.
+        $driver = $this->mirror()->getDriverName() === 'mariadb' ? 'mysql' : $this->mirror()->getDriverName();
         $checked = [];
 
         foreach (array_keys(self::MIRROR_TABLES) as $table) {

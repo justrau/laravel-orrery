@@ -41,7 +41,7 @@ use PDO;
  */
 final class TestEnvironment
 {
-    public const DRIVERS = ['sqlite', 'mysql', 'pgsql'];
+    public const DRIVERS = ['sqlite', 'mysql', 'pgsql', 'mariadb'];
 
     public const PRIMARY = 'testbench';
 
@@ -68,21 +68,21 @@ final class TestEnvironment
 
     public const SYSTEM_DATABASES = ['mysql', 'information_schema', 'performance_schema', 'sys', 'postgres', 'template0', 'template1'];
 
-    public const DEFAULT_PORTS = ['mysql' => 33106, 'pgsql' => 54336];
+    public const DEFAULT_PORTS = ['mysql' => 33106, 'pgsql' => 54336, 'mariadb' => 33108];
 
-    public const PORT_VARIABLES = ['mysql' => 'ORRERY_TEST_MYSQL_PORT', 'pgsql' => 'ORRERY_TEST_PGSQL_PORT'];
+    public const PORT_VARIABLES = ['mysql' => 'ORRERY_TEST_MYSQL_PORT', 'pgsql' => 'ORRERY_TEST_PGSQL_PORT', 'mariadb' => 'ORRERY_TEST_MARIADB_PORT'];
 
-    /** The published ports of the alt services (docker/testing/compose.yaml, profile alt). */
+    /** The published ports of the alt services (docker/testing/compose.yaml, profile alt). MariaDB has no alt server. */
     public const DEFAULT_ALT_PORTS = ['mysql' => 33107, 'pgsql' => 54337];
 
     public const ALT_PORT_VARIABLES = ['mysql' => 'ORRERY_TEST_MYSQL_ALT_PORT', 'pgsql' => 'ORRERY_TEST_PGSQL_ALT_PORT'];
 
-    public const USERNAMES = ['mysql' => 'root', 'pgsql' => 'postgres'];
+    public const USERNAMES = ['mysql' => 'root', 'pgsql' => 'postgres', 'mariadb' => 'root'];
 
     public const DEFAULT_PASSWORD = 'orrery';
 
     /** The server version that each engine of docker/testing/compose.yaml (and CI) runs. */
-    public const SERVER_VERSIONS = ['mysql' => '8.4.', 'pgsql' => '18.'];
+    public const SERVER_VERSIONS = ['mysql' => '8.4.', 'pgsql' => '18.', 'mariadb' => '12.3.'];
 
     /** Seconds before a connection attempt to a server gives up. */
     public const CONNECT_TIMEOUT = 5;
@@ -99,6 +99,7 @@ final class TestEnvironment
         'ORRERY_TEST_PREFIX',
         'ORRERY_TEST_MYSQL_PORT',
         'ORRERY_TEST_PGSQL_PORT',
+        'ORRERY_TEST_MARIADB_PORT',
         'ORRERY_TEST_PASSWORD',
         'ORRERY_TEST_TOKEN',
         'ORRERY_TEST_RUN_ID',
@@ -120,7 +121,7 @@ final class TestEnvironment
     public const SQLITE_BUSY_TIMEOUT_MS = 5000;
 
     /**
-     * @param  string  $driver  sqlite, mysql or pgsql
+     * @param  string  $driver  sqlite, mysql, pgsql or mariadb
      * @param  string  $database  the base name, ':memory:', or the canonical SQLite file
      * @param  string  $mirror  same or separate
      * @param  string  $prefix  '' or a prefix that matches PREFIX_PATTERN
@@ -178,7 +179,7 @@ final class TestEnvironment
         $driver = $value('ORRERY_TEST_DRIVER') ?? 'sqlite';
 
         if (! in_array($driver, self::DRIVERS, true)) {
-            throw new HarnessRefusal("ORRERY_TEST_DRIVER must be sqlite, mysql or pgsql, not '{$driver}'.");
+            throw new HarnessRefusal("ORRERY_TEST_DRIVER must be sqlite, mysql, pgsql or mariadb, not '{$driver}'.");
         }
 
         $mirror = $value('ORRERY_TEST_MIRROR') ?? 'same';
@@ -196,7 +197,7 @@ final class TestEnvironment
         $expectDriver = $value('ORRERY_EXPECT_DRIVER');
 
         if ($expectDriver !== null && ! in_array($expectDriver, self::DRIVERS, true)) {
-            throw new HarnessRefusal("ORRERY_EXPECT_DRIVER must be sqlite, mysql or pgsql, not '{$expectDriver}'.");
+            throw new HarnessRefusal("ORRERY_EXPECT_DRIVER must be sqlite, mysql, pgsql or mariadb, not '{$expectDriver}'.");
         }
 
         $expectPhp = $value('ORRERY_EXPECT_PHP');
@@ -209,6 +210,10 @@ final class TestEnvironment
 
         if ($altValue !== null && $altValue !== '1') {
             throw new HarnessRefusal("ORRERY_TEST_ALT must be 1 or unset, not '{$altValue}'.");
+        }
+
+        if ($altValue !== null && $driver === 'mariadb') {
+            throw new HarnessRefusal('ORRERY_TEST_ALT is set, but MariaDB has no alt server. Unset it.');
         }
 
         $journal = $value('ORRERY_TEST_SQLITE_JOURNAL') ?? 'wal';
@@ -331,6 +336,15 @@ final class TestEnvironment
         if (preg_match(self::MIRROR_PATTERN, $name.'_mirror') !== 1) {
             throw new HarnessRefusal("Invalid test database name {$shown}: its mirror name is too long.");
         }
+    }
+
+    /**
+     * MySQL or MariaDB: one SQL dialect, one PDO driver (pdo_mysql) and one
+     * client protocol.
+     */
+    public function isMysqlFamily(): bool
+    {
+        return $this->driver === 'mysql' || $this->driver === 'mariadb';
     }
 
     public function isServer(): bool
@@ -497,7 +511,7 @@ final class TestEnvironment
             'options' => [PDO::ATTR_TIMEOUT => self::CONNECT_TIMEOUT],
         ];
 
-        if ($this->driver === 'mysql') {
+        if ($this->isMysqlFamily()) {
             return $connection + [
                 'unix_socket' => '',
                 'charset' => 'utf8mb4',

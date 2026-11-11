@@ -74,7 +74,7 @@ final class MonitoringIsolationTest extends RetentionTestCase
         try {
             if ($source === 'configured' && $env->isServer()) {
                 $this->app['config']->set("database.connections.{$mirrorSource}.isolation_level", 'READ UNCOMMITTED');
-            } elseif ($source === 'server default' && $env->driver === 'mysql') {
+            } elseif ($source === 'server default' && $env->isMysqlFamily()) {
                 $attribute = class_exists(Mysql::class) ? Mysql::ATTR_INIT_COMMAND : PDO::MYSQL_ATTR_INIT_COMMAND;
                 $this->app['config']->set("database.connections.{$mirrorSource}.options", [$attribute => self::MYSQL_READ_UNCOMMITTED] + (array) $this->app['config']->get("database.connections.{$mirrorSource}.options"));
             } elseif ($source === 'server default') {
@@ -85,7 +85,7 @@ final class MonitoringIsolationTest extends RetentionTestCase
             PackageSession::releaseAll();
 
             if ($env->isServer()) {
-                self::assertSame($env->driver === 'mysql' ? 'READ-UNCOMMITTED' : 'read uncommitted', $this->reportedLevel($this->db()->connection($mirrorSource)), 'The mirror connection reads uncommitted rows without the package.');
+                self::assertSame($env->isMysqlFamily() ? 'READ-UNCOMMITTED' : 'read uncommitted', $this->reportedLevel($this->db()->connection($mirrorSource)), 'The mirror connection reads uncommitted rows without the package.');
             }
 
             $this->scenario();

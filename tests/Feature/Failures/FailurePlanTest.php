@@ -98,6 +98,7 @@ final class FailurePlanTest extends TestCase
         $table = $connection->getTablePrefix().'orrery_jobs';
 
         return match ($connection->getDriverName()) {
+            'mariadb' => self::markTestSkipped('The plan checks read the EXPLAIN output of MySQL; MariaDB has another one (EXPLAIN FORMAT=JSON and ANALYZE differ), so no plan check runs on MariaDB.'),
             'sqlite' => $this->sqlitePlan($connection, $sql, $table),
             'pgsql' => $this->pgsqlPlan($connection, $sql, $table),
             default => $this->mysqlPlan($connection, $sql, $table),
@@ -194,7 +195,7 @@ final class FailurePlanTest extends TestCase
         }
 
         $table = $connection->getTablePrefix().'orrery_jobs';
-        $connection->statement($connection->getDriverName() === 'mysql' ? "ANALYZE TABLE `{$table}`" : 'ANALYZE '.($connection->getDriverName() === 'sqlite' ? '' : '"'.$table.'"'));
+        $connection->statement(in_array($connection->getDriverName(), ['mysql', 'mariadb'], true) ? "ANALYZE TABLE `{$table}`" : 'ANALYZE '.($connection->getDriverName() === 'sqlite' ? '' : '"'.$table.'"'));
     }
 
     /**

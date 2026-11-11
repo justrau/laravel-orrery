@@ -719,7 +719,8 @@ final class CommitDeferralTest extends DeferralTestCase
     /**
      * Rejects: running the items of a root whose walk an application
      * callback stopped before the package's callback, or losing them
-     * silently.
+     * silently; holding the later autocommit items of the instance behind
+     * the stopped walk until the end of the unit.
      */
     #[DataProvider('callbackOrders')]
     public function test_throwing_application_callback_in_the_walk(bool $applicationFirst): void
@@ -754,11 +755,12 @@ final class CommitDeferralTest extends DeferralTestCase
         if ($applicationFirst) {
             self::assertSame([], $this->ran(), 'The walk stopped before the package callback.');
             $this->raise('autocommit after the stopped walk');
-            self::assertSame([], $this->ran(), 'The stopped walk holds the later autocommit item of the instance.');
+            self::assertSame(['autocommit after the stopped walk'], $this->ran(), 'The stopped walk is not on the stack: the later autocommit item runs at once.');
+            $this->assertCounts(2, 0, 'The release counts the two undecided items.');
             $this->deferral()->endUnit();
 
-            self::assertSame(['autocommit after the stopped walk'], $this->ran(), 'The end of the unit runs the decided tail item.');
-            $this->assertCounts(2, 0, 'It counts the two undecided items.');
+            self::assertSame(['autocommit after the stopped walk'], $this->ran());
+            $this->assertCounts(2, 0, 'The end of the unit counts nothing again.');
         } else {
             self::assertSame(['root', 'complete chain'], $this->ran());
             $this->deferral()->endUnit();
@@ -767,6 +769,52 @@ final class CommitDeferralTest extends DeferralTestCase
 
         self::assertSame(0, $this->deferral()->open());
         self::assertSame(0, $this->deferral()->held());
+    }
+
+    /**
+     * A long-running unit (a command, a daemon) whose first walk an
+     * application callback stopped.
+     *
+     * Rejects: holding the items of every later root of the instance behind
+     * the stopped walk until the end of the unit (they reach the count cap
+     * and are lost); running the stopped root's items, or running an item
+     * twice when the unit ends.
+     */
+    public function test_a_stopped_walk_releases_the_later_roots(): void
+    {
+        $q = $this->q();
+
+        $q->beginTransaction();
+        $this->raise('stopped root');
+        self::afterCommitFirst($this->record(), static fn () => throw new RuntimeException('after commit failed'));
+        self::catchApplicationError(static fn () => $q->commit(), 'after commit failed');
+
+        self::assertSame(1, $this->deferral()->open(), 'The stopped root is still tracked.');
+
+        $q->transaction(function (): void {
+            $this->raise('later root');
+        });
+
+        self::assertSame(['later root'], $this->ran(), 'The later root runs at its own commit.');
+        $this->assertCounts(1, 0, "The release counts the stopped root's item.");
+        self::assertSame(0, $this->deferral()->open());
+        self::assertSame(0, $this->deferral()->held());
+
+        // A walk that is still on the stack keeps its hold: the item raised
+        // in its callback waits for the root's own items.
+        $q->beginTransaction();
+        $this->raise('walking root');
+        self::afterCommitFirst($this->record(), function (): void {
+            $this->raise('raised in the walk');
+        });
+        $q->commit();
+
+        self::assertSame(['later root', 'walking root', 'raised in the walk'], $this->ran());
+        $this->deferral()->endUnit();
+
+        self::assertSame(['later root', 'walking root', 'raised in the walk'], $this->ran());
+        $this->assertCounts(1, 0);
+        self::assertSame(0, $this->deferral()->open());
     }
 
     /**
@@ -1059,6 +1107,82 @@ final class CommitDeferralTest extends DeferralTestCase
 
         self::assertSame(['attempt 2', 'next'], $this->ran(), 'The failed manual commit never runs its item.');
         $this->assertCounts($this->failedCommitRollsTheManagerBack() ? 1 : 2, $this->failedCommitRollsTheManagerBack() ? 1 : 0);
+        self::assertSame(0, $this->deferral()->open());
+    }
+
+    /**
+     * Rejects: a deferral that reads the call stack on the hot path (an
+     * autocommit push, a push in a transaction, a savepoint, a commit and a
+     * rollback without an application callback in the walk).
+     * Still passes: a stack read that is cheap enough not to matter (the
+     * test counts reads, not time).
+     */
+    public function test_the_hot_path_never_reads_the_call_stack(): void
+    {
+        $q = $this->q();
+
+        $this->raise('autocommit');
+        $q->transaction(function () use ($q): void {
+            $this->raise('root');
+            $q->transaction(function (): void {
+                $this->raise('savepoint');
+            });
+        });
+        $q->beginTransaction();
+        $this->raise('rolled back');
+        $q->rollBack();
+        $this->deferral()->endUnit();
+
+        self::assertSame(['autocommit', 'root', 'savepoint'], $this->ran());
+        self::assertSame(0, $this->deferral()->stackReads());
+
+        // The control: an autocommit push inside a walk reads it.
+        $q->beginTransaction();
+        $this->raise('walking');
+        self::afterCommitFirst($this->record(), function (): void {
+            $this->raise('in the walk');
+        });
+        $q->commit();
+
+        self::assertSame(1, $this->deferral()->stackReads());
+    }
+
+    /**
+     * A failed manual COMMIT leaves its record pending at level 1; the next
+     * root's commit stages and walks that stale record first, and its
+     * application callback pushes at level 0 inside that walk.
+     *
+     * Rejects: a walk check that accepts only the frames of the root's own
+     * records, so the committing root looks stopped while the stale record's
+     * callbacks run, and its committed item is counted instead of run.
+     * Still passes: a check that holds every item raised in any walk of the
+     * connection (it delays, and the root's commit still runs it).
+     */
+    public function test_a_stale_record_walked_in_a_later_commit_keeps_that_root_walking(): void
+    {
+        $q = $this->q();
+        $failing = FailingCommitPdo::forConfig($q->getConfig(), 1);
+        $q->setPdo($failing);
+        $q->beginTransaction();
+        $this->raise('manual');
+        $stale = $this->record();
+        $stale->addCallback(function (): void {
+            $this->raise('stale cb');
+        });
+
+        try {
+            $q->commit();
+            self::fail('The COMMIT fails.');
+        } catch (PDOException) {
+        }
+
+        $q->setPdo($failing);
+        $q->transaction(function (): void {
+            $this->raise('next');
+        });
+
+        self::assertSame(['next', 'stale cb'], $this->ran(), "The root's item runs, then the item that the stale record's callback pushed.");
+        $this->assertCounts(1, 0, 'Only the failed manual commit is counted.');
         self::assertSame(0, $this->deferral()->open());
     }
 

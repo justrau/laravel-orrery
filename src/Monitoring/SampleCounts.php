@@ -618,6 +618,9 @@ final class SampleCounts
     {
         $from = Clock::toDecimal((float) $minute);
         $to = Clock::toDecimal((float) ($minute + self::MINUTE));
+        // MySQL and MariaDB group by the select aliases: MariaDB's
+        // ONLY_FULL_GROUP_BY does not match a selected CAST() with the same
+        // CAST() in GROUP BY.
         $binary = in_array($tx->getDriverName(), ['mysql', 'mariadb'], true);
         $zero = ['completed' => 0, 'failed' => 0, 'runtime_ms_sum' => 0, 'runtime_count' => 0, 'pushed' => 0];
         $queues = [];
@@ -629,9 +632,9 @@ final class SampleCounts
             ->where('finished_at', '>=', $from)
             ->where('finished_at', '<', $to)
             ->selectRaw($binary
-                ? 'CAST(`connection` AS BINARY) AS c, CAST(`queue` AS BINARY) AS q, CAST(`name` AS BINARY) AS n, COUNT(*) AS completed, SUM(`runtime_ms`) AS runtime_ms_sum, COUNT(`runtime_ms`) AS runtime_count'
-                : '"connection" AS c, "queue" AS q, "name" AS n, COUNT(*) AS completed, SUM("runtime_ms") AS runtime_ms_sum, COUNT("runtime_ms") AS runtime_count')
-            ->groupByRaw($binary ? 'CAST(`connection` AS BINARY), CAST(`queue` AS BINARY), CAST(`name` AS BINARY)' : '"connection", "queue", "name"')
+                ? 'CAST(`connection` AS BINARY) AS orrery_c, CAST(`queue` AS BINARY) AS orrery_q, CAST(`name` AS BINARY) AS orrery_n, COUNT(*) AS completed, SUM(`runtime_ms`) AS runtime_ms_sum, COUNT(`runtime_ms`) AS runtime_count'
+                : '"connection" AS orrery_c, "queue" AS orrery_q, "name" AS orrery_n, COUNT(*) AS completed, SUM("runtime_ms") AS runtime_ms_sum, COUNT("runtime_ms") AS runtime_count')
+            ->groupByRaw($binary ? 'orrery_c, orrery_q, orrery_n' : '"connection", "queue", "name"')
             ->get();
 
         $failures = $tx->table('orrery_jobs')
@@ -639,9 +642,9 @@ final class SampleCounts
             ->where('failed_at', '>=', $from)
             ->where('failed_at', '<', $to)
             ->selectRaw($binary
-                ? 'CAST(`connection` AS BINARY) AS c, CAST(`queue` AS BINARY) AS q, CAST(`name` AS BINARY) AS n, COUNT(*) AS failed'
-                : '"connection" AS c, "queue" AS q, "name" AS n, COUNT(*) AS failed')
-            ->groupByRaw($binary ? 'CAST(`connection` AS BINARY), CAST(`queue` AS BINARY), CAST(`name` AS BINARY)' : '"connection", "queue", "name"')
+                ? 'CAST(`connection` AS BINARY) AS orrery_c, CAST(`queue` AS BINARY) AS orrery_q, CAST(`name` AS BINARY) AS orrery_n, COUNT(*) AS failed'
+                : '"connection" AS orrery_c, "queue" AS orrery_q, "name" AS orrery_n, COUNT(*) AS failed')
+            ->groupByRaw($binary ? 'orrery_c, orrery_q, orrery_n' : '"connection", "queue", "name"')
             ->get();
 
         // The arrivals: every status by pushed_at, through the index `pushed`.
@@ -649,17 +652,17 @@ final class SampleCounts
             ->where('pushed_at', '>=', $from)
             ->where('pushed_at', '<', $to)
             ->selectRaw($binary
-                ? 'CAST(`connection` AS BINARY) AS c, CAST(`queue` AS BINARY) AS q, CAST(`name` AS BINARY) AS n, COUNT(*) AS pushed'
-                : '"connection" AS c, "queue" AS q, "name" AS n, COUNT(*) AS pushed')
-            ->groupByRaw($binary ? 'CAST(`connection` AS BINARY), CAST(`queue` AS BINARY), CAST(`name` AS BINARY)' : '"connection", "queue", "name"')
+                ? 'CAST(`connection` AS BINARY) AS orrery_c, CAST(`queue` AS BINARY) AS orrery_q, CAST(`name` AS BINARY) AS orrery_n, COUNT(*) AS pushed'
+                : '"connection" AS orrery_c, "queue" AS orrery_q, "name" AS orrery_n, COUNT(*) AS pushed')
+            ->groupByRaw($binary ? 'orrery_c, orrery_q, orrery_n' : '"connection", "queue", "name"')
             ->get();
 
         foreach ([$completions, $failures, $arrivals] as $rows) {
             foreach ($rows as $row) {
-                $connection = (string) $row->c;
+                $connection = (string) $row->orrery_c;
                 $connection = $aliases[$connection] ?? $connection;
-                $queue = (string) $row->q;
-                $name = (string) $row->n;
+                $queue = (string) $row->orrery_q;
+                $name = (string) $row->orrery_n;
                 $add = [
                     'completed' => (int) ($row->completed ?? 0),
                     'failed' => (int) ($row->failed ?? 0),

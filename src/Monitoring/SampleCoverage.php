@@ -65,6 +65,17 @@ use Justrau\Orrery\Storage\PackageSession;
  * So a trim that commits during a read can make a minute unknown, never a
  * covered undercount.
  *
+ * A row bound ($rowLimit, the job classes): one budget of $rowLimit rows
+ * for the whole call. The stored read (2) takes at most the budget, and each
+ * scan (3), in the order of $kinds, at most what is left, each newest minute
+ * first. When a read has more, the minute of its first row past its share
+ * and every earlier minute are unknown for what that read decides (the
+ * stored counts, or the scanned kind), and a scan with no budget left makes
+ * all its minutes unknown. So a bounded read is a lower bound, never a
+ * covered undercount, and SampleWindow::$capped says so. The rows of a
+ * series that changes its name per job stay within the bound, and the rows
+ * at or before a cut keep no label.
+ *
  * Series are byte-exact: the stored rows by their digest, the scan grouped
  * by CAST(... AS BINARY) on MySQL (Postgres and SQLite compare bytes under
  * their default collations), each connection mapped to its primary alias
@@ -105,9 +116,11 @@ final class SampleCoverage
      * @param  'total'|'queue'|'job'  $scope
      * @param  array{connection?: string, queue?: string, name?: string}|null  $only
      * @param  list<'completed'|'failed'|'pushed'>  $kinds  the kinds to decide (see the class comment)
+     * @param  int|null  $rowLimit  the row budget of the call (see the class comment), or null for no bound
      */
-    public function of(string $scope, ?array $only, int $from, int $to, array $kinds = SampleWindow::OUTCOMES): SampleWindow
+    public function of(string $scope, ?array $only, int $from, int $to, array $kinds = SampleWindow::OUTCOMES, ?int $rowLimit = null): SampleWindow
     {
+        $rowLimit = $rowLimit === null ? null : max(1, $rowLimit);
         $kinds = array_values(array_intersect(SampleWindow::KINDS, $kinds));
         $session = Container::getInstance()->make(PackageSession::class)->mirror();
         $from = SampleCounts::minuteOf((float) $from);
@@ -125,7 +138,9 @@ final class SampleCoverage
         [$before, $through] = $this->frontier($session, $current);
 
         // 2. The stored counts before M.
-        $stored = $through === null || $through <= $from ? [] : $this->stored($session, $scope, $only, $from, min($to, $through), in_array('pushed', $kinds, true));
+        $stored = $through === null || $through <= $from ? [] : $this->stored($session, $scope, $only, $from, min($to, $through), in_array('pushed', $kinds, true), $rowLimit);
+        $storedCut = $stored['cut'] ?? null;
+        $budget = $rowLimit === null ? null : $rowLimit - ($stored['used'] ?? 0);
         Hooks::reach(self::AFTER_COVERAGE);
 
         // 3. The scan from M on (without M: the current minute only), within the trim horizons.
@@ -133,14 +148,28 @@ final class SampleCoverage
         $retention = $this->retentionMinutes($scope, $only, $aliases);
         $horizons = self::horizons($start, $retention);
         $scanned = [];
+        $scanCuts = ['completed' => null, 'failed' => null, 'pushed' => null];
         $labels = $stored['labels'] ?? [];
 
         foreach ($kinds as $kind) {
             $scanned[$kind] = [];
             $kindFrom = max($scanFrom, self::ceilMinute($horizons[$kind]));
 
-            if ($kindFrom < $to) {
-                $scanned[$kind] = $this->scan($session, $kind, $scope, $only, $aliases, $kindFrom, $to, $labels);
+            if ($kindFrom >= $to) {
+                continue;
+            }
+
+            if ($budget !== null && $budget <= 0) {
+                // No budget left: every minute of this scan is unknown.
+                $scanCuts[$kind] = $to - SampleCounts::MINUTE;
+
+                continue;
+            }
+
+            [$scanned[$kind], $scanCuts[$kind], $used] = $this->scan($session, $kind, $scope, $only, $aliases, $kindFrom, $to, $labels, $budget);
+
+            if ($budget !== null) {
+                $budget -= $used;
             }
         }
 
@@ -168,6 +197,7 @@ final class SampleCoverage
             }
 
             if ($through !== null && $minute < $through) {
+                // A minute at or before the cut of a bounded read has no `total` row (stored()): unknown.
                 if (isset($stored['totals'][$minute])) {
                     foreach ($kinds as $kind) {
                         // The arrivals only from a `total` row that has them (never from a sum of group rows).
@@ -185,8 +215,8 @@ final class SampleCoverage
             }
 
             foreach ($kinds as $kind) {
-                // At or after both horizons: the scan covered it.
-                if ($minute >= $horizons[$kind]) {
+                // At or after both horizons, and after the cut of a bounded scan: the scan covered it.
+                if ($minute >= $horizons[$kind] && ($scanCuts[$kind] === null || $minute > $scanCuts[$kind])) {
                     $known[$minute][$kind] = true;
 
                     foreach ($scanned[$kind][$minute] ?? [] as $series => $counts) {
@@ -210,7 +240,9 @@ final class SampleCoverage
             $scannedFrom[$kind] = max($base, $horizons[$kind]);
         }
 
-        return new SampleWindow($from, $to, $end, $known, $rows, $labels, $scannedFrom);
+        $capped = $storedCut !== null || array_filter($scanCuts, static fn (?int $cut): bool => $cut !== null) !== [];
+
+        return new SampleWindow($from, $to, $end, $known, $rows, $labels, $scannedFrom, $capped);
     }
 
     /**
@@ -271,13 +303,16 @@ final class SampleCoverage
      * fails on a schema before step 7 (SampleCounts::arrivalsMissing()), it
      * reports SchemaOutdated (SampleCounts::OUTDATED_OPERATION, at most once
      * per 60 s) and reads again without `pushed`: the stored arrivals are
-     * unknown, the outcomes stay known.
+     * unknown, the outcomes stay known. With $rowLimit, it reads at most
+     * that many rows, newest minute first; `cut` is then the minute of the
+     * first row past the bound (that minute and the earlier ones are
+     * unknown), else null.
      *
      * @param  'total'|'queue'|'job'  $scope
      * @param  array{connection?: string, queue?: string, name?: string}|null  $only
-     * @return array{totals: array<int, array{pushed: bool}>, rows: array<int, array<string, Counts>>, labels: array<string, Label>}
+     * @return array{totals: array<int, array{pushed: bool}>, rows: array<int, array<string, Counts>>, labels: array<string, Label>, cut: ?int, used: int}
      */
-    private function stored(Connection $session, string $scope, ?array $only, int $from, int $to, bool $arrivals): array
+    private function stored(Connection $session, string $scope, ?array $only, int $from, int $to, bool $arrivals, ?int $rowLimit): array
     {
         $total = SampleCounts::series('total');
         $digest = self::digest($scope, $only);
@@ -299,9 +334,14 @@ final class SampleCoverage
                 }
             });
 
+        if ($rowLimit !== null) {
+            $query->orderByDesc('minute')->limit($rowLimit + 1);
+        }
+
         $totals = [];
         $rows = [];
         $labels = [];
+        $cut = null;
 
         $columns = ['scope', 'series', 'connection', 'queue', 'name', 'minute', 'completed', 'failed', 'runtime_ms_sum', 'runtime_count'];
 
@@ -319,8 +359,25 @@ final class SampleCoverage
             $read = $query->get($columns);
         }
 
-        foreach ($read as $row) {
+        $past = $rowLimit === null ? null : $read->get($rowLimit);
+
+        if ($past !== null) {
+            $cut = (int) $past->minute;
+        }
+
+        $used = $rowLimit === null ? $read->count() : min($read->count(), $rowLimit);
+        // Each row is freed once it is read, so the rows and their counts are not both held whole.
+        $items = $read->all();
+        unset($read, $past);
+
+        foreach ($items as $index => $row) {
+            unset($items[$index]);
             $minute = (int) $row->minute;
+
+            if ($cut !== null && $minute <= $cut) {
+                continue;
+            }
+
             $pushed = $arrivals ? $row->pushed : null;
 
             if ($row->scope === 'total') {
@@ -347,23 +404,26 @@ final class SampleCoverage
             ];
         }
 
-        return ['totals' => $totals, 'rows' => $rows, 'labels' => $labels];
+        return ['totals' => $totals, 'rows' => $rows, 'labels' => $labels, 'cut' => $cut, 'used' => $used];
     }
 
     /**
      * The scan of one kind over [from, to): per minute and series, the
      * completions (count, runtime sum and count), the failures, or the
      * arrivals (every status by pushed_at). It adds the labels of the
-     * scanned series.
+     * scanned series. With $rowLimit, it reads at most that many groups,
+     * newest minute first, and gives the minute of the first group past
+     * the bound as the cut (that minute and the earlier ones are unknown
+     * for this kind), else a null cut.
      *
      * @param  'completed'|'failed'|'pushed'  $kind
      * @param  'total'|'queue'|'job'  $scope
      * @param  array{connection?: string, queue?: string, name?: string}|null  $only
      * @param  array<string, string>  $aliases
      * @param  array<string, Label>  $labels
-     * @return array<int, array<string, array<string, int>>>
+     * @return array{0: array<int, array<string, array<string, int>>>, 1: ?int, 2: int} the counts, the cut and the rows of the budget that it used
      */
-    private function scan(Connection $session, string $kind, string $scope, ?array $only, array $aliases, int $from, int $to, array &$labels): array
+    private function scan(Connection $session, string $kind, string $scope, ?array $only, array $aliases, int $from, int $to, array &$labels, ?int $rowLimit): array
     {
         $binary = in_array($session->getDriverName(), ['mysql', 'mariadb'], true);
         $sqlite = $session->getDriverName() === 'sqlite';
@@ -398,11 +458,11 @@ final class SampleCoverage
         $bucket = $sqlite ? 'CAST('.$column.' / 60 AS INTEGER)' : 'FLOOR('.$column.' / 60)';
         // Each series expression, keyed by its alias in the select.
         $names = match ($scope) {
-            'queue' => $binary ? ['c' => 'CAST(`connection` AS BINARY)', 'q' => 'CAST(`queue` AS BINARY)'] : ['c' => '"connection"', 'q' => '"queue"'],
-            'job' => $binary ? ['n' => 'CAST(`name` AS BINARY)'] : ['n' => '"name"'],
+            'queue' => $binary ? ['orrery_c' => 'CAST(`connection` AS BINARY)', 'orrery_q' => 'CAST(`queue` AS BINARY)'] : ['orrery_c' => '"connection"', 'orrery_q' => '"queue"'],
+            'job' => $binary ? ['orrery_n' => 'CAST(`name` AS BINARY)'] : ['orrery_n' => '"name"'],
             default => [],
         };
-        $select = $bucket.' AS bucket';
+        $select = $bucket.' AS orrery_bucket';
 
         foreach ($names as $alias => $expression) {
             $select .= ', '.$expression.' AS '.$alias;
@@ -414,16 +474,39 @@ final class SampleCoverage
             'pushed' => ', COUNT(*) AS pushed',
         };
 
-        $groups = $bucket;
+        // MySQL and MariaDB group by the select aliases: MariaDB's
+        // ONLY_FULL_GROUP_BY (Laravel's strict mode) does not match a
+        // selected expression with the same expression in GROUP BY.
+        $groups = $binary ? 'orrery_bucket' : $bucket;
 
-        foreach ($names as $expression) {
-            $groups .= ', '.$expression;
+        foreach ($names as $alias => $expression) {
+            $groups .= ', '.($binary ? $alias : $expression);
         }
 
         $result = [];
+        $query->selectRaw($select)->groupByRaw($groups);
 
-        foreach ($query->selectRaw($select)->groupByRaw($groups)->get() as $row) {
-            $minute = (int) $row->bucket * SampleCounts::MINUTE;
+        if ($rowLimit !== null) {
+            $query->orderByRaw('orrery_bucket DESC')->limit($rowLimit + 1);
+        }
+
+        $read = $query->get();
+        $past = $rowLimit === null ? null : $read->get($rowLimit);
+        $cut = $past === null ? null : (int) $past->orrery_bucket * SampleCounts::MINUTE;
+        $used = $rowLimit === null ? $read->count() : min($read->count(), $rowLimit);
+        // Each row is freed once it is read.
+        $items = $read->all();
+        unset($read, $past);
+
+        foreach ($items as $index => $row) {
+            unset($items[$index]);
+            $minute = (int) $row->orrery_bucket * SampleCounts::MINUTE;
+
+            // The minutes at or before the cut are unknown: no counts, no label.
+            if ($cut !== null && $minute <= $cut) {
+                continue;
+            }
+
             [$series, $label] = self::seriesOf($scope, $row, $aliases);
 
             if ($series === null || ! self::matches($only, $label)) {
@@ -443,7 +526,7 @@ final class SampleCoverage
             $labels[$series] ??= $label;
         }
 
-        return $result;
+        return [$result, $cut, $used];
     }
 
     /**
@@ -462,14 +545,14 @@ final class SampleCoverage
         }
 
         if ($scope === 'job') {
-            $name = (string) ($row->n ?? '');
+            $name = (string) ($row->orrery_n ?? '');
 
             return [SampleCounts::series('job', $name), ['name' => $name] + $none];
         }
 
-        $connection = (string) ($row->c ?? '');
+        $connection = (string) ($row->orrery_c ?? '');
         $connection = $aliases[$connection] ?? $connection;
-        $queue = (string) ($row->q ?? '');
+        $queue = (string) ($row->orrery_q ?? '');
 
         return [SampleCounts::series('queue', $connection, $queue), ['connection' => $connection, 'queue' => $queue, 'name' => null]];
     }

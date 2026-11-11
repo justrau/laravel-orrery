@@ -180,9 +180,12 @@ final class TickRunnerTest extends TestCase
         $seen = [];
         $read = static function () use ($env): array {
             $connection = Setting::query()->getConnection();
-            $timeout = $env->driver === 'mysql'
-                ? (string) $connection->selectOne('select @@max_execution_time as t')->t
-                : (string) $connection->selectOne('show statement_timeout')->statement_timeout;
+            $timeout = match ($env->driver) {
+                'mysql' => (string) $connection->selectOne('select @@max_execution_time as t')->t,
+                // MariaDB's max_statement_time is in seconds.
+                'mariadb' => (string) (int) round((float) $connection->selectOne('select @@max_statement_time as t')->t * 1000),
+                default => (string) $connection->selectOne('show statement_timeout')->statement_timeout,
+            };
 
             return [$connection->getName(), $timeout];
         };
@@ -193,10 +196,10 @@ final class TickRunnerTest extends TestCase
             }),
         ]);
 
-        self::assertSame([self::mirrorSession(), $env->driver === 'mysql' ? '7000' : '7s'], $seen, 'the phase did not run on the maintenance session with its timeout');
+        self::assertSame([self::mirrorSession(), $env->isMysqlFamily() ? '7000' : '7s'], $seen, 'the phase did not run on the maintenance session with its timeout');
         // One package session per database connection: every package
         // statement has the timeout, inside a tick and outside it.
-        self::assertSame([self::mirrorSession(), $env->driver === 'mysql' ? '7000' : '7s'], $read(), 'the package session lost its statement timeout after the tick');
+        self::assertSame([self::mirrorSession(), $env->isMysqlFamily() ? '7000' : '7s'], $read(), 'the package session lost its statement timeout after the tick');
     }
 
     /**

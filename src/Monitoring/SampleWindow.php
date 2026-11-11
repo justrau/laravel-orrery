@@ -23,6 +23,8 @@ namespace Justrau\Orrery\Monitoring;
  *   that starts before it was decided by the stored counts, or is unknown.
  *   An outcome kind that was not requested has INF; `pushed` is present
  *   only when it was requested, so the outcome readers' shapes stay.
+ * - capped: a read of a row bound (SampleCoverage::of() $rowLimit) had
+ *   more rows, so some minutes are unknown because of the bound.
  *
  * @phpstan-type Counts array{completed: int, failed: int, runtime_ms_sum: int, runtime_count: int, pushed: int}
  * @phpstan-type Label array{connection: ?string, queue: ?string, name: ?string}
@@ -49,6 +51,7 @@ final class SampleWindow
         private readonly array $rows,
         public readonly array $labels,
         public readonly array $scannedFrom = ['completed' => INF, 'failed' => INF],
+        public readonly bool $capped = false,
     ) {}
 
     /**

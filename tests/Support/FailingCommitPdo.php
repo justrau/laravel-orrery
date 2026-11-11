@@ -45,9 +45,9 @@ final class FailingCommitPdo extends PDO
 
         $dsn = match ($driver) {
             'sqlite' => $database === ':memory:' ? 'sqlite::memory:' : 'sqlite:'.$database,
-            'mysql' => sprintf('mysql:host=%s;port=%d;dbname=%s', $config['host'], $config['port'], $database),
+            'mysql', 'mariadb' => sprintf('mysql:host=%s;port=%d;dbname=%s', $config['host'], $config['port'], $database),
             'pgsql' => sprintf('pgsql:host=%s;port=%d;dbname=%s', $config['host'], $config['port'], $database),
-            default => throw new InvalidArgumentException('FailingCommitPdo supports sqlite, mysql and pgsql.'),
+            default => throw new InvalidArgumentException('FailingCommitPdo supports sqlite, mysql, mariadb and pgsql.'),
         };
 
         $username = $driver === 'sqlite' ? null : (string) $config['username'];

@@ -130,9 +130,12 @@ final class DeferredIndexesTest extends TestCase
         $mirror = $this->app->make(PackageSession::class)->mirror();
 
         // The control reads the session's own limit, not a timed query (a timed control failed once on MySQL).
-        $limit = $mirror->getDriverName() === 'pgsql'
-            ? (string) $mirror->scalar("select current_setting('statement_timeout')")
-            : (string) $mirror->scalar('select @@max_execution_time');
+        $limit = match ($mirror->getDriverName()) {
+            'pgsql' => (string) $mirror->scalar("select current_setting('statement_timeout')"),
+            // MariaDB's max_statement_time is in seconds.
+            'mariadb' => (string) (int) round((float) $mirror->scalar('select @@max_statement_time') * 1000),
+            default => (string) $mirror->scalar('select @@max_execution_time'),
+        };
         self::assertContains($limit, ['20', '20ms'], 'the control: the package session runs with the lowered timeout');
 
         self::assertSame(0, $this->install(), Artisan::output());
