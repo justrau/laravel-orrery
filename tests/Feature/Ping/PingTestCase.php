@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Ping;
 
 use Illuminate\Testing\TestResponse;
+use Justrau\Orrery\Maintenance\TickOutcome;
 use Justrau\Orrery\Monitoring\LongWaitIncidents;
 use Justrau\Orrery\Monitoring\LongWaitMeasured;
 use Justrau\Orrery\Storage\Clock;
@@ -31,6 +32,24 @@ abstract class PingTestCase extends TestCase
         parent::setUp();
 
         $this->tickAgo(10);
+        $this->tickOutcome(finishedAgo: 5);
+    }
+
+    /**
+     * The outcome of the last finished tick (Maintenance\TickOutcome).
+     *
+     * @param  list<string>  $failed
+     * @param  array<string, int>  $streaks  the deadline skips in a row, by phase
+     */
+    protected function tickOutcome(float $finishedAgo, array $failed = [], array $streaks = []): void
+    {
+        $now = Clock::now();
+        $this->setting(TickOutcome::KEY, (string) json_encode([
+            'started_at' => $now - $finishedAgo - 5,
+            'finished_at' => $now - $finishedAgo,
+            'failed' => $failed,
+            'skip_streaks' => (object) $streaks,
+        ], JSON_PRESERVE_ZERO_FRACTION));
     }
 
     protected function tickAgo(float $seconds): void

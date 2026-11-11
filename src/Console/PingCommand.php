@@ -71,6 +71,18 @@ class PingCommand extends Command
             $parts[] = (($check['at_least'] ?? false) === true ? 'at least ' : '').$check['dropped'].' dropped';
         }
 
+        if (isset($check['finished_age'])) {
+            $parts[] = 'last finished '.$check['finished_age'].' s ago';
+        }
+
+        if (isset($check['phases']) && is_array($check['phases'])) {
+            $parts[] = 'phases: '.implode(', ', $check['phases']);
+        }
+
+        if (isset($check['unmeasured']) && is_array($check['unmeasured'])) {
+            $parts[] = 'not measured: '.implode(', ', array_map(static fn (array $queue): string => $queue['connection'].':'.$queue['queue'], $check['unmeasured']));
+        }
+
         if (isset($check['queues']) && is_array($check['queues'])) {
             $parts[] = implode(', ', array_map(static fn (array $queue): string => $queue['connection'].':'.$queue['queue'], $check['queues']));
         }

@@ -8,6 +8,7 @@ use Justrau\Orrery\Control\PauseCauses;
 use Justrau\Orrery\Control\SignalState;
 use Justrau\Orrery\Database\Schema\PackageSchema;
 use Justrau\Orrery\Database\Schema\SchemaStatus;
+use Justrau\Orrery\Maintenance\TickOutcome;
 use Justrau\Orrery\Runtime\HealthEvents;
 use Justrau\Orrery\Runtime\OffSwitch;
 use Justrau\Orrery\Runtime\ProcessContext;
@@ -25,9 +26,9 @@ use Justrau\Orrery\Storage\PackageSession;
  *   so a dead server costs one connect.
  * - `schema`: SchemaStatus::read(): the marker equals this release's
  *   version, else `migrate_needed` with both versions.
- * - `tick`: the age of `observer_tick_at` (the start of the last tick) at
- *   most `ping.tick_max_age` seconds, else `late` (the age is null when no
- *   tick has run).
+ * - `tick`: the last tick started and finished within `ping.tick_max_age`
+ *   seconds (else `late`), with no failed phase and no phase skipped by
+ *   the deadline on 3 ticks in a row (else `phases_failed`): tick().
  * - `observations`: no dropped observation of a worker in the last
  *   `ping.tick_max_age` seconds (observations()), else `dropped` with the
  *   sum (`at_least` when more windows match than one read takes).
@@ -118,29 +119,59 @@ final class Ping
     }
 
     /**
+     * The tick: its last start (observer_tick_at) within $maxAge, else
+     * `late`; the outcome of the last finished tick (TickOutcome) finished
+     * within $maxAge, else `late` (a tick that never finishes); and no
+     * failed phase in that outcome, and no phase that the deadline skipped
+     * on TickOutcome::SKIP_STREAK ticks in a row, else `phases_failed` with
+     * their names. A value that cannot be read, or no outcome yet, is
+     * `unknown`.
+     *
      * @return Check
      */
     private static function tick(Watcher $watcher, PackageSession $sessions, float $now, int $maxAge): array
     {
-        $read = $watcher->attempt('ping:tick', static fn (): mixed => $sessions->mirror()->table('orrery_settings')->where('key', 'observer_tick_at')->value('value'));
+        $read = $watcher->attempt('ping:tick', static fn (): array => $sessions->mirror()->table('orrery_settings')
+            ->whereIn('key', ['observer_tick_at', TickOutcome::KEY])->pluck('value', 'key')->all());
 
         if (! $read->succeeded()) {
             return self::fail('unknown');
         }
 
-        $value = $read->value();
+        /** @var array<string, mixed> $values */
+        $values = $read->value();
+        $started = $values['observer_tick_at'] ?? null;
 
-        if ($value === null) {
+        if ($started === null) {
             return self::fail('late') + ['age' => null];
         }
 
-        if (! is_numeric($value)) {
+        if (! is_numeric($started)) {
             return self::fail('unknown');
         }
 
-        $age = (int) round($now - Clock::stored($value));
+        $age = (int) round($now - Clock::stored($started));
 
-        return $age <= $maxAge ? ['ok' => true, 'age' => $age] : self::fail('late') + ['age' => $age];
+        if ($age > $maxAge) {
+            return self::fail('late') + ['age' => $age];
+        }
+
+        $outcome = is_string($values[TickOutcome::KEY] ?? null) ? TickOutcome::decode($values[TickOutcome::KEY]) : null;
+
+        if ($outcome === null) {
+            return self::fail('unknown');
+        }
+
+        $finishedAge = (int) round($now - $outcome['finished_at']);
+
+        if ($finishedAge > $maxAge) {
+            return self::fail('late') + ['age' => $age, 'finished_age' => $finishedAge];
+        }
+
+        $skipped = array_keys(array_filter($outcome['skip_streaks'], static fn (int $count): bool => $count >= TickOutcome::SKIP_STREAK));
+        $phases = array_values(array_unique([...$outcome['failed'], ...$skipped]));
+
+        return $phases === [] ? ['ok' => true, 'age' => $age] : self::fail('phases_failed') + ['phases' => $phases];
     }
 
     /**

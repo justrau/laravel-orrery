@@ -5,6 +5,7 @@ namespace Justrau\Orrery\Console;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Container\Container;
 use Justrau\Orrery\Database\Models\Setting;
+use Justrau\Orrery\Maintenance\TickOutcome;
 use Justrau\Orrery\Maintenance\TickPhase;
 use Justrau\Orrery\Maintenance\TickRunner;
 use Justrau\Orrery\Runtime\Degradation;
@@ -21,8 +22,9 @@ use Symfony\Component\Console\Attribute\AsCommand;
  *   check itself fails, it prints one warning, records the problem in the
  *   degradation record, and exits 0.
  * - Otherwise it writes the setting observer_tick_at (the tick liveness),
- *   runs the phases tagged `orrery.tick-phases` (TickRunner), and
- *   flushes the degradation record.
+ *   runs the phases tagged `orrery.tick-phases` (TickRunner), stores the
+ *   run's outcome (TickOutcome: failed phases, deadline skips in a row,
+ *   the finish time), and flushes the degradation record.
  * - While the package is off (ORRERY_ENABLED=false) it prints "Skipped:"
  *   with the reason and does nothing (whileDisabled()).
  * - It exits 0 in every case: a mirror outage or the off switch never fails
@@ -78,13 +80,17 @@ class TickCommand extends Command
             return self::SUCCESS;
         }
 
-        $watcher->run('tick:liveness', static function (): void {
-            Setting::query()->updateOrCreate(['key' => 'observer_tick_at'], ['value' => Clock::toDecimal(Clock::now())]);
+        $startedAt = Clock::now();
+        $watcher->run('tick:liveness', static function () use ($startedAt): void {
+            Setting::query()->updateOrCreate(['key' => 'observer_tick_at'], ['value' => Clock::toDecimal($startedAt)]);
         });
 
         /** @var iterable<TickPhase> $phases */
         $phases = $container->tagged(self::PHASES_TAG);
-        $runner->run($phases);
+        $report = $runner->run($phases);
+
+        // The outcome for the monitoring ping: failed phases and deadline skips in a row (TickOutcome).
+        $watcher->run('tick:outcome', static fn () => $container->make(TickOutcome::class)->record($startedAt, Clock::now(), $report));
 
         Degradation::flush();
 

@@ -6,6 +6,7 @@ namespace Justrau\Orrery\Tests\Feature\Ping;
 
 use Justrau\Orrery\Database\Schema\PackageSchema;
 use Justrau\Orrery\Maintenance\TickBudget;
+use Justrau\Orrery\Maintenance\TickOutcome;
 use Justrau\Orrery\Monitoring\LongWaitIncidents;
 use Justrau\Orrery\Monitoring\LongWaitMeasured;
 use Justrau\Orrery\Monitoring\Phases\LongWaitPhase;
@@ -274,6 +275,55 @@ final class PingRouteTest extends PingTestCase
         $this->mirror()->table('orrery_settings')->where('key', 'observer_tick_at')->delete();
         $response = $this->ping()->assertStatus(503);
         self::assertSame(['ok' => false, 'reason' => 'late', 'age' => null], $response->json('checks.tick'));
+    }
+
+    /**
+     * Rejects: a ping that passes while a tick phase fails on every run (retention, the samples, the stuck
+     * incidents...): the tick is fresh, but Orrery does not maintain reliably.
+     */
+    public function test_a_failed_tick_phase_fails_the_tick_check(): void
+    {
+        $this->tickOutcome(finishedAgo: 5, failed: ['retention', 'sample_counts']);
+
+        $response = $this->ping()->assertStatus(503);
+        self::assertSame(['ok' => false, 'reason' => 'phases_failed', 'phases' => ['retention', 'sample_counts']], $response->json('checks.tick'));
+    }
+
+    /**
+     * Rejects: a single deadline skip that fails the ping (the next tick runs the phase), and a phase that the
+     * deadline skips on TickOutcome::SKIP_STREAK ticks in a row that passes.
+     */
+    public function test_a_phase_skipped_on_three_ticks_in_a_row_fails(): void
+    {
+        $this->tickOutcome(finishedAgo: 5, streaks: ['stuck_events' => 2]);
+        $this->ping()->assertOk();
+
+        $this->tickOutcome(finishedAgo: 5, streaks: ['stuck_events' => 3]);
+        $this->ping()->assertStatus(503)->assertJsonPath('checks.tick', ['ok' => false, 'reason' => 'phases_failed', 'phases' => ['stuck_events']]);
+    }
+
+    /**
+     * Rejects: a tick that started in time but never finished (killed, or hung past tick_max_age) that passes because
+     * observer_tick_at is written at its start.
+     */
+    public function test_a_tick_that_never_finishes_is_late(): void
+    {
+        $this->tickAgo(10);
+        $this->tickOutcome(finishedAgo: 400);
+
+        $response = $this->ping()->assertStatus(503);
+        self::assertSame('late', $response->json('checks.tick.reason'));
+        self::assertGreaterThanOrEqual(400, $response->json('checks.tick.finished_age'));
+    }
+
+    /**
+     * Rejects: a tick check that passes without the outcome of any finished tick.
+     */
+    public function test_a_missing_tick_outcome_is_unknown(): void
+    {
+        $this->mirror()->table('orrery_settings')->where('key', TickOutcome::KEY)->delete();
+
+        $this->ping()->assertStatus(503)->assertJsonPath('checks.tick', ['ok' => false, 'reason' => 'unknown']);
     }
 
     /**
