@@ -26,7 +26,7 @@ class WorkersCommand extends Command
     protected $signature = 'orrery:workers
         {--format=list : list, supervisor, systemd or forge}
         {--user= : The user that runs the workers (supervisor, systemd, forge); default: the current user}
-        {--php= : The PHP binary (supervisor, systemd); default: this PHP binary under the CLI, else php}
+        {--php= : The PHP binary (supervisor, systemd); default: this PHP binary under the CLI, else php (systemd: a bare name is looked up on PATH)}
         {--path= : The application directory; default: base_path()}
         {--prefix= : The program and unit name prefix ([a-z0-9-]+); default: the application name as a slug}
         {--log-dir= : The log directory (supervisor); default: storage/logs}';
@@ -44,13 +44,18 @@ class WorkersCommand extends Command
             return self::FAILURE;
         }
 
-        ['pools' => $pools, 'errors' => $errors] = Pools::read($this->laravel->make('config'));
+        ['pools' => $pools, 'errors' => $errors, 'warnings' => $warnings] = Pools::read($this->laravel->make('config'));
 
         if ($errors !== []) {
             $this->components->error('The worker pools are invalid ('.Pools::KEY.'):');
             $this->components->bulletList($errors);
 
             return self::FAILURE;
+        }
+
+        if ($warnings !== []) {
+            $this->components->warn('Check these worker pools ('.Pools::KEY.'):');
+            $this->components->bulletList($warnings);
         }
 
         if ($pools === []) {
@@ -67,8 +72,23 @@ class WorkersCommand extends Command
             return self::FAILURE;
         }
 
+        $php = $this->stringOption('php') ?? ProcessConfig::defaultPhp(PHP_SAPI, PHP_BINARY);
+
+        // systemd's ExecStart needs a path: a bare name is looked up on this PATH now.
+        if ($format === 'systemd' && ! str_starts_with($php, '/')) {
+            $found = self::onPath($php);
+
+            if ($found === null) {
+                $this->components->error("--php: \"{$php}\" is not on the PATH of this shell; pass --php=/absolute/path/to/php.");
+
+                return self::FAILURE;
+            }
+
+            $php = $found;
+        }
+
         $config = new ProcessConfig(
-            php: $this->stringOption('php') ?? ProcessConfig::defaultPhp(PHP_SAPI, PHP_BINARY),
+            php: $php,
             path: rtrim($this->stringOption('path') ?? $this->laravel->basePath(), '/'),
             user: $this->stringOption('user') ?? self::currentUser(),
             prefix: $prefix,
@@ -122,6 +142,24 @@ class WorkersCommand extends Command
             $this->line("Pool {$form['pool']}, the same values in the Queue worker tab (without --name):");
             $this->table(['Field', 'Value'], $form['queue_worker']);
         }
+    }
+
+    /** The absolute path of an executable $name on PATH, or null. */
+    private static function onPath(string $name): ?string
+    {
+        if ($name === '' || str_contains($name, '/')) {
+            return null;
+        }
+
+        foreach (explode(PATH_SEPARATOR, (string) getenv('PATH')) as $directory) {
+            $candidate = rtrim($directory, '/').'/'.$name;
+
+            if ($directory !== '' && str_starts_with($candidate, '/') && is_file($candidate) && is_executable($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
     }
 
     private function stringOption(string $name): ?string

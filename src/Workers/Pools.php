@@ -13,6 +13,13 @@ use Illuminate\Contracts\Config\Repository;
  * strict: an unknown key, a wrong type or a value out of range is an error
  * that names the pool and the field. A pool with an error is not returned.
  *
+ * The job timeout (`timeout`, else Laravel's 60) must be shorter than the
+ * connection's `retry_after` (else Laravel's 60): Laravel requires --timeout
+ * to be several seconds shorter than retry_after, or a job can run twice.
+ * A timeout that reaches retry_after is an error; one within
+ * RETRY_AFTER_MARGIN seconds of it, and no timeout (0), are warnings, and
+ * the pool stays valid.
+ *
  * PHP keeps only the last of two equal array keys, so two pools with the
  * same name cannot reach this class: the config file holds one of them.
  */
@@ -22,23 +29,32 @@ final class Pools
 
     private const REQUIRED = ['connection', 'queues', 'processes'];
 
+    /** Laravel's default retry_after of a database queue connection. */
+    public const DEFAULT_RETRY_AFTER = 60;
+
+    /** A timeout closer to retry_after than this is a warning. */
+    public const RETRY_AFTER_MARGIN = 10;
+
+    private const TIMEOUT_RULE = 'Laravel requires --timeout to be several seconds shorter than retry_after, or a job can run twice.';
+
     /**
-     * @return array{pools: list<Pool>, errors: list<string>}
+     * @return array{pools: list<Pool>, errors: list<string>, warnings: list<string>}
      */
     public static function read(Repository $config): array
     {
         $declared = $config->get(self::KEY);
 
         if ($declared === null) {
-            return ['pools' => [], 'errors' => []];
+            return ['pools' => [], 'errors' => [], 'warnings' => []];
         }
 
         if (! is_array($declared)) {
-            return ['pools' => [], 'errors' => [self::KEY.': must be an array of pools keyed by name (got '.self::describe($declared).').']];
+            return ['pools' => [], 'errors' => [self::KEY.': must be an array of pools keyed by name (got '.self::describe($declared).').'], 'warnings' => []];
         }
 
         $pools = [];
         $errors = [];
+        $warnings = [];
 
         foreach ($declared as $name => $pool) {
             $poolErrors = [];
@@ -112,6 +128,19 @@ final class Pools
                 $options[$key] = $pool[$key];
             }
 
+            if ($poolErrors === []) {
+                /** @var string $connection */
+                $timeoutProblem = self::timeoutProblem($config, $connection, $options['timeout'] ?? Pool::DEFAULT_TIMEOUT);
+
+                if ($timeoutProblem !== null) {
+                    if ($timeoutProblem[0] === 'error') {
+                        $poolErrors[] = $field('timeout').': '.$timeoutProblem[1];
+                    } else {
+                        $warnings[] = $field('timeout').': '.$timeoutProblem[1];
+                    }
+                }
+            }
+
             if ($poolErrors !== []) {
                 array_push($errors, ...$poolErrors);
 
@@ -125,7 +154,32 @@ final class Pools
             $pools[] = new Pool($name, $connection, $queues, $processes, $options);
         }
 
-        return ['pools' => $pools, 'errors' => $errors];
+        return ['pools' => $pools, 'errors' => $errors, 'warnings' => $warnings];
+    }
+
+    /**
+     * @return array{'error'|'warning', string}|null
+     */
+    private static function timeoutProblem(Repository $config, string $connection, mixed $timeout): ?array
+    {
+        $retryAfter = $config->get("queue.connections.{$connection}.retry_after");
+        $retryAfter = is_numeric($retryAfter) ? (int) $retryAfter : self::DEFAULT_RETRY_AFTER;
+        $timeout = is_int($timeout) ? $timeout : Pool::DEFAULT_TIMEOUT;
+        $named = "the job timeout {$timeout} s, the retry_after of \"{$connection}\" {$retryAfter} s";
+
+        if ($timeout === 0) {
+            return ['warning', "no job timeout (0): a job that runs longer than the retry_after of \"{$connection}\" ({$retryAfter} s) runs twice. ".self::TIMEOUT_RULE];
+        }
+
+        if ($timeout >= $retryAfter) {
+            return ['error', "must be shorter than retry_after ({$named}). ".self::TIMEOUT_RULE];
+        }
+
+        if ($retryAfter - $timeout < self::RETRY_AFTER_MARGIN) {
+            return ['warning', 'is within '.self::RETRY_AFTER_MARGIN." s of retry_after ({$named}). ".self::TIMEOUT_RULE];
+        }
+
+        return null;
     }
 
     private static function connectionProblem(Repository $config, mixed $connection): ?string

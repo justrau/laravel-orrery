@@ -69,6 +69,8 @@ final class ProcessConfig
     public function supervisor(array $pools): string
     {
         $this->refuseSettings();
+        self::absolute('--path', $this->path);
+        self::absolute('--log-dir', $this->logDirectory);
         $out = "; Orrery worker pools for supervisord (php artisan orrery:workers --format=supervisor).\n"
             ."; Orrery never starts workers. Save this as /etc/supervisor/conf.d/{$this->prefix}-workers.conf,\n"
             ."; then run: supervisorctl reread && supervisorctl update\n";
@@ -82,6 +84,10 @@ final class ProcessConfig
                 'numprocs' => (string) $pool->processes,
                 'autostart' => 'true',
                 'autorestart' => 'true',
+                // A worker that exits within a second (a lost database connection) is a failed start:
+                // 60 retries with growing pauses (1 s, 2 s, ...) ride out an outage of about 30 minutes.
+                'startsecs' => '1',
+                'startretries' => '60',
                 'stopasgroup' => 'true',
                 'killasgroup' => 'true',
                 'user' => $this->user,
@@ -94,11 +100,7 @@ final class ProcessConfig
 
             foreach ($values as $key => $value) {
                 if ($key !== 'process_name') {
-                    $value = str_replace('%', '%%', $value);
-                }
-
-                if (preg_match('/\s[;#]/', $value) === 1) {
-                    throw new InvalidArgumentException("Pool {$pool->name}: supervisord would cut its {$key} value at a ; or # after a space; rename the queue or move the path.");
+                    $value = self::supervisordValue($pool, $key, $value);
                 }
 
                 if ($key === 'stopwaitsecs' && $timeout === 0) {
@@ -120,6 +122,8 @@ final class ProcessConfig
     public function systemd(array $pools): string
     {
         $this->refuseSettings();
+        self::absolute('--path', $this->path);
+        self::absolute('--php', $this->php);
         $out = "# Orrery worker pools for systemd (php artisan orrery:workers --format=systemd).\n"
             ."# Orrery never starts workers. Save each unit under /etc/systemd/system/,\n"
             ."# then run systemctl daemon-reload and the unit's enable line.\n";
@@ -135,12 +139,15 @@ final class ProcessConfig
                 ."[Unit]\n"
                 ."Description={$this->prefix} queue worker {$pool->name} %i (Orrery pool)\n"
                 ."After=network.target\n"
+                // No start limit: a database restart of a few seconds would otherwise stop the restarts.
+                ."StartLimitIntervalSec=0\n"
                 ."\n"
                 ."[Service]\n"
                 .'User='.str_replace('%', '%%', $this->user)."\n"
                 .'WorkingDirectory='.str_replace('%', '%%', $this->path)."\n"
                 ."ExecStart={$exec}\n"
                 ."Restart=always\n"
+                ."RestartSec=5\n"
                 ."KillSignal=SIGTERM\n"
                 .'TimeoutStopSec='.($timeout === 0 ? 'infinity' : (string) ($timeout + 30))."\n"
                 ."\n"
@@ -162,6 +169,7 @@ final class ProcessConfig
     public function forge(array $pools): array
     {
         $this->refuseSettings();
+        self::absolute('--path', $this->path);
         $forms = [];
         $defaults = ['backoff' => '0', 'sleep' => '3', 'rest' => '0', 'timeout' => '60', 'tries' => '1', 'memory' => '128'];
 
@@ -187,7 +195,8 @@ final class ProcessConfig
                 'pool' => $pool->name,
                 'custom' => [
                     ['Name', "{$this->prefix}-{$pool->name}"],
-                    ['Command', self::shellLine(['php', 'artisan', ...$pool->arguments()])],
+                    // Forge writes the command into a supervisord program: the same `%` and cut rules.
+                    ['Command', self::supervisordValue($pool, 'command', self::shellLine(['php', 'artisan', ...$pool->arguments()]))],
                     ['Working Directory', $this->path],
                     ['User', $this->user],
                     ['Processes', (string) $pool->processes],
@@ -199,6 +208,29 @@ final class ProcessConfig
         }
 
         return $forms;
+    }
+
+    /**
+     * A supervisord value: every `%` doubled (supervisord expands
+     * `%(name)s`), refused when its parser would cut it at a `;` or `#`
+     * after whitespace.
+     */
+    private static function supervisordValue(Pool $pool, string $key, string $value): string
+    {
+        $value = str_replace('%', '%%', $value);
+
+        if (preg_match('/\s[;#]/', $value) === 1) {
+            throw new InvalidArgumentException("Pool {$pool->name}: supervisord would cut its {$key} value at a ; or # after a space; rename the queue or move the path.");
+        }
+
+        return $value;
+    }
+
+    private static function absolute(string $option, string $value): void
+    {
+        if (! str_starts_with($value, '/')) {
+            throw new InvalidArgumentException("{$option} must be an absolute path for this format (got \"{$value}\").");
+        }
     }
 
     /** A POSIX shell word: bare when it has only safe characters, else single-quoted. */

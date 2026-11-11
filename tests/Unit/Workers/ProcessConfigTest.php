@@ -33,7 +33,9 @@ final class ProcessConfigTest extends TestCase
 
     /**
      * Rejects: a stopwaitsecs that does not exceed the job timeout, a `%` that supervisord would expand, a command
-     * whose words supervisord's shlex would split at a space, and a missing stopasgroup or killasgroup.
+     * whose words supervisord's shlex would split at a space, a missing stopasgroup or killasgroup, and the start
+     * defaults (3 retries of a worker that exits within a second) that leave a program FATAL after a short
+     * database outage.
      */
     public function test_the_supervisor_format(): void
     {
@@ -48,6 +50,8 @@ final class ProcessConfigTest extends TestCase
             numprocs=2
             autostart=true
             autorestart=true
+            startsecs=1
+            startretries=60
             stopasgroup=true
             killasgroup=true
             user=deploy
@@ -61,6 +65,8 @@ final class ProcessConfigTest extends TestCase
             numprocs=1
             autostart=true
             autorestart=true
+            startsecs=1
+            startretries=60
             stopasgroup=true
             killasgroup=true
             user=deploy
@@ -76,7 +82,8 @@ final class ProcessConfigTest extends TestCase
 
     /**
      * Rejects: a TimeoutStopSec that does not exceed the job timeout, an ExecStart word that systemd would split at a
-     * space, an unescaped `%` or `$`, and a missing enable line with the process count.
+     * space, an unescaped `%` or `$`, a missing enable line with the process count, and systemd's start limit (5
+     * starts in 10 s), which leaves the workers down after a database restart of a few seconds.
      */
     public function test_the_systemd_format(): void
     {
@@ -90,12 +97,14 @@ final class ProcessConfigTest extends TestCase
             [Unit]
             Description=shop queue worker default %i (Orrery pool)
             After=network.target
+            StartLimitIntervalSec=0
 
             [Service]
             User=deploy
             WorkingDirectory=/srv/my app
             ExecStart=/usr/bin/php "/srv/my app/artisan" queue:work database --queue=high,default --name=default --tries=3 --timeout=90
             Restart=always
+            RestartSec=5
             KillSignal=SIGTERM
             TimeoutStopSec=120
 
@@ -107,12 +116,14 @@ final class ProcessConfigTest extends TestCase
             [Unit]
             Description=shop queue worker reports %i (Orrery pool)
             After=network.target
+            StartLimitIntervalSec=0
 
             [Service]
             User=deploy
             WorkingDirectory=/srv/my app
             ExecStart=/usr/bin/php "/srv/my app/artisan" queue:work database "--queue=it's big,low prio" --name=reports --timeout=0 --sleep=0.5 --backoff=1,5,10 --memory=256 --max-jobs=500 --max-time=3600 --rest=1 --force
             Restart=always
+            RestartSec=5
             KillSignal=SIGTERM
             TimeoutStopSec=infinity
 
@@ -130,9 +141,9 @@ final class ProcessConfigTest extends TestCase
     public function test_systemd_escapes_quotes_backslashes_specifiers_and_variables(): void
     {
         $pool = new Pool('odd', 'database', ['a"b\\c', '50%$HOME'], 1, []);
-        $out = (new ProcessConfig('php', '/app', 'u', 'p', '/logs'))->systemd([$pool]);
+        $out = (new ProcessConfig('/usr/bin/php', '/app', 'u', 'p', '/logs'))->systemd([$pool]);
 
-        self::assertStringContainsString('ExecStart=php /app/artisan queue:work database "--queue=a\\"b\\\\c,50%%$$HOME" --name=odd'."\n", $out);
+        self::assertStringContainsString('ExecStart=/usr/bin/php /app/artisan queue:work database "--queue=a\\"b\\\\c,50%%$$HOME" --name=odd'."\n", $out);
     }
 
     /**
@@ -172,6 +183,48 @@ final class ProcessConfigTest extends TestCase
         self::assertSame(5, $refused);
         // The list format reads no supervisord value: " #" is a plain quoted shell word there.
         self::assertStringContainsString("'--queue=a #b'", self::config()->list([$cut]));
+    }
+
+    /**
+     * Rejects: a Forge command whose `%` supervisord expands (Forge writes it into a supervisord program), or whose
+     * " #" or " ;" cuts it.
+     */
+    public function test_the_forge_command_is_a_supervisord_value(): void
+    {
+        $forms = self::config()->forge([new Pool('odd', 'database', ['50%'], 1, [])]);
+        self::assertSame(['Command', 'php artisan queue:work database --queue=50%% --name=odd'], $forms[0]['custom'][1]);
+
+        $this->expectException(InvalidArgumentException::class);
+        self::config()->forge([new Pool('cut', 'database', ['a #b'], 1, [])]);
+    }
+
+    /**
+     * Rejects: a relative application path in supervisord or systemd (both start the program outside it), a relative
+     * log directory in supervisord, and a PHP binary that systemd would not find (ExecStart needs a path).
+     */
+    public function test_paths_must_be_absolute_where_the_process_manager_needs_it(): void
+    {
+        $pool = [new Pool('default', 'database', ['default'], 1, [])];
+        $cases = [
+            'supervisor path' => static fn () => (new ProcessConfig('/usr/bin/php', 'app', 'u', 'p', '/logs'))->supervisor($pool),
+            'supervisor log dir' => static fn () => (new ProcessConfig('/usr/bin/php', '/app', 'u', 'p', 'logs'))->supervisor($pool),
+            'systemd path' => static fn () => (new ProcessConfig('/usr/bin/php', 'app', 'u', 'p', '/logs'))->systemd($pool),
+            'systemd php' => static fn () => (new ProcessConfig('php', '/app', 'u', 'p', '/logs'))->systemd($pool),
+            'forge path' => static fn () => (new ProcessConfig('php', 'app', 'u', 'p', '/logs'))->forge($pool),
+        ];
+
+        foreach ($cases as $case => $render) {
+            try {
+                $render();
+                self::fail("{$case} was accepted");
+            } catch (InvalidArgumentException $refused) {
+                self::assertStringContainsString('absolute', $refused->getMessage(), $case);
+            }
+        }
+
+        // supervisord finds a bare `php` on its PATH, and the list format runs from the application directory.
+        self::assertStringContainsString('command=php /app/artisan', (new ProcessConfig('php', '/app', 'u', 'p', '/logs'))->supervisor($pool));
+        self::assertStringContainsString('php artisan queue:work', (new ProcessConfig('php', 'app', 'u', 'p', 'logs'))->list($pool));
     }
 
     /**

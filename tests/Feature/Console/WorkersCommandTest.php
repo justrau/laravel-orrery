@@ -80,8 +80,8 @@ final class WorkersCommandTest extends TestCase
         self::assertStringContainsString("user=deploy\n", $output);
         self::assertStringContainsString('stdout_logfile='.str_replace('%', '%%', storage_path('logs')).'/my-shop-default.log', $output);
 
-        self::assertSame(0, Artisan::call('orrery:workers', ['--format' => 'systemd', '--prefix' => 'acme', '--path' => '/srv/app/', '--php' => 'php']));
-        self::assertStringContainsString("ExecStart=php /srv/app/artisan queue:work database --queue=high,default --name=default --tries=3\n", Artisan::output());
+        self::assertSame(0, Artisan::call('orrery:workers', ['--format' => 'systemd', '--prefix' => 'acme', '--path' => '/srv/app/', '--php' => '/opt/php']));
+        self::assertStringContainsString("ExecStart=/opt/php /srv/app/artisan queue:work database --queue=high,default --name=default --tries=3\n", Artisan::output());
     }
 
     /**
@@ -98,6 +98,34 @@ final class WorkersCommandTest extends TestCase
         self::assertStringContainsString('Pool default, Custom tab:', $output);
         self::assertMatchesRegularExpression('/\| Command +\| php artisan queue:work database --queue=high,default --name=default --tries=3 +\|/', $output);
         self::assertMatchesRegularExpression('/\| Number of Processes +\| 2 +\|/', $output);
+    }
+
+    /**
+     * Rejects: a systemd unit with a bare `php` (ExecStart needs a path): the command resolves it on PATH, and refuses a
+     * binary that it cannot find.
+     */
+    public function test_systemd_resolves_a_bare_php_on_the_path(): void
+    {
+        $this->app['config']->set('orrery.workers.pools', self::POOLS);
+
+        self::assertSame(0, Artisan::call('orrery:workers', ['--format' => 'systemd', '--php' => 'php', '--path' => '/srv/app']));
+        self::assertMatchesRegularExpression('#\nExecStart=/\S*php\S* /srv/app/artisan queue:work#', Artisan::output());
+
+        self::assertSame(1, Artisan::call('orrery:workers', ['--format' => 'systemd', '--php' => 'no-such-php-binary-x', '--path' => '/srv/app']));
+        self::assertStringContainsString('--php', Artisan::output());
+    }
+
+    /**
+     * Rejects: a command that hides a timeout warning, or that refuses the configuration for it.
+     */
+    public function test_warnings_print_with_the_configuration(): void
+    {
+        $this->app['config']->set('orrery.workers.pools', ['default' => self::POOLS['default'] + ['timeout' => 85]]);
+
+        self::assertSame(0, Artisan::call('orrery:workers'));
+        $output = Artisan::output();
+        self::assertStringContainsString('orrery.workers.pools.default.timeout', $output);
+        self::assertStringContainsString('--name=default', $output);
     }
 
     /**

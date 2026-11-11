@@ -20,19 +20,20 @@ final class PoolsTest extends TestCase
      */
     public function test_a_valid_pool_keeps_its_queues_and_only_its_set_options(): void
     {
-        $read = Pools::read(self::config(['default' => self::VALID + ['timeout' => 90, 'tries' => 3, 'force' => false]]));
+        $read = Pools::read(self::config(['default' => self::VALID + ['timeout' => 60, 'tries' => 3, 'force' => false]]));
 
         self::assertSame([], $read['errors']);
+        self::assertSame([], $read['warnings']);
         self::assertCount(1, $read['pools']);
         $pool = $read['pools'][0];
-        self::assertSame(['default', 'database', ['high', 'default'], 2, ['tries' => 3, 'timeout' => 90, 'force' => false]], [$pool->name, $pool->connection, $pool->queues, $pool->processes, $pool->options]);
-        self::assertSame(['queue:work', 'database', '--queue=high,default', '--name=default', '--tries=3', '--timeout=90'], $pool->arguments());
+        self::assertSame(['default', 'database', ['high', 'default'], 2, ['tries' => 3, 'timeout' => 60, 'force' => false]], [$pool->name, $pool->connection, $pool->queues, $pool->processes, $pool->options]);
+        self::assertSame(['queue:work', 'database', '--queue=high,default', '--name=default', '--tries=3', '--timeout=60'], $pool->arguments());
     }
 
     public function test_no_pools_and_a_missing_key_are_valid(): void
     {
-        self::assertSame(['pools' => [], 'errors' => []], Pools::read(self::config([])));
-        self::assertSame(['pools' => [], 'errors' => []], Pools::read(new Repository(['orrery' => ['workers' => ['heartbeat_seconds' => 15]], 'queue' => []])));
+        self::assertSame(['pools' => [], 'errors' => [], 'warnings' => []], Pools::read(self::config([])));
+        self::assertSame(['pools' => [], 'errors' => [], 'warnings' => []], Pools::read(new Repository(['orrery' => ['workers' => ['heartbeat_seconds' => 15]], 'queue' => []])));
     }
 
     /**
@@ -93,6 +94,51 @@ final class PoolsTest extends TestCase
     }
 
     /**
+     * Rejects: a pool whose job timeout reaches its connection's retry_after (the job could run twice), counting
+     * Laravel's defaults where a value is absent (--timeout 60, retry_after 60).
+     *
+     * @param  array<string, mixed>  $pool
+     */
+    #[DataProvider('timeoutsNotBelowRetryAfter')]
+    public function test_a_timeout_not_below_retry_after_is_an_error(array $pool): void
+    {
+        $read = Pools::read(self::config(['default' => $pool]));
+
+        self::assertSame([], $read['pools']);
+        self::assertCount(1, $read['errors']);
+        self::assertStringStartsWith('orrery.workers.pools.default.timeout: ', $read['errors'][0]);
+        self::assertStringContainsString('retry_after', $read['errors'][0]);
+    }
+
+    /**
+     * @return array<string, array{array<string, mixed>}>
+     */
+    public static function timeoutsNotBelowRetryAfter(): array
+    {
+        return [
+            'equal' => [self::VALID + ['timeout' => 90]],
+            'longer' => [self::VALID + ['timeout' => 120]],
+            'default timeout, retry_after 60' => [['connection' => 'short'] + self::VALID],
+            'default timeout, retry_after unset' => [['connection' => 'unset'] + self::VALID],
+        ];
+    }
+
+    /**
+     * Rejects: a pool within 10 s of retry_after, or without a job timeout, that passes without a warning, and a
+     * warning that drops the pool (it is valid).
+     */
+    public function test_a_timeout_close_to_retry_after_or_none_is_a_warning(): void
+    {
+        $read = Pools::read(self::config(['close' => self::VALID + ['timeout' => 85], 'none' => self::VALID + ['timeout' => 0], 'far' => self::VALID + ['timeout' => 60]]));
+
+        self::assertSame([], $read['errors']);
+        self::assertSame(['close', 'none', 'far'], array_map(static fn (Pool $pool): string => $pool->name, $read['pools']));
+        self::assertCount(2, $read['warnings']);
+        self::assertStringStartsWith('orrery.workers.pools.close.timeout: ', $read['warnings'][0]);
+        self::assertStringStartsWith('orrery.workers.pools.none.timeout: ', $read['warnings'][1]);
+    }
+
+    /**
      * Rejects: a reader that stops at the first invalid pool, or that returns a pool with an error.
      */
     public function test_each_invalid_pool_is_reported_and_the_valid_ones_are_kept(): void
@@ -112,7 +158,9 @@ final class PoolsTest extends TestCase
         return new Repository([
             'orrery' => ['workers' => ['pools' => $pools]],
             'queue' => ['connections' => [
-                'database' => ['driver' => 'database', 'table' => 'jobs'],
+                'database' => ['driver' => 'database', 'table' => 'jobs', 'retry_after' => 90],
+                'short' => ['driver' => 'database', 'table' => 'jobs', 'retry_after' => 60],
+                'unset' => ['driver' => 'database', 'table' => 'jobs'],
                 'redis' => ['driver' => 'redis'],
             ]],
         ]);

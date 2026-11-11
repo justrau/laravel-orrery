@@ -75,6 +75,13 @@ final class InstallRetentionReportTest extends TestCase
 
         self::assertStringContainsString('The worker pools are invalid', $output);
         self::assertStringContainsString('orrery.workers.pools.default.processes', $output);
+
+        // A timeout within 10 s of retry_after (90 here) is a warning, and the pool stays valid.
+        $this->app['config']->set('orrery.workers.pools', ['default' => ['connection' => 'database', 'queues' => ['default'], 'processes' => 2, 'timeout' => 85]]);
+        self::assertSame(0, Artisan::call('orrery:install'));
+        $output = Artisan::output();
+        self::assertStringContainsString('orrery.workers.pools.default.timeout', $output);
+        self::assertStringContainsString('The worker pools are valid', $output);
     }
 
     /**

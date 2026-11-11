@@ -334,7 +334,12 @@ class InstallCommand extends Command
      */
     protected function reportWorkerPools(): void
     {
-        ['pools' => $pools, 'errors' => $errors] = Pools::read($this->laravel->make('config'));
+        ['pools' => $pools, 'errors' => $errors, 'warnings' => $warnings] = Pools::read($this->laravel->make('config'));
+
+        if ($warnings !== []) {
+            $this->components->warn('Check these worker pools ('.Pools::KEY.'):');
+            $this->components->bulletList($warnings);
+        }
 
         if ($errors !== []) {
             $this->components->warn('The worker pools are invalid ('.Pools::KEY.'): orrery:workers prints no configuration until they are fixed.');

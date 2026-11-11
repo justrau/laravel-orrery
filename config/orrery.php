@@ -113,14 +113,16 @@ return [
         // `processes` (at least 1), and the optional queue:work options
         // tries, timeout, sleep, backoff (seconds, or a list), memory (MB),
         // max_jobs, max_time, rest and force. An option left out keeps
-        // Laravel's default. An unknown key or a wrong type is an error.
+        // Laravel's default. An unknown key or a wrong type is an error, and
+        // so is a timeout that is not shorter than the connection's
+        // retry_after (a job could run twice).
         'pools' => [
             // 'default' => [
             //     'connection' => 'database',
             //     'queues' => ['high', 'default'],
             //     'processes' => 2,
             //     'tries' => 3,
-            //     'timeout' => 90,
+            //     'timeout' => 60, // shorter than the connection's retry_after
             // ],
         ],
     ],

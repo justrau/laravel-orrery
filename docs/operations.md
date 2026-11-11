@@ -104,7 +104,7 @@ Orrery never starts or supervises workers. You can declare the worker layout tha
             'queues' => ['high', 'default'],
             'processes' => 2,
             'tries' => 3,
-            'timeout' => 90,
+            'timeout' => 60,
         ],
     ],
 ],
@@ -114,33 +114,36 @@ Orrery never starts or supervises workers. You can declare the worker layout tha
 - `connection` must be a `database` queue connection of `queue.connections`. `queues` is a non-empty list in priority order (it becomes `--queue=high,default`). `processes` is at least 1.
 - Optional `queue:work` options: `tries`, `timeout`, `sleep`, `backoff` (seconds, or a list such as `[1, 5, 10]`), `memory` (MB), `max_jobs`, `max_time`, `rest` and `force` (`true` or `false`). An option that you leave out keeps Laravel's default.
 - The validation is strict. An unknown key, a wrong type, a value out of range, a connection that is not a `database` queue connection, an empty queue list or a queue name with a comma is an error that names the pool and the field. `orrery:workers` then prints the errors and exits 1, and `orrery:install` warns.
+- The job timeout (`timeout`, else Laravel's 60 seconds) must be shorter than the connection's `retry_after` (else Laravel's 60 seconds): Laravel requires `--timeout` to be several seconds shorter than `retry_after`, or a job can run twice. A timeout that reaches `retry_after` is an error. A timeout within 10 seconds of it, and `timeout` 0 (no timeout), are warnings: `orrery:workers` and `orrery:install` print them, and the pool stays valid.
 
 `php artisan orrery:workers [--format=list|supervisor|systemd|forge]`. The default format is `list`. Options: `--user=` (default: the current user), `--php=` (default: this PHP binary under the CLI, else `php`), `--path=` (default: the application directory), `--prefix=` (default: the application name as a slug), `--log-dir=` (default: `storage/logs`). Every value is quoted for its format, so queue names and paths with spaces or quotes work. A value that a format cannot carry (a line break, or a `;` or `#` after a space in a supervisord value) is refused with exit 1. Without pools the command prints a hint and exits 0. It also runs while Orrery is off.
 
 `list` prints one line per pool, to run from the application directory:
 
 ```text
-default (2 processes): php artisan queue:work database --queue=high,default --name=default --tries=3 --timeout=90
+default (2 processes): php artisan queue:work database --queue=high,default --name=default --tries=3 --timeout=60
 ```
 
-`supervisor` prints one program per pool. `stopwaitsecs` is the pool's timeout plus 30 seconds, because supervisord must wait longer than the longest job before it kills a worker:
+`supervisor` prints one program per pool. `stopwaitsecs` is the pool's timeout plus 30 seconds, because supervisord must wait longer than the longest job before it kills a worker. A job class with its own `$timeout` can run longer than the pool's `--timeout`: then raise `stopwaitsecs` (and `TimeoutStopSec` for systemd) above that job's timeout. `startsecs=1` and `startretries=60` keep a program out of the `FATAL` state during a database outage of up to about 30 minutes: a worker that loses its connection exits at once, and supervisord retries it with growing pauses. The paths must be absolute:
 
 ```ini
 [program:laravel-default]
-command=/usr/bin/php /var/www/app/artisan queue:work database --queue=high,default --name=default --tries=3 --timeout=90
+command=/usr/bin/php /var/www/app/artisan queue:work database --queue=high,default --name=default --tries=3 --timeout=60
 process_name=%(program_name)s_%(process_num)02d
 numprocs=2
 autostart=true
 autorestart=true
+startsecs=1
+startretries=60
 stopasgroup=true
 killasgroup=true
 user=forge
 redirect_stderr=true
 stdout_logfile=/var/www/app/storage/logs/laravel-default.log
-stopwaitsecs=120
+stopwaitsecs=90
 ```
 
-`systemd` prints one template unit per pool, with its enable line as a comment. `TimeoutStopSec` is the timeout plus 30 seconds (`infinity` for `timeout` 0):
+`systemd` prints one template unit per pool, with its enable line as a comment. `TimeoutStopSec` is the timeout plus 30 seconds (`infinity` for `timeout` 0). `StartLimitIntervalSec=0` and `RestartSec=5` keep restarting a worker that exits during a database restart: with systemd's default start limit (5 starts in 10 seconds) the unit would stay down. `ExecStart` needs absolute paths: a bare `--php` (such as `php`) is looked up on the `PATH` of the shell that runs `orrery:workers`, and the command fails when it is not found:
 
 ```ini
 # /etc/systemd/system/laravel-default@.service
@@ -148,20 +151,22 @@ stopwaitsecs=120
 [Unit]
 Description=laravel queue worker default %i (Orrery pool)
 After=network.target
+StartLimitIntervalSec=0
 
 [Service]
 User=forge
 WorkingDirectory=/var/www/app
-ExecStart=/usr/bin/php /var/www/app/artisan queue:work database --queue=high,default --name=default --tries=3 --timeout=90
+ExecStart=/usr/bin/php /var/www/app/artisan queue:work database --queue=high,default --name=default --tries=3 --timeout=60
 Restart=always
+RestartSec=5
 KillSignal=SIGTERM
-TimeoutStopSec=120
+TimeoutStopSec=90
 
 [Install]
 WantedBy=multi-user.target
 ```
 
-`forge` prints, per pool, the fields of Laravel Forge's "Add background process" form as tables. Use the Custom tab (name, command, working directory, user, processes, stop seconds, stop signal): Forge's Queue worker tab has no field for `--name`, `--max-jobs` or `--max-time`. The command also prints the values of the Queue worker tab, and names the options that it cannot set.
+`forge` prints, per pool, the fields of Laravel Forge's "Add background process" form as tables. Use the Custom tab (name, command, working directory, user, processes, stop seconds, stop signal): Forge's Queue worker tab has no field for `--name`, `--max-jobs` or `--max-time`. Forge writes the command into a supervisord program, so the command doubles each `%`, like the `supervisor` format. The command also prints the values of the Queue worker tab, and names the options that it cannot set.
 
 ## Monitoring
 
