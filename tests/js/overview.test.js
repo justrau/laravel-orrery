@@ -8,6 +8,10 @@ import {
     aliasesOf,
     approximately,
     attentionItems,
+    attentionSplit,
+    attentionSummary,
+    readAttentionExpanded,
+    writeAttentionExpanded,
     attentionSubtitle,
     completedInWindow,
     controlOutcome,
@@ -228,7 +232,7 @@ test('attentionItems labels a duplicate queue name with its connection', () => {
 });
 
 // Rejects: an old failure group in the list, a list that is not newest first, a capped count without "at least", and a start without "or earlier" for fallback rows.
-test('attentionItems takes the recent failure groups after the queues, newest first', () => {
+test('attentionItems takes the recent failure groups, active ones before the queues with workers', () => {
     const groupsData = {
         truncated: true,
         groups: [
@@ -241,20 +245,126 @@ test('attentionItems takes the recent failure groups after the queues, newest fi
 
     const items = attentionItems([queueRow('q')], groupsData, markers, NOW);
 
-    assert.deepEqual(items.map(item => item.key), ['queue:database:q', 'group:newest', 'group:recent']);
+    // The active group (last 5 min) ranks above the backed-up queue, the fading one (10 min ago) below it.
+    assert.deepEqual(items.map(item => item.key), ['group:newest', 'queue:database:q', 'group:recent']);
     assert.equal(items[2].title, 'at least 4 failed with Boom, first in the last hour at 08:48 UTC');
     assert.equal(items[2].detail, 'down · Sync · emails and more · last 10 min ago');
     // A lower-bound count says ≥: the bulk run then freezes the whole group.
     assert.equal(items[2].retryLabel, 'Retry ≥ 4…');
     assert.equal(items[2].marker.label, 'v2');
-    assert.equal(items[1].title, 'at least 2 failed with E, first in the last hour at 08:59 UTC or earlier');
-    assert.equal(items[1].detail, 'J · — · last 30 s ago');
-    assert.equal(items[1].marker, null);
+    assert.equal(items[0].title, 'at least 2 failed with E, first in the last hour at 08:59 UTC or earlier');
+    assert.equal(items[0].detail, 'J · — · last 30 s ago');
+    assert.equal(items[0].marker, null);
 
     // The list's `truncated` alone (groups may be missing) does not qualify a group's count.
     const exact = attentionItems([], {truncated: true, groups: [{key: 'k', count: 3, exact: true, count_capped: false, last_failed_at: NOW - 10, first_failed_at: NOW - 70, exception_class: 'E', queues: []}]}, [], NOW);
     assert.equal(exact[0].title, '3 failed with E, first in the last hour at 08:58 UTC');
     assert.equal(exact[0].retryLabel, 'Retry 3…');
+});
+
+function failureGroup(key, extra = {}) {
+    return {key, count: 5, exact: true, count_capped: false, last_failed_at: NOW - 60, first_failed_at: NOW - 600, exception_class: 'E', job: 'J', queues: [], ...extra};
+}
+
+// Rejects: the old order (every queue before every group, largest wait first), a stalled queue ranked by
+// its wait against a backed-up queue, quiet workers counted as draining, and fading groups above the
+// queues. It would still pass another wording of the stalled title.
+test('attentionItems ranks stalled queues, active groups, backed-up queues, then fading groups', () => {
+    const items = attentionItems([
+        queueRow('backed', {oldest_age: 6000, threshold: 60, processes: 2}),
+        queueRow('orphan', {oldest_age: 120, threshold: 60, processes: 0}),
+        queueRow('quiet', {oldest_age: 90, threshold: 60, processes: 2, quiet_processes: 2}),
+        queueRow('half quiet', {oldest_age: 90, threshold: 60, processes: 2, quiet_processes: 1}),
+    ], {groups: [failureGroup('fading', {last_failed_at: NOW - 600}), failureGroup('active')]}, [], NOW);
+
+    assert.deepEqual(items.map(item => item.key), [
+        'queue:database:orphan', 'queue:database:quiet', 'group:active',
+        'queue:database:backed', 'queue:database:half quiet', 'group:fading',
+    ]);
+    assert.equal(items[0].title, 'orphan has no worker and has waited 2 min, over its 60 s limit');
+    assert.equal(items[1].title, 'quiet has only quiet workers and has waited 1 min 30 s, over its 60 s limit');
+    assert.equal(items[3].title, 'backed has waited 1 h 40 min, over its 60 s limit');
+});
+
+// Rejects: backed-up queues ordered by the wait alone (not by how far over the limit), a paused
+// stalled queue in the list, and an unknown worker count ranked as stalled or dropped. It would
+// still pass any detail word order that ends with "workers unknown".
+test('attentionItems orders backed-up queues by wait over limit, and an unknown worker count is not stalled', () => {
+    const items = attentionItems([
+        queueRow('long limit', {oldest_age: 900, threshold: 600, processes: 1}),
+        queueRow('short limit', {oldest_age: 300, threshold: 60, processes: 1}),
+        queueRow('unknown', {oldest_age: 100, threshold: 60, processes: null}),
+        queueRow('paused orphan', {processes: 0, pauses: [cause('queue')]}),
+    ], null, [], NOW);
+
+    assert.deepEqual(items.map(item => item.key), ['queue:database:short limit', 'queue:database:unknown', 'queue:database:long limit']);
+    assert.match(items[1].detail, /workers unknown$/);
+    assert.equal(items[1].title, 'unknown has waited 1 min 40 s, over its 60 s limit');
+});
+
+// Rejects: an at-least count compared above a larger exact count, an unknown count ranked first,
+// fading groups ordered by count, and ties that follow the input order (cards that jump between polls).
+test('attentionItems orders groups by count then last failure, and breaks ties by key', () => {
+    const groups = [
+        failureGroup('b-tie', {count: 7}),
+        failureGroup('unknown', {count: null, last_failed_at: NOW - 5}),
+        failureGroup('at-least', {count: 8, exact: false, count_capped: true, last_failed_at: NOW - 200}),
+        failureGroup('exact', {count: 9, last_failed_at: NOW - 250}),
+        failureGroup('a-tie', {count: 7}),
+        failureGroup('fade-old', {count: 99, last_failed_at: NOW - 800}),
+        failureGroup('fade-new', {count: 1, last_failed_at: NOW - 400}),
+    ];
+    const keys = data => attentionItems([], {groups: data}, [], NOW).map(item => item.key);
+
+    assert.deepEqual(keys(groups), ['group:exact', 'group:at-least', 'group:a-tie', 'group:b-tie', 'group:unknown', 'group:fade-new', 'group:fade-old']);
+    assert.deepEqual(keys([...groups].reverse()), keys(groups));
+    assert.deepEqual(
+        attentionItems([queueRow('b'), queueRow('a')], null, [], NOW).map(item => item.key),
+        ['queue:database:a', 'queue:database:b'],
+    );
+});
+
+// Rejects: exactly one item hidden behind a button, a split at another size, and a list cut short.
+test('attentionSplit shows 3 items and hides the rest, but never hides exactly one', () => {
+    const list = count => Array.from({length: count}, (_, index) => ({key: `k${index}`, type: 'queue'}));
+
+    assert.deepEqual(attentionSplit(list(4)).visible.length, 4);
+    assert.deepEqual(attentionSplit(list(4)).hidden, []);
+    assert.deepEqual(attentionSplit(list(3)).hidden, []);
+    assert.deepEqual(attentionSplit(list(5)).visible.map(item => item.key), ['k0', 'k1', 'k2']);
+    assert.deepEqual(attentionSplit(list(5)).hidden.map(item => item.key), ['k3', 'k4']);
+    assert.deepEqual(attentionSplit(null), {visible: [], hidden: []});
+});
+
+// Rejects: a summary without the counts by type, a wrong singular or plural, and a zero part named.
+test('attentionSummary counts the hidden items by type', () => {
+    const items = (queues, groups) => [
+        ...Array.from({length: queues}, () => ({type: 'queue'})),
+        ...Array.from({length: groups}, () => ({type: 'group'})),
+    ];
+
+    assert.equal(attentionSummary(items(9, 4)), 'Show 13 more · 9 queues over limit, 4 failure groups');
+    assert.equal(attentionSummary(items(1, 1)), 'Show 2 more · 1 queue over limit, 1 failure group');
+    assert.equal(attentionSummary(items(0, 2)), 'Show 2 more · 2 failure groups');
+    assert.equal(attentionSummary(items(2, 0)), 'Show 2 more · 2 queues over limit');
+});
+
+// Rejects: a storage that throws into the page, and a stored value other than "1" read as expanded.
+test('readAttentionExpanded and writeAttentionExpanded keep the state and survive a throwing storage', () => {
+    const values = new Map();
+    const storage = {getItem: key => (values.has(key) ? values.get(key) : null), setItem: (key, value) => values.set(key, String(value)), removeItem: key => values.delete(key)};
+    const throwing = {getItem() { throw new Error('x'); }, setItem() { throw new Error('x'); }, removeItem() { throw new Error('x'); }};
+
+    assert.equal(readAttentionExpanded(storage), false);
+    assert.equal(writeAttentionExpanded(true, storage), true);
+    assert.equal(readAttentionExpanded(storage), true);
+    writeAttentionExpanded(false, storage);
+    assert.equal(readAttentionExpanded(storage), false);
+    values.set([...values.keys()][0] || 'orreryAttentionExpanded', 'yes');
+    assert.equal(readAttentionExpanded(storage), false);
+    assert.equal(readAttentionExpanded(throwing), false);
+    assert.equal(writeAttentionExpanded(true, throwing), false);
+    assert.equal(readAttentionExpanded(null), false);
 });
 
 // Rejects: a throw on missing data, and a group without a last failure that needs attention.

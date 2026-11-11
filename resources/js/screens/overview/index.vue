@@ -29,13 +29,17 @@
         GROUP_ROWS,
         MAX_GROUP_NOTICES,
         attentionItems,
+        attentionSplit,
         attentionSubtitle,
+        attentionSummary,
         controlErrorText,
         controlOutcome,
         controlRequests,
         controlSheet,
         globalControlSelection,
         groupNeedsAttention,
+        readAttentionExpanded,
+        writeAttentionExpanded,
         groupQueues,
         groupsSubtitle,
         hasGlobalPause,
@@ -100,6 +104,15 @@
      *   during a run asks first). Its run is stored under the shared groups
      *   key, so after a reload the Failure groups screen recovers it.
      */
+    /** This tab's sessionStorage, or null when it cannot be read (a private window, blocked site data). */
+    function sessionStore() {
+        try {
+            return typeof window !== 'undefined' ? window.sessionStorage : null;
+        } catch (error) {
+            return null;
+        }
+    }
+
     export default {
         BULK_STORAGE_KEY: GROUPS_BULK_STORAGE_KEY,
 
@@ -129,6 +142,7 @@
                 live,
                 now: nowSeconds(),
                 pollSeconds: POLL_SECONDS,
+                attentionExpanded: readAttentionExpanded(sessionStore()),
                 control: null,
                 throughput: null,
                 markers: [],
@@ -230,6 +244,19 @@
                 let groups = 0;
 
                 return this.allItems.filter(item => item.type === 'queue' || ++groups <= MAX_GROUP_NOTICES);
+            },
+
+            /** The notices shown in full and the ones stacked behind the "Show more" button (attentionSplit()). */
+            attention() {
+                return attentionSplit(this.items);
+            },
+
+            shownItems() {
+                return this.attentionExpanded ? this.items : this.attention.visible;
+            },
+
+            attentionToggleText() {
+                return this.attentionExpanded ? 'Show fewer' : attentionSummary(this.attention.hidden);
             },
 
             /** The recent groups without a notice of their own: { count, atLeast }, or null. */
@@ -335,6 +362,12 @@
         },
 
         methods: {
+            /** Expands or collapses the stacked notices; the button keeps the focus, and the tab keeps the state. */
+            toggleAttention() {
+                this.attentionExpanded = !this.attentionExpanded;
+                writeAttentionExpanded(this.attentionExpanded, sessionStore());
+            },
+
             controlErrorText,
             shortName,
             queueName,
@@ -548,33 +581,42 @@
                 </template>
             </notice>
 
-            <template v-for="item in items" :key="item.key">
-                <notice v-if="item.type === 'queue'" tone="warning" :title="item.title" :detail="item.detail"
-                        data-attention-item="queue" :data-key="item.key">
-                    <template #link>
-                        <o-button variant="link" :to="item.to" data-show-queue>Show queue</o-button>
-                    </template>
-                    <template #actions>
-                        <o-button variant="write" icon="pause" operate class="o-overview__action" data-notice-pause
-                                  @click="openControl('pause', {row: item.row, label: item.label})">Pause {{ item.label }}…</o-button>
-                    </template>
-                </notice>
+            <div id="orrery-attention-list" class="o-overview__notices" data-attention-list>
+                <template v-for="item in shownItems" :key="item.key">
+                    <notice v-if="item.type === 'queue'" tone="warning" :title="item.title" :detail="item.detail"
+                            data-attention-item="queue" :data-key="item.key">
+                        <template #link>
+                            <o-button variant="link" :to="item.to" data-show-queue>Show queue</o-button>
+                        </template>
+                        <template #actions>
+                            <o-button variant="write" icon="pause" operate class="o-overview__action" data-notice-pause
+                                      @click="openControl('pause', {row: item.row, label: item.label})">Pause {{ item.label }}…</o-button>
+                        </template>
+                    </notice>
 
-                <notice v-else tone="danger" :title="item.title" :detail="item.detail" data-attention-item="group" :data-key="item.key">
-                    <template v-if="item.marker" #badge>
-                        <span class="o-chip" data-marker-chip><icon name="marker" :size="12" />{{ markerName(item.marker) }} {{ formatHourMinuteZoned(item.marker.at) }}</span>
-                    </template>
-                    <template #link>
-                        <o-button variant="link" to="/failed" data-show-group>Show group</o-button>
-                    </template>
-                    <template v-if="!failedReadOnly" #actions>
-                        <o-button variant="write" icon="retry" operate class="o-overview__action"
-                                  data-notice-retry @click="openRetry(item.group)">{{ item.retryLabel }}</o-button>
-                    </template>
-                </notice>
-            </template>
+                    <notice v-else tone="danger" :title="item.title" :detail="item.detail" data-attention-item="group" :data-key="item.key">
+                        <template v-if="item.marker" #badge>
+                            <span class="o-chip" data-marker-chip><icon name="marker" :size="12" />{{ markerName(item.marker) }} {{ formatHourMinuteZoned(item.marker.at) }}</span>
+                        </template>
+                        <template #link>
+                            <o-button variant="link" to="/failed" data-show-group>Show group</o-button>
+                        </template>
+                        <template v-if="!failedReadOnly" #actions>
+                            <o-button variant="write" icon="retry" operate class="o-overview__action"
+                                      data-notice-retry @click="openRetry(item.group)">{{ item.retryLabel }}</o-button>
+                        </template>
+                    </notice>
+                </template>
+            </div>
 
-            <notice v-if="moreGroups" tone="danger" data-more-groups
+            <div v-if="attention.hidden.length && !attentionExpanded" class="o-attention-stack" aria-hidden="true" data-attention-stack>
+                <span class="o-attention-stack__edge"></span>
+                <span class="o-attention-stack__edge o-attention-stack__edge--back"></span>
+            </div>
+            <button v-if="attention.hidden.length" type="button" class="o-attention-toggle" aria-controls="orrery-attention-list"
+                    :aria-expanded="attentionExpanded ? 'true' : 'false'" data-attention-toggle @click="toggleAttention">{{ attentionToggleText }}</button>
+
+            <notice v-if="moreGroups && (attentionExpanded || !attention.hidden.length)" tone="danger" data-more-groups
                     :title="`${moreGroups.atLeast ? 'At least ' : ''}${moreGroups.count.toLocaleString()} more failure ${moreGroups.count === 1 ? 'group' : 'groups'} failed in the last 15 minutes`">
                 <template #link>
                     <o-button variant="link" to="/failed">Show all</o-button>
@@ -696,6 +738,48 @@
         display: flex;
         flex-direction: column;
         gap: 8px;
+    }
+
+    /* Two thin card edges under the third notice: more notices are stacked below. */
+    .o-attention-stack {
+        display: flex;
+        flex-direction: column;
+        margin-top: -8px;
+    }
+
+    .o-attention-stack__edge {
+        background-color: var(--color-subtle);
+        border: 1px solid var(--color-separator);
+        border-radius: 0 0 var(--radius-card) var(--radius-card);
+        border-top: 0;
+        height: 5px;
+        margin-inline: 8px;
+    }
+
+    .o-attention-stack__edge--back {
+        margin-inline: 16px;
+    }
+
+    .o-attention-toggle {
+        align-self: flex-start;
+        background: none;
+        border: 0;
+        border-radius: var(--radius-control);
+        color: var(--color-accent);
+        cursor: pointer;
+        font-family: var(--font-sans);
+        font-size: var(--text-table);
+        line-height: 18px;
+        padding: 2px 4px;
+    }
+
+    .o-attention-toggle:hover {
+        text-decoration: underline;
+    }
+
+    .o-attention-toggle:focus-visible {
+        outline: 2px solid var(--color-accent);
+        outline-offset: 1px;
     }
 
     .o-overview__action {

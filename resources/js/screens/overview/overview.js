@@ -7,6 +7,7 @@
 import {ATTENTION_FAILURE_SECONDS, attentionCount, failureGroups, shellAttention} from '../../shell/data.js';
 import {broaderCauses, causesText, continueWarning, isRecordFailed, pauseCommands, pauseLabel, pauseNotes, pauseState, recordFailedNote, recordFailedWarning} from '../../support/pause.js';
 import {queuePath} from '../../support/redirects.js';
+import {readStored, removeStored, writeStored} from '../../support/storage.js';
 import {slotStarts, slotValue} from '../../support/series.js';
 import {formatCount, formatDayMinuteZoned, formatDuration, formatHourMinuteZoned, formatLimit, formatTimeRangeZoned, nowSeconds, relativeTime, toSeconds} from '../../support/time.js';
 import {
@@ -173,15 +174,34 @@ export function groupQueues(group) {
     return groupQueuesText(group, queueName);
 }
 
+/** A failure group whose last failure is this recent is active (tier 2); older ones within the window fade (tier 4). */
+export const ACTIVE_FAILURE_SECONDS = 300;
+
+/** The attention items shown in full before the rest stack behind a button. */
+export const ATTENTION_SHOWN = 3;
+
+const EXPANDED_KEY = 'orreryAttentionExpanded';
+
 /**
- * The attention items, in the rule's and the design's order
- * (the same rule as the sidebar's attentionCount()):
+ * The attention items (the same items as the sidebar's attentionCount();
+ * only the order is this function's), most important first:
  *
- * - each queue with `over_limit` that no definite cause pauses (an unknown
- *   or only possible pause is not a proof of a pause, so it stays, with
- *   "possibly paused" or "pause state unknown"), largest oldest wait first;
- * - then each failure group with a failure in the last 15 minutes, newest
- *   last failure first.
+ * 1. stalled queues: over the limit, not paused by a definite cause, and no
+ *    worker can drain them (`processes` 0, or every worker quiet:
+ *    `quiet_processes` equals `processes`); largest oldest wait first;
+ * 2. active failure groups: a last failure in the last
+ *    ACTIVE_FAILURE_SECONDS; largest count first (an at-least count by its
+ *    lower bound, an unknown count last), then newest last failure;
+ * 3. backed-up queues with a live worker, or with an unknown worker count
+ *    (never stalled by a guess; the detail says "workers unknown"); the
+ *    largest oldest wait ÷ threshold first, an unknown ratio last;
+ * 4. fading failure groups: a last failure 5 to 15 minutes ago, newest
+ *    first.
+ *
+ * A queue is over its limit when `over_limit` is true; an unknown or only
+ * possible pause is not a proof of a pause, so it stays, with "possibly
+ * paused" or "pause state unknown". Ties break by the item key, so the
+ * order does not change between polls.
  */
 export function attentionItems(workload, groupsData, markers, now) {
     const rows = Array.isArray(workload) ? workload : [];
@@ -189,22 +209,30 @@ export function attentionItems(workload, groupsData, markers, now) {
     const queues = rows
         .filter(row => row && typeof row.name === 'string' && typeof row.connection === 'string'
             && row.over_limit === true && !pauseState(row).paused)
-        .sort((a, b) => (num(b.oldest_age) ?? -1) - (num(a.oldest_age) ?? -1))
         .map(row => {
             const label = names.filter(name => name === row.name).length > 1 ? `${row.name} (${row.connection})` : row.name;
             const since = overLimitSinceText(row, now);
+            const workers = num(row.processes);
+            const quiet = num(row.quiet_processes);
+            const stalled = workers !== null && (workers === 0 || quiet === workers);
+            const age = num(row.oldest_age);
+            const threshold = num(row.threshold);
+            const why = !stalled ? '' : (workers === 0 ? ' has no worker and' : ' has only quiet workers and');
             const detail = [
-                `${countOf(row.length)} ready on ${countOf(row.processes)} ${num(row.processes) === 1 ? 'worker' : 'workers'}`,
+                `${countOf(row.length)} ready on ${countOf(row.processes)} ${workers === 1 ? 'worker' : 'workers'}`,
                 since ? `over the limit ${since}` : null,
                 ...attentionPauseNotes(pauseState(row)),
+                workers === null ? 'workers unknown' : null,
             ].filter(Boolean).join(' · ');
 
             return {
                 type: 'queue',
                 key: `queue:${row.connection}:${row.name}`,
+                tier: stalled ? 1 : 3,
+                rank: stalled ? age : (age !== null && threshold !== null && threshold > 0 ? age / threshold : null),
                 row,
                 label,
-                title: `${label} has waited ${formatDuration(num(row.oldest_age))}, over its ${formatLimit(num(row.threshold))} limit`,
+                title: `${label}${why} has waited ${formatDuration(age)}, over its ${formatLimit(threshold)} limit`,
                 detail,
                 to: queuePath(row.connection, row.name),
             };
@@ -212,27 +240,79 @@ export function attentionItems(workload, groupsData, markers, now) {
 
     const groups = (failureGroups(groupsData) || [])
         .filter(group => group && typeof group.key === 'string' && groupNeedsAttention(group, now))
-        .sort((a, b) => num(b.last_failed_at) - num(a.last_failed_at))
         .map(group => {
             const marker = markerBefore(markers, num(group.first_failed_at), num(groupsData && groupsData.scope && groupsData.scope.from));
+            const last = num(group.last_failed_at);
+            const active = last >= now - ACTIVE_FAILURE_SECONDS;
 
             return {
                 type: 'group',
                 key: `group:${group.key}`,
+                tier: active ? 2 : 4,
+                rank: active ? num(group.count) : last,
+                last,
                 group,
                 title: `${groupCountText(group)} failed with ${shortName(group.exception_class)}, ${groupSinceText(group, 'in the last hour')}`,
                 detail: [
                     typeof group.message === 'string' && group.message !== '' ? group.message : null,
                     shortName(group.job),
                     groupQueues(group),
-                    `last ${relativeTime(num(group.last_failed_at), now)}`,
+                    `last ${relativeTime(last, now)}`,
                 ].filter(Boolean).join(' · '),
                 marker,
                 retryLabel: `${operationLabel('Retry', num(group.count), groupCountAtLeast(group))}…`,
             };
         });
 
-    return [...queues, ...groups];
+    return [...queues, ...groups].sort(compareAttention);
+}
+
+/** The order of attentionItems(): the tier, the rank (larger first, unknown last), the last failure, the key. */
+function compareAttention(a, b) {
+    if (a.tier !== b.tier) return a.tier - b.tier;
+    if (a.rank !== b.rank) {
+        if (a.rank === null) return 1;
+        if (b.rank === null) return -1;
+
+        return b.rank - a.rank;
+    }
+    if (a.type === 'group' && a.last !== b.last) return (b.last ?? 0) - (a.last ?? 0);
+
+    return a.key < b.key ? -1 : (a.key > b.key ? 1 : 0);
+}
+
+/**
+ * The attention items shown in full (`visible`) and the ones stacked behind
+ * the "Show more" button (`hidden`): the first ATTENTION_SHOWN items, and
+ * the rest. One more item than that shows in full: a button never hides
+ * exactly one item.
+ */
+export function attentionSplit(items, shown = ATTENTION_SHOWN) {
+    const list = Array.isArray(items) ? items : [];
+
+    return list.length <= shown + 1 ? {visible: list, hidden: []} : {visible: list.slice(0, shown), hidden: list.slice(shown)};
+}
+
+/** The stacked items' button: "Show 13 more · 9 queues over limit, 4 failure groups". */
+export function attentionSummary(hidden) {
+    const queues = hidden.filter(item => item.type === 'queue').length;
+    const groups = hidden.length - queues;
+    const parts = [
+        queues ? `${formatCount(queues)} ${queues === 1 ? 'queue' : 'queues'} over limit` : null,
+        groups ? `${formatCount(groups)} failure ${groups === 1 ? 'group' : 'groups'}` : null,
+    ].filter(Boolean);
+
+    return `Show ${formatCount(hidden.length)} more · ${parts.join(', ')}`;
+}
+
+/** Whether this browser tab expanded the attention list (sessionStorage through support/storage.js; false when it cannot be read). */
+export function readAttentionExpanded(storage) {
+    return readStored(EXPANDED_KEY, storage) === '1';
+}
+
+/** Stores the expanded state of the attention list; false when the storage cannot be written. */
+export function writeAttentionExpanded(expanded, storage) {
+    return expanded ? writeStored(EXPANDED_KEY, '1', storage) : removeStored(EXPANDED_KEY, storage);
 }
 
 /** The pause notes of an attention item: "possibly paused", or the unknown parts ("pause state unknown"). */

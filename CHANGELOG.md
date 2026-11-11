@@ -13,6 +13,7 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 ### Changed
 
+- **The Overview's attention list is ranked and stacked.** Stalled queues (over the limit with no worker, or only quiet workers) come first, then failure groups that failed in the last 5 minutes (largest count first), then backed-up queues with workers (the furthest over the limit first), then older failure groups. A queue whose worker count is unknown is never called stalled; it says "workers unknown". The first three items show in full; the rest stack behind "Show 13 more · 9 queues over limit, 4 failure groups", and the browser tab keeps the expanded state. Before, every item showed at full size, all wait warnings first.
 - **Thin scrollbars.** Every scroll area of the dashboard (the sidebar, the content, the inspector, tables and drawers) has a thin, quiet scrollbar on a transparent track, in light and dark mode, instead of the browser's default one.
 - **The sidebar groups the queues by jobs table.** Each set of connections that share one jobs table has its own section, headed with the connection names ("Queues · database, database-long"), and a queue shows only its name. Before, one section was headed "Queues · database" after the queue driver, which read like a connection named `database`, and a queue name on two connections showed as "default (database)".
 
