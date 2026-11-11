@@ -141,6 +141,9 @@ final class CommitDeferral
     /** @var array<string, true> */
     private array $reported = [];
 
+    /** How often the deferral read the call stack (walkingRecords()). */
+    private int $stackReads = 0;
+
     private readonly WatchRegistry $registry;
 
     /**
@@ -469,6 +472,15 @@ final class CommitDeferral
     public static function bulkEstimate(int $payloadBytes, int $jobs): int
     {
         return max(0, $payloadBytes) + max(0, $jobs) * self::BULK_MEMBER_BYTES;
+    }
+
+    /**
+     * How often the deferral read the call stack (tests: the hot path never
+     * reads it).
+     */
+    public function stackReads(): int
+    {
+        return $this->stackReads;
     }
 
     /**
@@ -930,9 +942,9 @@ final class CommitDeferral
                 continue;
             }
 
-            $walking ??= self::walkingRecords();
+            $walking ??= $this->walkingRecords();
 
-            if (self::walkRuns($root->record, $walking)) {
+            if ($this->walkRuns($root->record, $walking)) {
                 return $root;
             }
 
@@ -950,8 +962,9 @@ final class CommitDeferral
      *
      * @return list<DatabaseTransactionRecord>
      */
-    private static function walkingRecords(): array
+    private function walkingRecords(): array
     {
+        $this->stackReads++;
         $records = [];
 
         foreach (debug_backtrace(DEBUG_BACKTRACE_PROVIDE_OBJECT | DEBUG_BACKTRACE_IGNORE_ARGS) as $frame) {
@@ -966,21 +979,38 @@ final class CommitDeferral
     }
 
     /**
-     * Whether the walk of $root runs: a record of $walking is $root or one
-     * of its committed savepoints (its parent chain reaches $root). Laravel
-     * runs a root's commit callbacks only inside the commit() that removed
-     * the root from the pending list, so a walk that is not on the stack
-     * ended, and the root's commit callback did not run.
+     * Whether the walk of $root may run. Each record of $walking belongs to
+     * the walk of its top record (its parent chain ends there):
+     * - $root itself: the walk runs;
+     * - another tracked root: that root's walk, which says nothing of $root;
+     * - an untracked record of $root's connection name (a stale record that
+     *   a failed COMMIT left pending, which Laravel stages and walks with the
+     *   next root's commit; or a root without items): it may belong to the
+     *   commit that walks $root, so the walk counts as running. That only
+     *   delays the release; the root's commit callback still decides.
+     * Laravel runs a root's commit callbacks only inside the commit() that
+     * removed the root from the pending list, so a walk without such a frame
+     * on the stack ended, and the root's commit callback did not run.
      *
      * @param  list<DatabaseTransactionRecord>  $walking
      */
-    private static function walkRuns(DatabaseTransactionRecord $root, array $walking): bool
+    private function walkRuns(DatabaseTransactionRecord $root, array $walking): bool
     {
         foreach ($walking as $record) {
-            for ($link = $record; $link !== null; $link = $link->parent) {
-                if ($link === $root) {
-                    return true;
-                }
+            $top = $record;
+
+            while ($top->parent !== null) {
+                $top = $top->parent;
+            }
+
+            if ($top === $root) {
+                return true;
+            }
+
+            $tracked = ($this->roots[spl_object_id($top)] ?? null)?->record === $top;
+
+            if (! $tracked && $top->connection === $root->connection) {
+                return true;
             }
         }
 

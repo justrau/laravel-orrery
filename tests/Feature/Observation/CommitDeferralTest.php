@@ -1111,6 +1111,82 @@ final class CommitDeferralTest extends DeferralTestCase
     }
 
     /**
+     * Rejects: a deferral that reads the call stack on the hot path (an
+     * autocommit push, a push in a transaction, a savepoint, a commit and a
+     * rollback without an application callback in the walk).
+     * Still passes: a stack read that is cheap enough not to matter (the
+     * test counts reads, not time).
+     */
+    public function test_the_hot_path_never_reads_the_call_stack(): void
+    {
+        $q = $this->q();
+
+        $this->raise('autocommit');
+        $q->transaction(function () use ($q): void {
+            $this->raise('root');
+            $q->transaction(function (): void {
+                $this->raise('savepoint');
+            });
+        });
+        $q->beginTransaction();
+        $this->raise('rolled back');
+        $q->rollBack();
+        $this->deferral()->endUnit();
+
+        self::assertSame(['autocommit', 'root', 'savepoint'], $this->ran());
+        self::assertSame(0, $this->deferral()->stackReads());
+
+        // The control: an autocommit push inside a walk reads it.
+        $q->beginTransaction();
+        $this->raise('walking');
+        self::afterCommitFirst($this->record(), function (): void {
+            $this->raise('in the walk');
+        });
+        $q->commit();
+
+        self::assertSame(1, $this->deferral()->stackReads());
+    }
+
+    /**
+     * A failed manual COMMIT leaves its record pending at level 1; the next
+     * root's commit stages and walks that stale record first, and its
+     * application callback pushes at level 0 inside that walk.
+     *
+     * Rejects: a walk check that accepts only the frames of the root's own
+     * records, so the committing root looks stopped while the stale record's
+     * callbacks run, and its committed item is counted instead of run.
+     * Still passes: a check that holds every item raised in any walk of the
+     * connection (it delays, and the root's commit still runs it).
+     */
+    public function test_a_stale_record_walked_in_a_later_commit_keeps_that_root_walking(): void
+    {
+        $q = $this->q();
+        $failing = FailingCommitPdo::forConfig($q->getConfig(), 1);
+        $q->setPdo($failing);
+        $q->beginTransaction();
+        $this->raise('manual');
+        $stale = $this->record();
+        $stale->addCallback(function (): void {
+            $this->raise('stale cb');
+        });
+
+        try {
+            $q->commit();
+            self::fail('The COMMIT fails.');
+        } catch (PDOException) {
+        }
+
+        $q->setPdo($failing);
+        $q->transaction(function (): void {
+            $this->raise('next');
+        });
+
+        self::assertSame(['next', 'stale cb'], $this->ran(), "The root's item runs, then the item that the stale record's callback pushed.");
+        $this->assertCounts(1, 0, 'Only the failed manual commit is counted.');
+        self::assertSame(0, $this->deferral()->open());
+    }
+
+    /**
      * @return array<string, array{string, string}>
      */
     public static function purgePoints(): array
