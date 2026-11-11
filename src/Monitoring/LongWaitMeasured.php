@@ -10,28 +10,35 @@ use Justrau\Orrery\Storage\PackageSession;
 /**
  * The measurement state of the long-wait phase, in the orrery_settings row
  * KEY: `at` (its last run), `complete` (whether that run measured every
- * queue it may read) and `complete_at` (its last complete run, or null).
+ * queue it may read and updated the incidents), `complete_at` (its last
+ * complete run, or null) and `unmeasured` (the queues that it may not read
+ * at all, by connection and queue name).
  *
  * LongWaitPhase records it after each measurement, before it can throw
  * MeasurementIncomplete. A queue on an application SQLite file without
- * automatic reads (D18) is unknown by design and does not make a run
- * incomplete. The monitoring ping (Ping, `long_waits`) reads it: the stored
+ * automatic reads (D18) is unknown by design: it does not make a run
+ * incomplete, and it is listed in `unmeasured`, so the ping can say that
+ * it is unknown. The monitoring ping (Ping, `long_waits`) reads it: the stored
  * long-wait incidents only say what the last complete measurement saw,
  * because an unknown row never refreshes an incident's `last_seen`.
  *
- * @phpstan-type State array{at: float, complete: bool, complete_at: float|null}
+ * @phpstan-type State array{at: float, complete: bool, complete_at: float|null, unmeasured: list<array{connection: string, queue: string}>}
  */
 final class LongWaitMeasured
 {
     public const KEY = 'long_wait_measured';
 
-    public function record(bool $complete, float $now): void
+    /**
+     * @param  list<array{connection: string, queue: string}>  $unmeasured
+     */
+    public function record(bool $complete, float $now, array $unmeasured = []): void
     {
         $previous = $this->read();
         $state = [
             'at' => Clock::stored($now),
             'complete' => $complete,
             'complete_at' => $complete ? Clock::stored($now) : ($previous['complete_at'] ?? null),
+            'unmeasured' => $unmeasured,
         ];
 
         $this->mirror()->table('orrery_settings')->upsert(
@@ -56,11 +63,19 @@ final class LongWaitMeasured
         }
 
         $completeAt = $state['complete_at'] ?? null;
+        $unmeasured = [];
+
+        foreach (is_array($state['unmeasured'] ?? null) ? $state['unmeasured'] : [] as $queue) {
+            if (is_array($queue) && is_string($queue['connection'] ?? null) && is_string($queue['queue'] ?? null)) {
+                $unmeasured[] = ['connection' => $queue['connection'], 'queue' => $queue['queue']];
+            }
+        }
 
         return [
             'at' => (float) $state['at'],
             'complete' => $state['complete'],
             'complete_at' => is_numeric($completeAt) ? (float) $completeAt : null,
+            'unmeasured' => $unmeasured,
         ];
     }
 

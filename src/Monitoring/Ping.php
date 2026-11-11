@@ -207,7 +207,7 @@ final class Ping
             }
 
             if ($over === []) {
-                return ['over' => [], 'unknown' => false];
+                return ['over' => [], 'unknown' => false, 'unmeasured' => $measured['unmeasured']];
             }
 
             $signals = $this->app->make(SignalState::class)->pauseRows();
@@ -232,14 +232,14 @@ final class Ping
                 $failing[] = ['connection' => $connection, 'queue' => $queue];
             }
 
-            return ['over' => $failing, 'unknown' => $unknown];
+            return ['over' => $failing, 'unknown' => $unknown, 'unmeasured' => $measured['unmeasured']];
         });
 
         if (! $read->succeeded()) {
             return self::fail('unknown');
         }
 
-        /** @var array{over: list<array{connection: string, queue: string}>, unknown: bool}|null $result */
+        /** @var array{over: list<array{connection: string, queue: string}>, unknown: bool, unmeasured: list<array{connection: string, queue: string}>}|null $result */
         $result = $read->value();
 
         if ($result === null) {
@@ -248,6 +248,11 @@ final class Ping
 
         if ($result['over'] !== []) {
             return self::fail('over_limit') + ['queues' => $result['over']];
+        }
+
+        if ($result['unmeasured'] !== []) {
+            // Unknown by design (D18: a host SQLite file without automatic reads): never ok.
+            return self::fail('unknown') + ['unmeasured' => $result['unmeasured']];
         }
 
         return $result['unknown'] ? self::fail('unknown') : ['ok' => true];

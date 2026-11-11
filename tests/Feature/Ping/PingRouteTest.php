@@ -5,8 +5,12 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Feature\Ping;
 
 use Justrau\Orrery\Database\Schema\PackageSchema;
+use Justrau\Orrery\Maintenance\TickBudget;
+use Justrau\Orrery\Monitoring\LongWaitIncidents;
 use Justrau\Orrery\Monitoring\LongWaitMeasured;
+use Justrau\Orrery\Monitoring\Phases\LongWaitPhase;
 use Justrau\Orrery\Orrery;
+use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\Clock;
 
 /**
@@ -414,6 +418,29 @@ final class PingRouteTest extends PingTestCase
         $response = $this->ping()->assertStatus(503);
         self::assertSame(['ok' => false, 'reason' => 'unknown'], $response->json('checks.long_waits'));
         self::assertTrue($response->json('checks.tick.ok'));
+    }
+
+    /**
+     * Rejects: a ping that answers ok after a tick whose incident update failed inside the watcher.
+     */
+    public function test_long_waits_are_unknown_when_the_incidents_could_not_be_updated(): void
+    {
+        Watcher::failOperationsForTesting([LongWaitIncidents::OPERATION]);
+        $this->app->make(LongWaitPhase::class)->run(new TickBudget(Clock::monotonic() + 30));
+        Watcher::failOperationsForTesting([]);
+
+        $this->ping()->assertStatus(503)->assertJsonPath('checks.long_waits', ['ok' => false, 'reason' => 'unknown']);
+    }
+
+    /**
+     * Rejects: a queue that cannot be measured by design (D18) that passes the check, and an answer that does not
+     * name it.
+     */
+    public function test_long_waits_are_unknown_for_queues_that_cannot_be_measured(): void
+    {
+        $this->measured(unmeasured: [['connection' => 'app', 'queue' => 'default']]);
+
+        $this->ping()->assertStatus(503)->assertJsonPath('checks.long_waits', ['ok' => false, 'reason' => 'unknown', 'unmeasured' => [['connection' => 'app', 'queue' => 'default']]]);
     }
 
     public function test_long_waits_are_not_checked_by_default(): void

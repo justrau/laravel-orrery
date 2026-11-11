@@ -107,6 +107,7 @@ final class LongWaitPhase implements RunsPastDeadline
     {
         $rows = $this->measurement->forRun($budget)['rows'];
         $unknown = [];
+        $unmeasured = [];
         $container = Container::getInstance();
         $sessions = $container->make(PackageSession::class);
         $files = $container->make(HostFiles::class);
@@ -116,13 +117,19 @@ final class LongWaitPhase implements RunsPastDeadline
             // reads is unknown by design, not an incomplete measurement.
             if ($row['backlog_unknown'] && $files->allowsReads($sessions->databaseConnectionFor($row['connection']))) {
                 $unknown[$row['connection']] = true;
+            } elseif ($row['backlog_unknown']) {
+                $unmeasured[] = ['connection' => $row['connection'], 'queue' => $row['queue']];
             }
         }
 
         $now = Clock::now();
-        $ended = Watcher::instance()->run(LongWaitIncidents::OPERATION, fn (): array => $this->incidents->advance($rows, $now), []);
+        $advanced = Watcher::instance()->attempt(LongWaitIncidents::OPERATION, fn (): array => $this->incidents->advance($rows, $now));
+        /** @var list<array{key: string, stored: string, record: array{connection: string, queue: string, started_at: float, channels: list<string>, quiet: int, quiet_minute: ?int, last_seen: float}}> $ended */
+        $ended = $advanced->succeeded() ? $advanced->value() : [];
         // Before a MeasurementIncomplete can end the run: the ping reads whether the incidents are current.
-        Watcher::instance()->run(self::MEASURED_OPERATION, static fn () => $container->make(LongWaitMeasured::class)->record($unknown === [], $now));
+        // Complete only when every readable queue was measured and the incidents were updated.
+        $complete = $advanced->succeeded() && $unknown === [];
+        Watcher::instance()->run(self::MEASURED_OPERATION, static fn () => $container->make(LongWaitMeasured::class)->record($complete, $now, $unmeasured));
         $container->instance(self::BUDGET, $budget);
 
         try {

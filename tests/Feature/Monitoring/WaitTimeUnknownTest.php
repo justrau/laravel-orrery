@@ -14,6 +14,7 @@ use Illuminate\Support\Str;
 use Justrau\Orrery\Events\LongWaitDetected;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Maintenance\TickRunner;
+use Justrau\Orrery\Monitoring\LongWaitIncidents;
 use Justrau\Orrery\Monitoring\LongWaitMeasured;
 use Justrau\Orrery\Monitoring\MeasurementIncomplete;
 use Justrau\Orrery\Monitoring\Phases\LongWaitPhase;
@@ -21,7 +22,9 @@ use Justrau\Orrery\Monitoring\Phases\SamplesPhase;
 use Justrau\Orrery\Monitoring\SampleCounts;
 use Justrau\Orrery\Monitoring\TickMeasurement;
 use Justrau\Orrery\Monitoring\WaitTime;
+use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\Clock;
+use Justrau\Orrery\Storage\HostFiles;
 use Justrau\Orrery\Storage\PackageSession;
 use Justrau\Orrery\Tests\Feature\Workers\WorkerFixtures;
 use Justrau\Orrery\Tests\Support\TestEnvironment;
@@ -337,7 +340,7 @@ final class WaitTimeUnknownTest extends TestCase
     public function test_the_phase_records_its_last_complete_measurement(): void
     {
         $this->app->make(LongWaitPhase::class)->run(new TickBudget(Clock::monotonic() + 30));
-        self::assertSame(['at' => self::START, 'complete' => true, 'complete_at' => self::START], $this->app->make(LongWaitMeasured::class)->read());
+        self::assertSame(['at' => self::START, 'complete' => true, 'complete_at' => self::START, 'unmeasured' => []], $this->app->make(LongWaitMeasured::class)->read());
 
         Carbon::setTestNow(Carbon::createFromTimestamp(self::START + 60, 'UTC'));
         $this->addBrokenConnection();
@@ -349,7 +352,36 @@ final class WaitTimeUnknownTest extends TestCase
             // Recorded before the throw.
         }
 
-        self::assertSame(['at' => self::START + 60, 'complete' => false, 'complete_at' => self::START], $this->app->make(LongWaitMeasured::class)->read());
+        self::assertSame(['at' => self::START + 60, 'complete' => false, 'complete_at' => self::START, 'unmeasured' => []], $this->app->make(LongWaitMeasured::class)->read());
+    }
+
+    /**
+     * Rejects: a run whose incident update failed (the watcher swallowed it) that records a complete measurement, so
+     * the ping would trust incidents that were not updated.
+     */
+    public function test_a_failed_incident_update_is_not_a_complete_measurement(): void
+    {
+        Watcher::failOperationsForTesting([LongWaitIncidents::OPERATION]);
+
+        $this->app->make(LongWaitPhase::class)->run(new TickBudget(Clock::monotonic() + 30));
+
+        self::assertFalse($this->app->make(LongWaitMeasured::class)->read()['complete'] ?? null);
+    }
+
+    /**
+     * Rejects: a queue that the package may not read (a host SQLite file without WAL, D18) that is recorded as
+     * measured, so the ping would call it ok.
+     */
+    public function test_a_queue_unknown_by_design_is_recorded_as_unmeasured(): void
+    {
+        $this->addBrokenConnection();
+        HostFiles::useForTesting(null, static fn (string $connection): ?bool => $connection === 'orrery_no_such_connection' ? false : null);
+
+        $this->app->make(LongWaitPhase::class)->run(new TickBudget(Clock::monotonic() + 30));
+
+        $state = $this->app->make(LongWaitMeasured::class)->read();
+        self::assertTrue($state['complete'] ?? null, 'unknown by design is no failed measurement');
+        self::assertSame([['connection' => 'broken', 'queue' => 'brokenq']], $state['unmeasured'] ?? null);
     }
 
     /**

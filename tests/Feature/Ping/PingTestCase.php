@@ -58,10 +58,13 @@ abstract class PingTestCase extends TestCase
      * The long-wait phase's measurement state: its last run $ago seconds ago, complete or not, and its last
      * complete run $completeAgo seconds ago (null: never).
      */
-    protected function measured(float $ago = 20, bool $complete = true, ?float $completeAgo = 20): void
+    /**
+     * @param  list<array{connection: string, queue: string}>  $unmeasured
+     */
+    protected function measured(float $ago = 20, bool $complete = true, ?float $completeAgo = 20, array $unmeasured = []): void
     {
         $now = Clock::now();
-        $this->setting(LongWaitMeasured::KEY, (string) json_encode(['at' => $now - $ago, 'complete' => $complete, 'complete_at' => $completeAgo === null ? null : $now - $completeAgo], JSON_PRESERVE_ZERO_FRACTION));
+        $this->setting(LongWaitMeasured::KEY, (string) json_encode(['at' => $now - $ago, 'complete' => $complete, 'complete_at' => $completeAgo === null ? null : $now - $completeAgo, 'unmeasured' => $unmeasured], JSON_PRESERVE_ZERO_FRACTION));
     }
 
     protected function window(string $context, int $dropped, float $startedAgo, ?float $endedAgo = null, ?float $errorAgo = null, string $process = 'host:9:9'): void
