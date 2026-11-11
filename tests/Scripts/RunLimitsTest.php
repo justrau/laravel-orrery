@@ -318,7 +318,8 @@ final class RunLimitsTest extends TestCase
             'ORRERY_TEST_PHPUNIT' => self::stubPath(),
             'ORRERY_STUB_OUT' => $out,
             'ORRERY_STUB_HOLD' => $hold,
-            'ORRERY_STUB_NESTED' => 'pgsql --slot-wait=0 --drop-database',
+            // The engine of the outer run: under its live lease no other server is started.
+            'ORRERY_STUB_NESTED' => 'mysql --slot-wait=0 --drop-database',
             // The outer run holds its own name.
             'ORRERY_STUB_NESTED_ENV' => json_encode(['ORRERY_TEST_DATABASE' => 'orrery_limits_inner']),
             'ORRERY_STUB_INNER_OUT' => $inner,

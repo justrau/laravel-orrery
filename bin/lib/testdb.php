@@ -2032,8 +2032,9 @@ final class FakeOps implements Ops
         // Like Compose: without the profile, the alt services stay as they are; with names, only those services.
         foreach ($only ?? ($alt ? ALL_SERVICES : SERVICES) as $service) {
             $current = &$state['services'][$service];
+            // Like Compose: each service runs the definition of its own last start.
             $recreate = $current['state'] !== 'running'
-                || $state['running_definition'] !== $state['definition']
+                || ($current['definition'] ?? $state['running_definition']) !== $state['definition']
                 || $current['ports'] !== [$this->ports[$service]];
 
             if ($recreate) {
@@ -2044,6 +2045,7 @@ final class FakeOps implements Ops
             }
 
             $current['state'] = 'running';
+            $current['definition'] = $state['definition'];
             $current['health'] = $state['health_after_up'][$service] ?? 'healthy';
             $current['ports'] = [$this->ports[$service]];
 
