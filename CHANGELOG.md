@@ -29,6 +29,7 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 ### Fixed
 
 - **A stopped commit walk no longer holds later observations.** When an `afterCommit` callback of the application threw before the package's callback, every later observation of that connection waited until the end of the job, command or request, and a long-running command lost them at the count cap. Now the next observation sees that the walk is no longer on the call stack: the stopped transaction's observations are counted in `unverified`, and the later ones are written at once or at their own commit.
+- **MySQL package sessions work with multi-statements off.** The package settings (autocommit, the lock waits, the statement timeout) were joined to the application's `PDO::MYSQL_ATTR_INIT_COMMAND`, so an application that set an init command and turned `PDO::MYSQL_ATTR_MULTI_STATEMENTS` off got a syntax error at each package connect. The application's init command now stays unchanged, and the package runs its settings as one statement after the connect.
 
 ## [0.1.0] - 2026-11-10
 
