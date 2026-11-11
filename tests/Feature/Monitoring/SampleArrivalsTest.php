@@ -11,6 +11,7 @@ use Illuminate\Support\Str;
 use Justrau\Orrery\Database\Schema\SchemaOutdated;
 use Justrau\Orrery\Exceptions\WatchedOperationFailed;
 use Justrau\Orrery\Maintenance\Retention;
+use Justrau\Orrery\Monitoring\BlindGaps;
 use Justrau\Orrery\Monitoring\SampleCounts;
 use Justrau\Orrery\Runtime\Hooks;
 use Justrau\Orrery\Storage\Clock;
@@ -206,7 +207,9 @@ final class SampleArrivalsTest extends RetentionTestCase
         self::assertFalse($this->state()['behind'], 'A held row is not behind, and the range finished.');
         self::assertSame([], $this->invalidIntervals());
 
-        // Past the bound (M moved more than count_wait_minutes ago): no floor, the row is trimmed.
+        // Past the bound (M moved more than count_wait_minutes ago): no floor, the row is trimmed. The scheduler ran
+        // every minute while the aggregation failed, so the blind-gap decision is a minute old (BlindGaps).
+        $this->mirror()->table('orrery_settings')->upsert([['key' => BlindGaps::KEY, 'value' => json_encode(['checked_through' => $start + 120 * 60, 'gaps' => []])]], ['key'], ['value']);
         $this->at($start + 121 * 60);
         $this->tick();
         self::assertFalse($this->exists($skewed), 'Past the bound the partition finishes.');
