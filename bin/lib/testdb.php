@@ -629,6 +629,20 @@ final class Processes
 
         Run::capture(['kill', '-'.$signal, (string) $pid], null, 10.0);
     }
+
+    /**
+     * Whether process $pid exists. bin/test runs this file with php -n, and
+     * where posix is a shared extension (setup-php on Ubuntu) -n leaves it
+     * out, so the fallback is kill -0.
+     */
+    public static function exists(int $pid): bool
+    {
+        if (function_exists('posix_kill')) {
+            return posix_kill($pid, 0);
+        }
+
+        return Run::capture(['kill', '-0', (string) $pid], null, 10.0)[0] === 0;
+    }
 }
 
 /**
@@ -3596,7 +3610,7 @@ final class App
             usleep((int) ($interval * 1_000_000));
 
             if ($stays !== null) {
-                if (! function_exists('posix_kill') || ! posix_kill($stays, 0)) {
+                if (! Processes::exists($stays)) {
                     return ['anchor' => $self, 'group' => 'held'];
                 }
 
