@@ -6,7 +6,7 @@
 | --- | --- |
 | PHP | `^8.3` (tested on 8.3, 8.4 and 8.5) |
 | Laravel | 12.69.0 or later, and 13.30.0 or later |
-| Databases | MySQL 8.4, Postgres 18, and the SQLite of PHP 8.3 to 8.5 (the tested versions). MariaDB and other MySQL and Postgres versions are not tested yet. |
+| Databases | MySQL 8.4, MariaDB 12.3 (the latest LTS release), Postgres 18, and the SQLite of PHP 8.3 to 8.5 (the tested versions). MariaDB is tested with Laravel's `mariadb` driver. Other MySQL, MariaDB and Postgres versions are not tested. |
 | Queue driver | `database` only |
 | Failed-job driver | `database-uuids` (retry and forget) or `null` (retry from the mirror's copy of the payload, forget in the mirror only). Every other failed-job driver is read-only: its failures show, and retry and forget refuse them. See [Retry and forget](operations.md#retry-and-forget). |
 
