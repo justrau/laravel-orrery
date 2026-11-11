@@ -31,6 +31,7 @@ The old paths `/`, `/dashboard`, `/metrics…`, `/monitoring…`, `/failed/<id>`
 
 - The write buttons show only for users with `operateOrrery`.
 - Times show in the browser's time zone, or in `orrery.display_timezone`. Every absolute time has its zone label.
+- From 1024 px, drag the handle on the sidebar's right edge to change its width, or focus the handle and use the arrow keys (Shift for bigger steps); a double click resets it. The browser keeps the width.
 - Below 1024 px the sidebar is behind a toggle, and below 768 px a list and its detail are two screens. The keyboard reaches every control, and Escape closes a sheet, the inspector or the sidebar.
 - The dashboard follows the dark or light appearance of the operating system (the browser's `prefers-color-scheme`). It has no toggle of its own.
 

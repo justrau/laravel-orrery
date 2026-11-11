@@ -8,6 +8,7 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 ### Added
 
+- **A resizable sidebar.** Drag the handle on the sidebar's right edge (or focus it and use Left and Right, Shift for bigger steps, Home and End) to change its width between 200 px and 480 px, at most half the window; a double click resets the default width. The width is kept per browser. The narrow drawer layout is unchanged.
 - **Quiet workers.** A listed worker whose last heartbeat is older than two `workers.heartbeat_seconds` (30 seconds by default), and that holds no live reservation, is now quiet: the Workers screen and the queue inspector show it with an amber dot and "No heartbeat for …" instead of the green dot, and the Overview and the Queues screen show "Workers quiet" for a queue whose every worker is quiet. Before, a worker killed with SIGKILL looked healthy until it left the list. `GET /orrery/api/workers` adds `state` (`live` or `quiet`) to each row and child, and `GET /orrery/api/workload` adds `quiet_processes` to each queue.
 
 ### Changed

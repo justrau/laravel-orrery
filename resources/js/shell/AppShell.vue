@@ -1,6 +1,7 @@
 <script>
     import Notice from '../components/ui/Notice.vue';
     import {modalOpen} from '../support/focus.js';
+    import {SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH, clampSidebarWidth, readSidebarWidth, sidebarMaxWidth, sidebarWidthForKey, writeSidebarWidth} from '../support/sidebar-width.js';
     import {browserSeconds, noteServerTime, nowSeconds} from '../support/time.js';
     import Sidebar from './Sidebar.vue';
     import Toolbar from './Toolbar.vue';
@@ -26,6 +27,13 @@
      * close it; the scrim and Escape return the focus to the toggle. While it
      * is open it is a modal dialog ("Navigation") and the rest of the shell
      * is inert.
+     *
+     * At 1024 px and wider, a handle on the sidebar's right edge changes its
+     * width (support/sidebar-width.js): drag it, or focus it and use Left and
+     * Right (Shift for bigger steps), Home and End; a double click resets the
+     * default width. The width is stored per browser and sets the
+     * `--container-sidebar` custom property through a style binding (the
+     * CSSOM, which the Content Security Policy allows).
      */
     export default {
         components: {Notice, Sidebar, Toolbar},
@@ -40,6 +48,8 @@
                 shell,
                 now: nowSeconds(),
                 polls: 0,
+                sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
+                viewport: typeof window !== 'undefined' ? window.innerWidth : null,
             };
         },
 
@@ -93,6 +103,19 @@
                 return liveWatcherHealth(this.now);
             },
 
+            /** The width of the desktop sidebar as the token it sets; the drawer keeps its own. */
+            navStyle() {
+                return this.shell.narrow ? null : {'--container-sidebar': `${this.sidebarWidth}px`};
+            },
+
+            sidebarMin() {
+                return SIDEBAR_MIN_WIDTH;
+            },
+
+            sidebarMax() {
+                return sidebarMaxWidth(this.viewport);
+            },
+
             /** The drawer is open over the content: a modal dialog, the rest inert. */
             drawerOpen() {
                 return this.shell.narrow && this.shell.navOpen;
@@ -121,6 +144,13 @@
             this.onKeydown = event => this.keydown(event);
             document.addEventListener('keydown', this.onKeydown);
 
+            this.sidebarWidth = readSidebarWidth(window.innerWidth);
+            this.onResize = () => {
+                this.viewport = window.innerWidth;
+                this.sidebarWidth = clampSidebarWidth(this.sidebarWidth, this.viewport);
+            };
+            window.addEventListener('resize', this.onResize);
+
             if (typeof window.matchMedia === 'function') {
                 this.media = window.matchMedia(`(max-width: ${SIDEBAR_BREAKPOINT - 1}px)`);
                 this.onMedia = () => setNarrow(this.media.matches);
@@ -140,6 +170,8 @@
             setLiveRefresh(null);
             clearInterval(this.clock);
             document.removeEventListener('keydown', this.onKeydown);
+            window.removeEventListener('resize', this.onResize);
+            this.endResize();
 
             if (this.media) this.media.removeEventListener('change', this.onMedia);
             if (this.phoneMedia) this.phoneMedia.removeEventListener('change', this.onPhone);
@@ -150,6 +182,52 @@
 
         methods: {
             closeNav,
+
+            /** A drag on the sidebar's handle: the width follows the pointer and is stored when it ends. */
+            startResize(event) {
+                if (event.button !== 0) return;
+
+                event.preventDefault();
+                this.endResize();
+                const startX = event.clientX;
+                const startWidth = this.sidebarWidth;
+
+                this.onResizeMove = move => {
+                    this.sidebarWidth = clampSidebarWidth(startWidth + move.clientX - startX, window.innerWidth);
+                };
+                this.onResizeEnd = () => {
+                    this.endResize();
+                    writeSidebarWidth(this.sidebarWidth);
+                };
+                window.addEventListener('pointermove', this.onResizeMove);
+                window.addEventListener('pointerup', this.onResizeEnd);
+                window.addEventListener('pointercancel', this.onResizeEnd);
+            },
+
+            endResize() {
+                if (!this.onResizeMove) return;
+
+                window.removeEventListener('pointermove', this.onResizeMove);
+                window.removeEventListener('pointerup', this.onResizeEnd);
+                window.removeEventListener('pointercancel', this.onResizeEnd);
+                this.onResizeMove = null;
+                this.onResizeEnd = null;
+            },
+
+            resizeKey(event) {
+                const width = sidebarWidthForKey(this.sidebarWidth, event.key, event.shiftKey, window.innerWidth);
+
+                if (width === null) return;
+
+                event.preventDefault();
+                this.sidebarWidth = width;
+                writeSidebarWidth(width);
+            },
+
+            resetSidebarWidth() {
+                this.sidebarWidth = clampSidebarWidth(SIDEBAR_DEFAULT_WIDTH, window.innerWidth);
+                writeSidebarWidth(SIDEBAR_DEFAULT_WIDTH);
+            },
 
             /** Escape closes the open drawer and gives the focus back to its toggle. */
             keydown(event) {
@@ -267,10 +345,15 @@
         <div v-if="drawerOpen" class="o-shell__scrim" aria-hidden="true" @click="closeDrawer"></div>
 
         <div v-show="!shell.narrow || shell.navOpen" id="orrery-nav" class="o-shell__nav"
-             :role="drawerOpen ? 'dialog' : null" :aria-modal="drawerOpen ? 'true' : null" :aria-label="drawerOpen ? 'Navigation' : null">
+             :role="drawerOpen ? 'dialog' : null" :aria-modal="drawerOpen ? 'true' : null" :aria-label="drawerOpen ? 'Navigation' : null"
+             :style="navStyle">
             <sidebar :app-name="appName" :environment="environment" :attention="attention" :counts="sidebarCounts"
                      :queue-groups="queueGroups" :queues-unknown="queuesUnknown" :health="healthSummary" :drawer="shell.narrow"
                      @navigate="closeNav" />
+            <div v-if="!shell.narrow" class="o-shell__resize" role="separator" tabindex="0" aria-orientation="vertical"
+                 aria-label="Sidebar width" aria-controls="orrery-nav" :aria-valuenow="sidebarWidth" :aria-valuemin="sidebarMin" :aria-valuemax="sidebarMax"
+                 title="Drag to change the sidebar width; double-click to reset" data-sidebar-resize
+                 @pointerdown="startResize" @keydown="resizeKey" @dblclick="resetSidebarWidth"></div>
         </div>
 
         <div class="o-shell__main" :inert="drawerOpen">
@@ -298,6 +381,27 @@
     .o-shell__nav {
         display: flex;
         flex-shrink: 0;
+        position: relative;
+    }
+
+    /* The drag handle on the sidebar's right edge: 8 px wide, centred on the border. */
+    .o-shell__resize {
+        bottom: 0;
+        cursor: col-resize;
+        position: absolute;
+        right: -4px;
+        top: 0;
+        touch-action: none;
+        width: 8px;
+        z-index: 5;
+    }
+
+    .o-shell__resize:hover,
+    .o-shell__resize:focus-visible {
+        background-color: var(--color-accent);
+        background-clip: content-box;
+        outline: none;
+        padding-inline: 3px;
     }
 
     /* Below 1024 px the sidebar is a drawer over the content. */
