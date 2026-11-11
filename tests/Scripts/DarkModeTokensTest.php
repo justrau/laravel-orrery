@@ -75,8 +75,9 @@ final class DarkModeTokensTest extends TestCase
      * Rejects: white text (`--color-on-accent`) below WCAG AA (4.5:1) on the
      * accent fill of a primary button in either scheme (the old #0A84FF and
      * #3890F5), a light accent below AA as link text on the page, the
-     * sidebar or the subtle surface (the old #0A84FF), and an on-accent
-     * colour that is not white.
+     * sidebar or the subtle surface (the old #0A84FF), accent text below AA
+     * on the accent tint (filter chips, the Running chip; the old dark tint
+     * #12304F), and an on-accent colour that is not white.
      * Still passes: an accent of another hue, or a dark accent that is
      * readable as text but too light for white text, as long as the fill
      * token carries the white text.
@@ -90,7 +91,7 @@ final class DarkModeTokensTest extends TestCase
             self::assertSame('#FFFFFF', strtoupper($tokens['--color-on-accent']), "{$scheme} on-accent is white");
             self::assertGreaterThanOrEqual(4.5, $this->contrast($tokens['--color-on-accent'], $tokens['--color-accent-fill']), "{$scheme} white on --color-accent-fill");
 
-            foreach (['--color-bg', '--color-sidebar', '--color-subtle'] as $surface) {
+            foreach (['--color-bg', '--color-sidebar', '--color-subtle', '--color-accent-tint'] as $surface) {
                 self::assertGreaterThanOrEqual(4.5, $this->contrast($tokens['--color-accent'], $tokens[$surface]), "{$scheme} --color-accent on {$surface}");
             }
         }
