@@ -8,6 +8,7 @@ use Justrau\Orrery\Console\TickCommand;
 use Justrau\Orrery\Markers\Markers;
 use Justrau\Orrery\Markers\Phases\MarkerRetentionPhase;
 use Justrau\Orrery\Markers\Phases\RestartMarkerPhase;
+use Justrau\Orrery\Monitoring\BlindGaps;
 use Justrau\Orrery\Monitoring\MonitoringRepair;
 use Justrau\Orrery\Monitoring\MonitoringVersion;
 use Justrau\Orrery\Monitoring\Phases\LongWaitPhase;
@@ -85,6 +86,7 @@ final class MonitoringModule implements Module
         $app->singleton(TickMeasurement::class);
         $app->singleton(Samples::class);
         $app->singleton(SampleCounts::class);
+        $app->singleton(BlindGaps::class);
         $app->singleton(Markers::class);
         $app->singleton(MonitoringVersion::class);
         $app->singleton(MonitoringRepair::class);

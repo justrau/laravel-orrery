@@ -96,6 +96,12 @@ use Throwable;
  * interval over every minute before the current one, and the next minute
  * transaction writes it so.
  *
+ * The blind gaps: before the first unit, run() lets BlindGaps::decide()
+ * turn a window without evidence of observation (longer than
+ * BlindGaps::GAP_SECONDS since the previous tick) into invalid intervals, so the
+ * catch-up never publishes such a minute as a covered 0. A failed decision
+ * fails the run before any minute is published.
+ *
  * The arrivals (`pushed`, schema step 7): a minute's arrivals are known only
  * when its `total` row has a non-null `pushed` (SampleCoverage decides that
  * from the `total` row); a minute counted before the step keeps null. On a
@@ -174,6 +180,7 @@ final class SampleCounts
     public function __construct(
         private readonly PackageTransaction $transactions,
         private readonly WaitTime $waits,
+        private readonly BlindGaps $blindGaps,
     ) {}
 
     /**
@@ -186,6 +193,8 @@ final class SampleCounts
         $current = self::minuteOf($now);
         $deadline = Clock::monotonic() + $this->countSeconds();
         self::ensureInvalidRow($session);
+        // A window without observation becomes invalid minutes before the counts reach it (BlindGaps).
+        $this->blindGaps->decide($session, $now, $this->retentionHours());
 
         $through = self::countedThrough($session);
         $start = $through === null ? $current - self::RECOUNT_SECONDS : min($current - self::RECOUNT_SECONDS, $through);

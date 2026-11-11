@@ -13,6 +13,7 @@ use Justrau\Orrery\Lifecycle\JobStore;
 use Justrau\Orrery\Lifecycle\RuntimeClock;
 use Justrau\Orrery\Maintenance\Retention;
 use Justrau\Orrery\Maintenance\TickBudget;
+use Justrau\Orrery\Maintenance\TickOutcome;
 use Justrau\Orrery\Monitoring\SampleCounts;
 use Justrau\Orrery\Monitoring\SampleCoverage;
 use Justrau\Orrery\Monitoring\Samples;
@@ -272,7 +273,9 @@ final class SampleCountsTest extends RetentionTestCase
         self::assertSame(2, $this->mirror()->table('orrery_jobs')->count(), 'The floor holds the rows that the counts have not passed.');
         self::assertSame(self::B + 300, $this->through(), 'The aggregation failed.');
 
-        // Past the bound: retention trims, and the trimmed minutes are invalid.
+        // Past the bound: retention trims, and the trimmed minutes are invalid. The scheduler ran every minute
+        // (the outcome of the tick a minute before), so the time since the tick above is no blind gap (BlindGaps).
+        $this->previousTick($start + 120 * 60);
         $this->at($start + 121 * 60);
         $this->tick();
         self::assertSame(0, $this->mirror()->table('orrery_jobs')->count(), 'Past the bound retention trims as usual.');
@@ -1495,6 +1498,16 @@ final class SampleCountsTest extends RetentionTestCase
         } finally {
             Hooks::$callback = null;
         }
+    }
+
+    /**
+     * The outcome of a tick that started at $at (BlindGaps measures from it).
+     */
+    private function previousTick(float $at): void
+    {
+        $this->mirror()->table('orrery_settings')->upsert([
+            ['key' => TickOutcome::KEY, 'value' => json_encode(['started_at' => $at, 'finished_at' => $at + 1, 'failed' => [], 'skip_streaks' => (object) []])],
+        ], ['key'], ['value']);
     }
 
     private function setFrontier(int $through, float $countedAt): void

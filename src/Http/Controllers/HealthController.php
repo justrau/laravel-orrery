@@ -16,6 +16,7 @@ use Justrau\Orrery\Http\Middleware\Authenticate;
 use Justrau\Orrery\Http\Projection\Redactor;
 use Justrau\Orrery\Maintenance\Retention;
 use Justrau\Orrery\Maintenance\RetentionSettings;
+use Justrau\Orrery\Monitoring\BlindGaps;
 use Justrau\Orrery\Monitoring\SampleCounts;
 use Justrau\Orrery\Monitoring\WaitTime;
 use Justrau\Orrery\Queue\Instrumentation;
@@ -99,6 +100,10 @@ use Throwable;
  *   value is not a number, and `{state: "unknown", counted_through,
  *   lag_seconds: null}` when M is more than 60 s after now (a clock that
  *   moved back): unknown, never a lag of 0.
+ * - `blind_gaps`: the newest recorded blind gaps (Monitoring\BlindGaps),
+ *   at most BlindGaps::RECENT, newest first, each `{from, to}` in epoch
+ *   seconds: spans in which no process observed, whose minutes the counts
+ *   show as unknown. `[]` when none is recorded; null when the read failed.
  *
  * - `queue_pause_cache_local`: null, or the hint that the
  *   default cache store is local: a `file` store is local to one server, so
@@ -303,6 +308,7 @@ class HealthController extends Controller
                 'queue_pause_cache_local' => self::queuePauseCacheLocal(),
                 'shared_jobs_table_retry_after' => self::sharedTableRetryAfter($waits),
                 'samples' => self::UNREADABLE_SAMPLES,
+                'blind_gaps' => null,
                 'guard_invalid' => Authenticate::guardInvalid(),
                 'ping' => PingController::state(),
                 'pooled_sessions' => self::pooledSessions($sessions),
@@ -334,6 +340,7 @@ class HealthController extends Controller
             'queue_pause_cache_local' => self::queuePauseCacheLocal(),
             'shared_jobs_table_retry_after' => self::sharedTableRetryAfter($waits),
             'samples' => $this->samples($now),
+            'blind_gaps' => $this->blindGaps(),
             'guard_invalid' => Authenticate::guardInvalid(),
             'ping' => PingController::state(),
             'pooled_sessions' => self::pooledSessions($sessions),
@@ -631,6 +638,18 @@ class HealthController extends Controller
 
         /** @var array{installed: int|null, expected: int, hint: string|null} */
         return $read->value();
+    }
+
+    /**
+     * `blind_gaps`, or null when the read failed.
+     *
+     * @return list<array{from: float, to: float}>|null
+     */
+    private function blindGaps(): ?array
+    {
+        $read = Watcher::instance()->attempt('health:blind_gaps', static fn (): array => BlindGaps::recent());
+
+        return $read->succeeded() ? $read->value() : null;
     }
 
     /**
