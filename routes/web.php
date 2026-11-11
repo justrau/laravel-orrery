@@ -55,6 +55,7 @@ Route::prefix('api')->group(function (): void {
     Route::get('/settings/retention', 'RetentionSettingsController@index');
     Route::get('/classes', 'JobClassesController@index');
     Route::get('/classes/series', 'JobClassesController@series');
+    Route::get('/suggestions', 'SuggestionsController@index');
 
     Route::get('/failures/groups', 'FailureGroupsController@index');
     Route::get('/failures/groups/{key}', 'FailureGroupsController@show');

@@ -37,7 +37,7 @@ The controllers' docblocks hold the contract of each endpoint, and this file hol
 
 ## Other endpoints
 
-`/ping` (`Monitoring\Ping` documents each check; 200 or 503, `Cache-Control: no-store`, while off 503 `{"status": "disabled"}`), `/api/workload` (`DatabaseWorkloadRepository` documents each field), `/api/workers`, `/api/health`, `/api/counts`, `/api/control`, `/api/tags`, `/api/batches`, `/api/throughput`, `/api/markers`, `/api/queues/history?connection=&queue=`, `/api/settings/retention`, `/api/classes` and `/api/classes/series`, `/api/failures/groups` and `/api/failures/groups/{key}` (byte-exact, through `orrery_jobs.failure_key`, capped by `dashboard.group_count_cap`).
+`/ping` (`Monitoring\Ping` documents each check; 200 or 503, `Cache-Control: no-store`, while off 503 `{"status": "disabled"}`), `/api/workload` (`DatabaseWorkloadRepository` documents each field), `/api/workers`, `/api/health`, `/api/counts`, `/api/control`, `/api/tags`, `/api/batches`, `/api/throughput`, `/api/markers`, `/api/queues/history?connection=&queue=`, `/api/settings/retention`, `/api/classes` and `/api/classes/series`, `/api/suggestions?field=class|tag&q=` (`Http\Suggestions`: the filter bar's suggestions, bounded reads matched in PHP, `Cache-Control: private, max-age=30`), `/api/failures/groups` and `/api/failures/groups/{key}` (byte-exact, through `orrery_jobs.failure_key`, capped by `dashboard.group_count_cap`).
 
 ## The page
 

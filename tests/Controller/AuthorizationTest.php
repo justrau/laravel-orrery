@@ -662,6 +662,13 @@ final class AuthorizationTest extends TestCase
                     'the job class series body is missing',
                 ),
             ),
+            'GET orrery/api/suggestions' => $this->read(
+                fn (): string => $api.'/suggestions?field=tag&q=authz',
+                fn (TestResponse $response): ?string => $this->problem(
+                    $this->contains($response->json('values'), 'value', self::MONITORED_TAG),
+                    'the monitored tag is not suggested',
+                ),
+            ),
             'GET orrery/api/queues/history' => $this->read(
                 fn (): string => $api.'/queues/history?connection=database&queue='.self::WORK_QUEUE,
                 fn (TestResponse $response): ?string => $this->problem(

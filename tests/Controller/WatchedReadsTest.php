@@ -38,6 +38,7 @@ final class WatchedReadsTest extends ControllerTest
             'workers' => ['/orrery/api/workers'],
             'control' => ['/orrery/api/control'],
             'markers' => ['/orrery/api/markers'],
+            'suggestions' => ['/orrery/api/suggestions?field=tag'],
             'workload' => ['/orrery/api/workload'],
             'failure groups' => ['/orrery/api/failures/groups?from=1790000000&to=1790003600'],
             'failure group' => ['/orrery/api/failures/groups/'.str_repeat('a', 64).'?from=1790000000&to=1790003600'],

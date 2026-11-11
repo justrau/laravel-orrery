@@ -39,6 +39,7 @@ final class RawQueryRoutesTest extends ControllerTest
             'a tag unmonitor by query' => ['DELETE', '/orrery/api/tags/monitored'],
             'the job classes' => ['GET', '/orrery/api/classes'],
             'the job class series' => ['GET', '/orrery/api/classes/series'],
+            'the filter suggestions' => ['GET', '/orrery/api/suggestions'],
         ];
     }
 

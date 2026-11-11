@@ -270,6 +270,7 @@ final class EveryEndpointCanaryTest extends RetryTestCase
             'GET orrery/api/settings/retention' => $ok($api.'/settings/retention'),
             'GET orrery/api/classes' => $ok($api.'/classes'),
             'GET orrery/api/classes/series' => $ok($api.'/classes/series?name='.rawurlencode(CanaryJob::class)),
+            'GET orrery/api/suggestions' => $ok($api.'/suggestions?field=class', $api.'/suggestions?field=tag&q='.rawurlencode(self::TAG)),
             'GET orrery/api/failures/groups' => $ok($api.'/failures/groups?'.$window),
             'GET orrery/api/failures/groups/{key}' => $ok($api.'/failures/groups/'.$f['key'].'?'.$window),
             'GET orrery/api' => [[$api, 404]],
