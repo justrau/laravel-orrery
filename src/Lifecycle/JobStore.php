@@ -414,8 +414,9 @@ final class JobStore
                 'status' => 'pending',
                 'prev_job_id' => $o->jobId,
                 'job_id' => $o->newJobId,
-                // absent_since belongs to the previous job id, as in Rules::revision().
+                // absent_since belongs to the previous job id, as in Rules::revision(), and so does its reason.
                 'absent_since' => null,
+                'unknown_reason' => null,
                 'available_at' => Rules::releaseAvailableAt($o),
                 'releases' => new Expression('releases + 1'),
                 'activity_at' => $time,

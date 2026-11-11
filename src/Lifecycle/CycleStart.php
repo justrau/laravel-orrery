@@ -41,6 +41,8 @@ final class CycleStart
             'job_id_unresolved' => false,
             'bulk_floor_id' => null,
             'absent_since' => null,
+            // The reason of an absence goes with it (Maintenance\Reconciliation::BLIND_GAP_REASON).
+            'unknown_reason' => null,
         ] + array_fill_keys(self::COUNTERS, 0);
     }
 }

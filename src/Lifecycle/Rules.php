@@ -762,8 +762,9 @@ final class Rules
             'status' => 'failed',
             'finished_at' => $time,
             'failed_at' => $time,
-            // A new failure starts the absence check of its provider record.
+            // A new failure starts the absence check of its provider record, without the reason of an earlier absence.
             'absent_since' => null,
+            'unknown_reason' => null,
         ] + ExceptionText::columns($o->exception) + self::failureWorker($o) + self::outcomeAttempts($row, $o) + self::leaveUnknown($row) + self::transition($o), [], self::failureEffects($o));
     }
 
@@ -947,9 +948,15 @@ final class Rules
         }
 
         // absent_since belongs to the inspected job id: a transition to
-        // another job id starts the absence check again.
+        // another job id starts the absence check again. The reason of an
+        // absence (Maintenance\Reconciliation::BLIND_GAP_REASON) goes with it,
+        // in the same write, unless the row is unknown.
         if (array_key_exists('job_id', $set) && $set['job_id'] !== $row->jobId) {
             $set['absent_since'] = null;
+
+            if (($set['status'] ?? $row->status) !== 'unknown') {
+                $set['unknown_reason'] ??= null;
+            }
         }
 
         $batch = self::batchIdOf($o);

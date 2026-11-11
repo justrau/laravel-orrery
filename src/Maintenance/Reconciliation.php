@@ -50,15 +50,23 @@ use Throwable;
  *       from the first row, so the first sweep after the gap checks each
  *       row once;
  *   (c) the last sweep before it started at most BlindGaps::GAP_SECONDS
- *       before `from` (lastVerified() >= from − GAP_SECONDS), so the row was
- *       found present at most that long before observation stopped (a row
- *       that the sweep found absent already has its first absence, and
- *       keeps `absent`).
+ *       before the gap's anchor (lastVerified() >= anchor − GAP_SECONDS),
+ *       so the row was found present at most that long before the anchor
+ *       (a row that the sweep found absent already has its first absence,
+ *       and keeps `absent`). The anchor is the start of the window whose
+ *       walk found the gap (the last time the tick side had decided:
+ *       BlindGaps::anchored()) when the gap's `from` lies at most the
+ *       longest grace of the database queue connections (max(retry_after,
+ *       600 s)) after it: a scheduler stopped before the workers, or workers
+ *       that drain their last jobs one by one, put `from` after the last
+ *       tick. Else the anchor is `from` itself.
  *   So the job left the queue between a check at most GAP_SECONDS before
- *   the gap and the first check after it. A job that is removed after the
- *   gap's end but before the first sweep after it reaches its row counts
- *   too: that sweep is the first look after the gap. A present row loses
- *   the reason with its absent_since.
+ *   the anchor and the first check after the gap. A job that is removed
+ *   in that time outside the gap (after the last tick while workers still
+ *   observed, or after the gap's end but before the first sweep after it
+ *   reaches its row) counts too. A present row loses the reason with its
+ *   absent_since, and every first absence writes its reason (null when it
+ *   is none), so no reason outlives its absence.
  * - When a batch reaches the end, the sweep is complete: the start time of
  *   that sweep becomes `reconcile_swept_at:<connection>` (lastVerified()).
  * - The active rows of a connection that is no longer a `database` queue
@@ -255,7 +263,7 @@ final class Reconciliation
         $mirror = $this->app->make(PackageSession::class)->mirror();
         $cursor = $this->cursor($mirror, $connection);
         $batch = $this->activeBatchForTesting ?? self::ACTIVE_BATCH;
-        $gaps = BlindGaps::read($mirror);
+        $gaps = BlindGaps::anchored($mirror);
         $latest = $gaps === [] ? null : $gaps[count($gaps) - 1];
 
         if ($latest !== null && $cursor['after'] > 0 && Clock::stored($cursor['started_at']) < $latest[1]) {
@@ -264,6 +272,7 @@ final class Reconciliation
         }
 
         $swept = $gaps === [] ? null : $this->lastVerified($connection);
+        $reach = $gaps === [] ? 0.0 : $this->longestGrace();
 
         $rows = $mirror->table(self::TABLE)
             ->where('connection', $connection)
@@ -288,7 +297,7 @@ final class Reconciliation
                 $rows,
                 static fn (object $row): bool => isset($present[(int) $row->job_id]),
                 self::UNKNOWN_REASON,
-                static fn (object $row): bool => self::blindGapLoss($gaps, $swept, $row->activity_at ?? null),
+                static fn (object $row): bool => self::blindGapLoss($gaps, $swept, $reach, $row->activity_at ?? null),
             );
         }
 
@@ -553,7 +562,7 @@ final class Reconciliation
     /**
      * @param  Collection<int, \stdClass>  $rows
      * @param  \Closure(\stdClass): ?bool  $isPresent  true present, false absent, null undecided (the row keeps its state)
-     * @param  (\Closure(\stdClass): bool)|null  $blindGapLoss  whether a first absence is a loss of a blind gap (the class comment)
+     * @param  (\Closure(\stdClass): bool)|null  $blindGapLoss  whether a first absence is a loss of a blind gap (the class comment); null: never
      */
     private function applyActive(Connection $mirror, string $connection, Collection $rows, \Closure $isPresent, string $reason, ?\Closure $blindGapLoss = null): void
     {
@@ -573,7 +582,7 @@ final class Reconciliation
 
             if ($state) {
                 if ($row->absent_since !== null) {
-                    $this->inspected($mirror, $row)->update($blindGapLoss === null ? ['absent_since' => null] : ['absent_since' => null, 'unknown_reason' => null]);
+                    $this->inspected($mirror, $row)->update(['absent_since' => null, 'unknown_reason' => null]);
                 }
 
                 continue;
@@ -581,9 +590,10 @@ final class Reconciliation
 
             if ($row->absent_since === null) {
                 // The first absence. A row that moved on in the meantime keeps its state.
-                $this->inspected($mirror, $row)->whereNull('absent_since')->update($blindGapLoss === null
-                    ? ['absent_since' => $time]
-                    : ['absent_since' => $time, 'unknown_reason' => $blindGapLoss($row) ? self::BLIND_GAP_REASON : null]);
+                $this->inspected($mirror, $row)->whereNull('absent_since')->update([
+                    'absent_since' => $time,
+                    'unknown_reason' => $blindGapLoss !== null && $blindGapLoss($row) ? self::BLIND_GAP_REASON : null,
+                ]);
 
                 continue;
             }
@@ -597,14 +607,16 @@ final class Reconciliation
     }
 
     /**
-     * Whether a first absence is a loss of one of $gaps (the class comment):
-     * the row's last observation before the gap's end, and the last complete
-     * sweep $swept from at most BlindGaps::GAP_SECONDS before the gap's start
-     * to before its end.
+     * Whether a first absence is a loss of one of $gaps ([from, to, start],
+     * the class comment): the row's last observation before the gap's end,
+     * and the last complete sweep $swept from at most
+     * BlindGaps::GAP_SECONDS before the gap's anchor to before its end. The
+     * anchor is the window's start when `from` lies at most $reach after it,
+     * else `from`.
      *
-     * @param  list<array{0: float, 1: float}>  $gaps
+     * @param  list<array{0: float, 1: float, 2: float}>  $gaps
      */
-    private static function blindGapLoss(array $gaps, ?float $swept, mixed $activityAt): bool
+    private static function blindGapLoss(array $gaps, ?float $swept, float $reach, mixed $activityAt): bool
     {
         if (! is_numeric($activityAt)) {
             return false;
@@ -617,8 +629,10 @@ final class Reconciliation
 
         $activity = Clock::stored($activityAt);
 
-        foreach ($gaps as [$from, $to]) {
-            if ($activity < $to && $swept < $to && $swept >= $from - BlindGaps::GAP_SECONDS) {
+        foreach ($gaps as [$from, $to, $start]) {
+            $anchor = $from - $start <= $reach ? $start : $from;
+
+            if ($activity < $to && $swept < $to && $swept >= $anchor - BlindGaps::GAP_SECONDS) {
                 return true;
             }
         }
@@ -1037,6 +1051,22 @@ final class Reconciliation
     /**
      * The grace of markUnknown for a queue connection: max(retry_after, 600) seconds.
      */
+    /**
+     * The longest grace of the database queue connections (at least
+     * MIN_GRACE_SECONDS): how long after the last tick a gap's start may lie
+     * and still be anchored at that tick (blindGapLoss()).
+     */
+    private function longestGrace(): float
+    {
+        $longest = (float) self::MIN_GRACE_SECONDS;
+
+        foreach ($this->connections() as $connection) {
+            $longest = max($longest, $this->grace($connection));
+        }
+
+        return $longest;
+    }
+
     private function grace(string $connection): float
     {
         $retryAfter = $this->config()->get("queue.connections.{$connection}.retry_after", self::DEFAULT_RETRY_AFTER);

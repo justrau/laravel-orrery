@@ -7,7 +7,9 @@ namespace Justrau\Orrery\Tests\Feature\Reconciliation;
 use ArrayObject;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Str;
 use Justrau\Orrery\Events\StuckJobDetected;
+use Justrau\Orrery\Lifecycle\CycleStart;
 use Justrau\Orrery\Maintenance\Reconciliation;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Monitoring\BlindGaps;
@@ -209,16 +211,172 @@ final class BlindGapLossTest extends ReconciliationTestCase
         self::assertCount(0, $events);
     }
 
+    /**
+     * Rejects: an anchor on the gap's `from` only: the scheduler stopped 10 minutes before the workers, so the gap
+     * starts at their last job, long after the last sweep, and every lost job would alert. The gap's window start
+     * (the last tick) anchors the rule while `from` lies within the longest grace after it.
+     */
+    #[DataProvider('anchors')]
+    public function test_the_gap_is_anchored_at_its_window_start(float $from, ?float $start, int $retryAfter, string $reason): void
+    {
+        $this->app['config']->set('queue.connections.database.retry_after', $retryAfter);
+        $base = Clock::now();
+        [$uuid, $jobId] = $this->pushed();
+        $this->sweptAt($base);
+        $this->gap($base + $from, $base + 2400, $start === null ? null : $base + $start);
+        $this->moveClock(2500);
+
+        $this->lose($jobId, max(Reconciliation::MIN_GRACE_SECONDS, $retryAfter));
+
+        self::assertSame(['unknown', $reason], [$this->rowOrFail($uuid)->status, $this->rowOrFail($uuid)->unknown_reason]);
+    }
+
+    /**
+     * @return array<string, array{0: float, 1: ?float, 2: int, 3: string}>
+     */
+    public static function anchors(): array
+    {
+        return [
+            'scheduler stopped 10 min before the workers' => [600.0, 0.0, 90, Reconciliation::BLIND_GAP_REASON],
+            'the same gap without its window start' => [600.0, null, 90, Reconciliation::UNKNOWN_REASON],
+            'from beyond the longest grace: anchored at from' => [700.0, 0.0, 90, Reconciliation::UNKNOWN_REASON],
+            'from within a longer retry_after' => [700.0, 0.0, 900, Reconciliation::BLIND_GAP_REASON],
+        ];
+    }
+
+    /**
+     * Workers that drain their last jobs one by one after the last tick (evidence at a + 200, a + 450, a + 700),
+     * through orrery:tick: the walk records the gap from a + 700 with its window start a, and the lost job is a
+     * blind-gap loss.
+     *
+     * Rejects: a staggered queue:restart drain that turns every lost job into an alert.
+     */
+    public function test_a_staggered_drain_is_still_a_blind_gap_loss(): void
+    {
+        $this->app['config']->set('queue.connections.database.retry_after', 900);
+        [$uuid, $jobId] = $this->pushed();
+        $this->tick();
+        $base = Clock::now();
+
+        foreach ([200.0, 450.0, 700.0] as $offset) {
+            $this->mirror()->table('orrery_jobs')->insert([
+                'uuid' => strtolower((string) Str::uuid()), 'connection' => 'database', 'queue' => 'default', 'name' => 'App\\Jobs\\Drain',
+                'status' => 'completed', 'payload' => '{}', 'payload_bytes' => 2, 'pushed_at' => Clock::toDecimal($base),
+                'reserved_at' => Clock::toDecimal($base + $offset - 1), 'finished_at' => Clock::toDecimal($base + $offset), 'updated_at' => Clock::toDecimal($base + $offset),
+            ]);
+        }
+
+        $this->queueTable()->where('id', $jobId)->delete();
+        $this->moveClock(2400);
+        $this->tick();
+
+        $gaps = BlindGaps::anchored();
+        self::assertCount(1, $gaps);
+        self::assertEqualsWithDelta([$base + 700, $base + 2400, $base], $gaps[0], 0.001);
+
+        $this->moveClock(900);
+        $this->tick();
+        self::assertSame(['unknown', Reconciliation::BLIND_GAP_REASON], [$this->rowOrFail($uuid)->status, $this->rowOrFail($uuid)->unknown_reason]);
+    }
+
+    /**
+     * Rejects: a restart whenever any gap is recorded: a sweep that started after the newest gap's end goes on from
+     * its cursor.
+     */
+    public function test_a_sweep_that_started_after_the_gap_goes_on(): void
+    {
+        Reconciliation::useActiveBatchForTesting(1);
+        $base = Clock::now();
+        [$first, $firstId] = $this->pushed();
+        [$second] = $this->pushed();
+        $this->gap($base - 3000, $base - 1200);
+        $this->sweptAt($base - 1100);
+        $this->mirror()->table('orrery_settings')->insert(['key' => Reconciliation::CURSOR_PREFIX.'database', 'value' => json_encode([
+            'after' => (int) $this->rowOrFail($first)->id, 'started_at' => Clock::toDecimal($base - 60),
+        ])]);
+        $this->queueTable()->where('id', $firstId)->delete();
+
+        $this->runActive();
+
+        self::assertNull($this->rowOrFail($first)->absent_since, 'the first row was checked earlier in this sweep: not again');
+        $cursor = json_decode((string) $this->mirror()->table('orrery_settings')->where('key', Reconciliation::CURSOR_PREFIX.'database')->value('value'), true);
+        self::assertSame(Clock::toDecimal($base - 60), $cursor['started_at'] ?? null, 'the sweep keeps its start');
+        self::assertNull($this->rowOrFail($second)->absent_since);
+    }
+
+    /**
+     * Rejects: a reason that outlives the absence it belongs to: the release fast path, a new job id (Rules::revision)
+     * and a new cycle (CycleStart) clear `absent_since`, and the reason with it in the same write; and a first
+     * absence without a reason that keeps an old one.
+     */
+    public function test_the_reason_goes_with_its_absence(): void
+    {
+        // The release fast path.
+        [$released] = $this->pushed();
+        $job = $this->queue()->pop();
+        self::assertNotNull($job);
+        $this->mirror()->table('orrery_jobs')->where('uuid', $released)->update(['absent_since' => Clock::toDecimal(Clock::now()), 'unknown_reason' => Reconciliation::BLIND_GAP_REASON]);
+        $job->release(0);
+        self::assertSame(['pending', null, null], [$this->rowOrFail($released)->status, $this->rowOrFail($released)->absent_since, $this->rowOrFail($released)->unknown_reason]);
+
+        // A first absence outside any gap writes no reason over an old one.
+        $this->mirror()->table('orrery_jobs')->where('uuid', $released)->update(['unknown_reason' => Reconciliation::BLIND_GAP_REASON]);
+        $this->queueTable()->delete();
+        $this->runActive();
+        self::assertNotNull($this->rowOrFail($released)->absent_since);
+        self::assertNull($this->rowOrFail($released)->unknown_reason);
+        $this->moveClock(Reconciliation::MIN_GRACE_SECONDS);
+        $this->runActive();
+        self::assertSame(['unknown', Reconciliation::UNKNOWN_REASON], [$this->rowOrFail($released)->status, $this->rowOrFail($released)->unknown_reason]);
+
+        // A new cycle.
+        self::assertArrayHasKey('unknown_reason', CycleStart::columns(2, null, 5, 'native', Clock::now()));
+        self::assertNull(CycleStart::columns(2, null, 5, 'native', Clock::now())['unknown_reason']);
+    }
+
+    /**
+     * Rejects: Rules::revision keeping the reason when a reservation of another job id clears `absent_since`.
+     */
+    public function test_a_new_job_id_clears_the_reason(): void
+    {
+        [$uuid, $first] = $this->pushed();
+        self::assertNotNull($this->queue()->pop());
+        $row = (array) $this->queueTable()->where('id', $first)->first();
+        unset($row['id']);
+        $replacement = (int) $this->queueTable()->insertGetId(['reserved_at' => null] + $row);
+        $this->queueTable()->where('id', $first)->delete();
+        $this->mirror()->table('orrery_jobs')->where('uuid', $uuid)->update(['absent_since' => Clock::toDecimal(Clock::now()), 'unknown_reason' => Reconciliation::BLIND_GAP_REASON]);
+
+        self::assertNotNull($this->queue()->pop());
+
+        $row = $this->rowOrFail($uuid);
+        self::assertSame(['reserved', $replacement, null, null], [$row->status, (int) $row->job_id, $row->absent_since, $row->unknown_reason]);
+    }
+
     private function tick(): void
     {
         self::assertSame(0, Artisan::call('orrery:tick'), Artisan::output());
     }
 
-    private function gap(float $from, float $to): void
+    /**
+     * A recorded gap; $start is the start of the window whose walk found it (null: a gap written without it).
+     */
+    private function gap(float $from, float $to, ?float $start = null): void
     {
         $this->mirror()->table('orrery_settings')->upsert([['key' => BlindGaps::KEY, 'value' => json_encode([
-            'checked_through' => $to, 'gaps' => [[$from, $to]],
+            'checked_through' => $to, 'gaps' => [$start === null ? [$from, $to] : [$from, $to, $start]],
         ], JSON_PRESERVE_ZERO_FRACTION)]], ['key'], ['value']);
+    }
+
+    /**
+     * The first absence and the grace after it.
+     */
+    private function lose(int $jobId, float $grace = Reconciliation::MIN_GRACE_SECONDS): void
+    {
+        $this->queueTable()->where('id', $jobId)->delete();
+        $this->runActive();
+        $this->moveClock($grace);
+        $this->runActive();
     }
 
     private function sweptAt(float $at): void
