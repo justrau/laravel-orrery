@@ -60,6 +60,9 @@ use Throwable;
  * - `history`: the first page of `GET /api/jobs/{uuid}/history`.
  * - `chained`: pending rows only. Whether the job carries a chain of later
  *   jobs, which a delete drops (chained()); null when it cannot be told.
+ * - `unknown_reason`: unknown rows only, else null: why the row is
+ *   unknown (JobProjection::summary()); `blind_gap` is a job whose jobs row
+ *   left while nothing observed (Maintenance\Reconciliation).
  * - `signals` and `enforced_rule`: pending and reserved rows only. Every
  *   stuck signal that holds now (Monitoring\StuckSignals),
  *   `[{signal, facts}]`, and the enforced rule now (EnforcedRule::forRow()),

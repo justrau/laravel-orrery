@@ -74,7 +74,7 @@ class JobProjection
         'id', 'uuid', 'cycle', 'occurrence_id', 'name', 'type', 'connection', 'queue', 'batch_id', 'status',
         'silenced', 'attempts', 'retried_count', 'retried_count_inferred', 'tags_truncated', 'pushed_at',
         'available_at', 'reserved_at', 'finished_at', 'failed_at', 'runtime_ms', 'exception_class',
-        'exception_message', 'reserved_by', 'operation_id',
+        'exception_message', 'reserved_by', 'operation_id', 'unknown_reason',
     ];
 
     /** The top-level payload key of Laravel's Context. */
@@ -119,6 +119,10 @@ class JobProjection
      * The summary row of a list (4.3) from SUMMARY_COLUMNS. $extra adds the
      * parts that the list reads for the whole page: `tags`, `worker`,
      * `lease_expires_at`, `operation`, and `signals` (only on stuck rows).
+     * `unknown_reason` says why an `unknown` row is unknown (`absent`: its
+     * jobs row left without an observed outcome; `blind_gap`: it left while
+     * nothing observed, a recorded blind gap; `connection_removed`;
+     * `bulk_unresolved`), null for every other status.
      *
      * @param  array<string, mixed>  $extra
      * @return array<string, mixed>
@@ -157,6 +161,8 @@ class JobProjection
             'worker' => $extra['worker'] ?? null,
             'lease_expires_at' => $extra['lease_expires_at'] ?? null,
             'operation' => $extra['operation'] ?? null,
+            // Why the row is unknown (`absent`, `blind_gap`, `connection_removed`, `bulk_unresolved`): null for every other status.
+            'unknown_reason' => $value('status') === 'unknown' && is_string($value('unknown_reason')) ? $value('unknown_reason') : null,
         ];
 
         if (array_key_exists('signals', $extra)) {

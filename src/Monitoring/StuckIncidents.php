@@ -161,11 +161,15 @@ final class StuckIncidents
     public const UNKNOWN_REASONS = [Reconciliation::UNKNOWN_REASON, BulkResolver::UNRESOLVED_REASON];
 
     /**
-     * The unknown reasons that raise no incident: `connection_removed` rests
-     * on this process's queue configuration, and a stale configuration on the
-     * scheduler host can mark live jobs so.
+     * The unknown reasons that raise no incident (no event, no
+     * notification): `connection_removed` rests on this process's queue
+     * configuration, and a stale configuration on the scheduler host can mark
+     * live jobs so; `blind_gap` is a job whose jobs row left while nothing
+     * observed (a recorded blind gap, Reconciliation), so its outcome was
+     * lost, not stuck, and an off period would otherwise send one alert per
+     * job.
      */
-    public const SILENT_REASONS = [Reconciliation::REMOVED_REASON];
+    public const SILENT_REASONS = [Reconciliation::REMOVED_REASON, Reconciliation::BLIND_GAP_REASON];
 
     /** The watched operation of a dispatch. */
     public const DISPATCH_OPERATION = 'incidents:dispatch';
