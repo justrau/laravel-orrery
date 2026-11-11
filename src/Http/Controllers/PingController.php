@@ -120,7 +120,7 @@ class PingController
      * implement an interface of STATELESS: the route excludes them too,
      * because Laravel's exclusion matches classes and their subclasses only.
      *
-     * @param  list<mixed>  $resolved
+     * @param  array<array-key, mixed>  $resolved
      * @return list<string>
      */
     public static function implementers(array $resolved): array
