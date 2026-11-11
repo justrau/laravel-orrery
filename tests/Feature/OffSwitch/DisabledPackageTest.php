@@ -153,7 +153,6 @@ final class DisabledPackageTest extends TestCase
         $uuid = '0d7f2b2a-1111-4111-8111-111111111111';
 
         return [
-            'tick' => ['orrery:tick', []],
             'retry' => ['orrery:retry', ['uuid' => $uuid]],
             'forget' => ['orrery:forget', ['id' => $uuid]],
             'clear' => ['orrery:clear', ['connection' => 'database', '--force' => true]],
@@ -163,6 +162,22 @@ final class DisabledPackageTest extends TestCase
             'reconcile' => ['orrery:reconcile', []],
             'deployed' => ['orrery:deployed', ['--label' => 'v1']],
         ];
+    }
+
+    /**
+     * Rejects: a tick that fails while the package is off, so a self-scheduled `orrery:tick` reports a crash
+     * every minute, or that does any work.
+     */
+    public function test_the_tick_is_skipped_with_exit_zero(): void
+    {
+        $statements = PackageStatements::record(function (): void {
+            $this->artisan('orrery:tick')
+                ->expectsOutputToContain('Skipped: '.OffSwitch::MESSAGE)
+                ->assertExitCode(0);
+        });
+
+        self::assertSame([], $statements);
+        self::assertNull($this->mirror()->table('orrery_settings')->where('key', 'observer_tick_at')->value('value'));
     }
 
     /**

@@ -19,12 +19,12 @@ final class OffSwitchTest extends TestCase
     #[DataProvider('values')]
     public function test_only_an_explicit_false_turns_the_package_off(mixed $value, bool $enabled): void
     {
-        self::assertSame($enabled, OffSwitch::enabled(new Repository(['orrery' => ['enabled' => $value]])));
+        self::assertSame($enabled, OffSwitch::fromConfig(new Repository(['orrery' => ['enabled' => $value]]))->on);
     }
 
     public function test_a_missing_key_keeps_the_package_on(): void
     {
-        self::assertTrue(OffSwitch::enabled(new Repository(['orrery' => []])));
+        self::assertTrue(OffSwitch::fromConfig(new Repository(['orrery' => []]))->on);
     }
 
     /**

@@ -17,12 +17,22 @@ trait RefusesWhileDisabled
 {
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        if (! OffSwitch::enabled($this->laravel->make('config'))) {
-            $this->components->error(OffSwitch::MESSAGE.' '.$this->getName().' does nothing until you set ORRERY_ENABLED=true, refresh the configuration cache and restart the workers.');
-
-            return self::FAILURE;
+        if (! OffSwitch::enabled()) {
+            return $this->whileDisabled();
         }
 
         return parent::execute($input, $output);
+    }
+
+    /**
+     * The answer while the package is off: a refusal and exit 1. The tick
+     * overrides it (a skip and exit 0), so a self-scheduled tick does not
+     * fail every minute.
+     */
+    protected function whileDisabled(): int
+    {
+        $this->components->error(OffSwitch::MESSAGE.' '.$this->getName().' does nothing until you set ORRERY_ENABLED=true, refresh the configuration cache and restart the workers.');
+
+        return self::FAILURE;
     }
 }

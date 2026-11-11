@@ -73,7 +73,8 @@ class OrreryServiceProvider extends ServiceProvider
         // The off switch (Runtime\OffSwitch): only the modules that serve
         // `migrate` boot, and no legacy listener registers. The migrations,
         // the publishing, the routes (which answer 503) and the commands stay.
-        $enabled = OffSwitch::enabled($this->app->make('config'));
+        // Resolved here, on the base application: the one decision of this process (OffSwitch).
+        $enabled = $this->app->make(OffSwitch::class)->on;
 
         $this->bootModules($enabled);
 
@@ -177,6 +178,9 @@ class OrreryServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->mergeConfigFrom(__DIR__.'/../config/orrery.php', 'orrery');
+
+        // The off switch: built on its first resolution, which is this provider's boot().
+        $this->app->singleton(OffSwitch::class, static fn ($app): OffSwitch => OffSwitch::fromConfig($app->make('config')));
 
         $this->modules = Modules::all();
 

@@ -57,7 +57,7 @@ final class Ping
     {
         $config = $this->app->make('config');
 
-        if (! OffSwitch::enabled($config)) {
+        if (! OffSwitch::enabled()) {
             return ['status' => 'disabled'];
         }
 

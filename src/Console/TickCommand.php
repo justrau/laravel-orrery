@@ -8,6 +8,7 @@ use Justrau\Orrery\Database\Models\Setting;
 use Justrau\Orrery\Maintenance\TickPhase;
 use Justrau\Orrery\Maintenance\TickRunner;
 use Justrau\Orrery\Runtime\Degradation;
+use Justrau\Orrery\Runtime\OffSwitch;
 use Justrau\Orrery\Runtime\Watcher;
 use Justrau\Orrery\Storage\Clock;
 use Justrau\Orrery\Storage\PackageSession;
@@ -22,7 +23,10 @@ use Symfony\Component\Console\Attribute\AsCommand;
  * - Otherwise it writes the setting observer_tick_at (the tick liveness),
  *   runs the phases tagged `orrery.tick-phases` (TickRunner), and
  *   flushes the degradation record.
- * - It exits 0 in every case: a mirror outage never fails the scheduler.
+ * - While the package is off (ORRERY_ENABLED=false) it prints "Skipped:"
+ *   with the reason and does nothing (whileDisabled()).
+ * - It exits 0 in every case: a mirror outage or the off switch never fails
+ *   the scheduler.
  */
 #[AsCommand(name: 'orrery:tick')]
 class TickCommand extends Command
@@ -36,6 +40,17 @@ class TickCommand extends Command
 
     /** @var string */
     protected $description = 'Run the periodic Orrery maintenance phases.';
+
+    /**
+     * While the package is off: a skip, exit 0 (a self-scheduled tick must
+     * not fail every minute).
+     */
+    protected function whileDisabled(): int
+    {
+        $this->components->info('Skipped: '.OffSwitch::MESSAGE);
+
+        return self::SUCCESS;
+    }
 
     public function handle(Container $container, PackageSession $sessions, Watcher $watcher, TickRunner $runner): int
     {
