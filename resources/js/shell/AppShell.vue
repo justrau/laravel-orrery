@@ -412,8 +412,13 @@
     .o-shell__resize:focus-visible {
         background-color: var(--color-accent);
         background-clip: content-box;
-        outline: none;
         padding-inline: 3px;
+    }
+
+    /* The keyboard focus keeps a ring around the whole handle. */
+    .o-shell__resize:focus-visible {
+        outline: 2px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+        outline-offset: -2px;
     }
 
     /* Below 1024 px the sidebar is a drawer over the content. */
