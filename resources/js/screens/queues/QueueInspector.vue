@@ -3,7 +3,7 @@
     import WaitGauge from '../../components/ui/WaitGauge.vue';
     import {workerState} from '../../shell/data.js';
     import {gaugePause, queueContinueApplies} from '../../support/pause.js';
-    import {formatCount, formatHourMinuteZoned, formatLimit} from '../../support/time';
+    import {formatCount, formatDayMinuteZoned, formatHourMinuteZoned, formatLimit} from '../../support/time';
     import BacklogChart from './BacklogChart.vue';
     import {
         TERMINATE_TEXT,
@@ -167,11 +167,11 @@
             axisMarker() {
                 const marker = this.windowMarkers[this.windowMarkers.length - 1];
 
-                return marker ? `${markerName(marker)} ${formatHourMinuteZoned(marker.at)}` : '';
+                return marker ? `${markerName(marker)} ${formatDayMinuteZoned(marker.at, this.now)}` : '';
             },
 
             axisStart() {
-                return this.window ? formatHourMinuteZoned(Math.floor(this.window.from / 60) * 60) : '';
+                return this.window ? formatDayMinuteZoned(Math.floor(this.window.from / 60) * 60, this.now) : '';
             },
 
             tone() {

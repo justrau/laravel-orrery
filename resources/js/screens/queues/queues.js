@@ -30,13 +30,6 @@ import {
 /** The table and the failures poll every this many seconds. */
 export const POLL_SECONDS = 10;
 
-/**
- * The backlog cards poll every this many seconds. It is one history request
- * per queue per poll, and the samples are per minute, so a slower poll loses
- * nothing.
- */
-export const HISTORY_POLL_SECONDS = 30;
-
 /** At most this many history requests are in flight at once. */
 export const HISTORY_CONCURRENCY = 4;
 
@@ -74,9 +67,6 @@ export function runLimited(tasks, limit, stop = () => false) {
 
     return Promise.all(Array.from({length: Math.min(limit, tasks.length)}, worker)).then(() => results);
 }
-
-/** The backlog window: the past hour. */
-export const HISTORY_MINUTES = 60;
 
 /** The failures window: the live past hour. */
 export const FAILURE_WINDOW_SECONDS = 3600;
@@ -550,17 +540,6 @@ export function runtimeText(seconds) {
     return seconds < 60 ? `${(Math.floor(seconds * 10) / 10).toFixed(1)} s` : formatDuration(seconds);
 }
 
-/**
- * The name of a queue's backlog card: the queue name, or "connection:queue"
- * when another row of `rows` has the same queue name on another connection,
- * so two cards never read the same.
- */
-export function cardName(row, rows) {
-    const twin = (Array.isArray(rows) ? rows : []).some(other => other && other !== row && other.name === row.name && other.connection !== row.connection);
-
-    return twin ? `${row.connection}:${row.name}` : row.name;
-}
-
 /** The part after the last backslash: "App\Jobs\Sync" → "Sync". */
 export function shortName(name) {
     if (typeof name !== 'string' || name === '') return '—';
@@ -617,22 +596,6 @@ export function historyWindow(data) {
     if (from === null || to === null || to <= from) return null;
 
     return {from, to, retentionFrom: num(data.retention_from)};
-}
-
-/**
- * The shared y scale of the backlog cards: the largest known `ready` across
- * every card, at least 1.
- */
-export function sharedScale(histories) {
-    let max = 0;
-
-    Object.values(histories || {}).forEach(history => {
-        (history && Array.isArray(history.buckets) ? history.buckets : []).forEach(bucket => {
-            if (bucket.ready !== null && bucket.ready > max) max = bucket.ready;
-        });
-    });
-
-    return Math.max(1, max);
 }
 
 /** The markers of a `GET /api/markers` response with `at` coerced, oldest first. */

@@ -1,7 +1,6 @@
 <script>
-    import {slotStarts} from '../../support/series';
-    import {formatCompactCount, formatCount, formatHourMinuteZoned, formatTimeRangeZoned, zoneOffset} from '../../support/time';
-    import {backlogSlots, backlogTicks, nearestSlot, slotSecondsFor, slotTip, stepSlot} from './backlog.js';
+    import {formatCompactCount, formatDayMinuteZoned, formatDayRangeZoned, nowSeconds, zoneOffset} from '../../support/time';
+    import {backlogDescription, backlogGaps, backlogSegments, backlogSlots, backlogTicks, nearestSlot, partialSlots, slotSecondsFor, slotTip, stepSlot} from './backlog.js';
     import {markerName} from './queues';
 
     /** The drawing width of the view box; the SVG stretches to its container. */
@@ -22,14 +21,20 @@
      *   slots of several minutes, each at its peak (backlog.js
      *   backlogSlots(), at most 120 slots);
      * - a slot without a known minute is unknown: the line breaks and a
-     *   dotted baseline marks the gap, never a zero;
+     *   dotted baseline marks the gap, never a zero; a wide slot with some
+     *   unknown minutes is shaded, and its value reads "at least"
+     *   (backlog.js backlogSegments(), backlogGaps(), partialSlots());
+     * - every time has its date when it is not of today's (the 6 h and 24 h
+     *   views);
      * - `max` is the top of the y scale (the screen's shared or per-queue
      *   scale); the axis names it and 0, and a few round times of the display
      *   zone label the x axis (the section's subtitle names the zone);
      * - the pointer, or the focus with Left, Right, Home and End, shows the
      *   nearest slot in a tooltip with a guide line: its value and time, or
      *   "unknown"; Escape hides it. A polite live region repeats it for a
-     *   screen reader;
+     *   screen reader. The plot is a focusable group with the role
+     *   description "chart" (not `img`, whose content is one picture, and
+     *   not `application`, which takes every key from a screen reader);
      * - `markers` draw dashed vertical lines ("Restart requested", "Deploy …");
      * - `pausedFrom` tints the part of the window from the current pause on.
      *
@@ -89,27 +94,8 @@
             },
 
             segments() {
-                const segments = [];
-                let current = null;
-
-                this.slots.forEach(slot => {
-                    if (slot.value === null) {
-                        current = null;
-
-                        return;
-                    }
-
-                    const point = {x: slot.index * this.step + this.step / 2, y: this.yOf(slot.value)};
-
-                    if (!current) {
-                        current = [];
-                        segments.push(current);
-                    }
-
-                    current.push(point);
-                });
-
-                return segments.map((points, index) => {
+                return backlogSegments(this.slots).map((slots, index) => {
+                    const points = slots.map(slot => ({x: slot.index * this.step + this.step / 2, y: this.yOf(slot.value)}));
                     const line = points.map((point, i) => `${i ? 'L' : 'M'}${point.x.toFixed(1)} ${point.y.toFixed(1)}`).join(' ');
                     const first = points[0];
                     const last = points[points.length - 1];
@@ -124,24 +110,21 @@
             },
 
             gaps() {
-                const gaps = [];
-                let current = null;
+                return backlogGaps(this.slots).map(gap => ({
+                    x0: gap.from * this.step,
+                    x1: (gap.to + 1) * this.step,
+                    first: gap.first,
+                    title: `${formatDayRangeZoned(gap.first, gap.end, nowSeconds())}: no data`,
+                }));
+            },
 
-                this.slots.forEach(slot => {
-                    if (slot.value === null) {
-                        if (current) {
-                            current.x1 = (slot.index + 1) * this.step;
-                            current.end = slot.end;
-                        } else {
-                            current = {x0: slot.index * this.step, x1: (slot.index + 1) * this.step, first: slot.at, end: slot.end};
-                            gaps.push(current);
-                        }
-                    } else {
-                        current = null;
-                    }
-                });
-
-                return gaps;
+            /** The wide slots with some unknown minutes: shaded, their value is "at least". */
+            partials() {
+                return partialSlots(this.slots).map(slot => ({
+                    key: slot.at,
+                    x: slot.index * this.step,
+                    title: `${slotTip(slot, nowSeconds()).time}: ${slot.unknownMinutes} of ${slot.minutes} minutes without data`,
+                }));
             },
 
             span() {
@@ -158,7 +141,7 @@
                     .map((marker, index) => ({
                         key: `${marker.kind}-${marker.at}-${index}`,
                         x: ((marker.at - first) / this.span) * WIDTH,
-                        title: `${markerName(marker)} ${formatHourMinuteZoned(marker.at)}`,
+                        title: `${markerName(marker)} ${formatDayMinuteZoned(marker.at, nowSeconds())}`,
                     }));
             },
 
@@ -181,7 +164,7 @@
             },
 
             tip() {
-                return this.activeSlot ? slotTip(this.activeSlot) : null;
+                return this.activeSlot ? slotTip(this.activeSlot, nowSeconds()) : null;
             },
 
             /** The guide's place, in % of the width: the middle of the active slot. */
@@ -212,13 +195,7 @@
             },
 
             description() {
-                const known = this.slots.filter(slot => slot.value !== null);
-                const latest = known.length ? known[known.length - 1] : null;
-
-                return `${this.label}${latest ? `, ${formatCount(latest.value)} at ${formatHourMinuteZoned(latest.at)}` : ', no data'}`
-                    + `${this.gaps.length ? `, ${this.gaps.length} ${this.gaps.length === 1 ? 'gap' : 'gaps'} without data` : ''}`
-                    + `${this.markerLines.length ? `, ${this.markerLines.map(marker => marker.title).join(', ')}` : ''}`
-                    + '. Use the Left and Right keys to read the values.';
+                return `${backlogDescription(this.label, this.slots, this.markerLines.map(marker => marker.title), nowSeconds())} Use the Left and Right keys to read the values.`;
             },
         },
 
@@ -230,8 +207,6 @@
         },
 
         methods: {
-            formatTimeRangeZoned,
-
             yOf(value) {
                 return this.bottom - (Math.min(value, this.scale) / this.scale) * (this.bottom - this.top);
             },
@@ -291,7 +266,7 @@
 
 <template>
     <div class="o-backlog" :class="{'o-backlog--axis': axis}">
-        <div ref="frame" class="o-backlog__frame" :style="frameStyle" tabindex="0" role="img" :aria-label="description"
+        <div ref="frame" class="o-backlog__frame" :style="frameStyle" tabindex="0" role="group" aria-roledescription="chart" :aria-label="description"
              data-backlog-plot @pointermove="point" @pointerleave="leave" @keydown="key" @blur="blur">
             <svg class="o-backlog__svg" :viewBox="`0 0 ${width} ${height}`" :height="height" preserveAspectRatio="none" xmlns="http://www.w3.org/2000/svg"
                  aria-hidden="true" :data-gaps="gaps.length" :data-markers="markerLines.length" :data-paused="pausedX !== null ? 'true' : null">
@@ -306,9 +281,13 @@
                     <path :d="`M${gap.x0.toFixed(1)} ${bottom}H${gap.x1.toFixed(1)}`" fill="none" stroke="var(--color-text-tertiary)"
                           stroke-dasharray="1 3" vector-effect="non-scaling-stroke" />
                     <rect :x="gap.x0.toFixed(1)" :y="top" :width="(gap.x1 - gap.x0).toFixed(1)" :height="bottom - top" fill="transparent">
-                        <title>{{ formatTimeRangeZoned(gap.first, gap.end) }}: no data</title>
+                        <title>{{ gap.title }}</title>
                     </rect>
                 </g>
+                <rect v-for="slot in partials" :key="`partial-${slot.key}`" :x="slot.x.toFixed(1)" :y="top" :width="step.toFixed(2)" :height="bottom - top"
+                      fill="color-mix(in srgb, var(--color-text-tertiary) 16%, transparent)" data-partial>
+                    <title>{{ slot.title }}</title>
+                </rect>
                 <g v-for="segment in segments" :key="segment.key">
                     <path v-if="colors.fill !== 'none'" :d="segment.area" :fill="colors.fill" />
                     <path :d="segment.line" fill="none" :stroke="colors.line" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"

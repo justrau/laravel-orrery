@@ -4,7 +4,6 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-    cardName,
     backlogStatus,
     clearCountText,
     clearFailure,
@@ -56,7 +55,6 @@ import {
     runtimeText,
     sectionPausedBroadly,
     sectionWorkersText,
-    sharedScale,
     shortName,
     subscribedQueues,
     subtitleText,
@@ -499,13 +497,6 @@ test('historyWindow needs a valid window', () => {
     assert.equal(historyWindow(null), null);
 });
 
-// Rejects: a scale of 0, and a null ready count read as a value.
-test('sharedScale takes the largest known ready count, at least 1', () => {
-    assert.equal(sharedScale({a: {buckets: [{ready: 5}, {ready: null}]}, b: {buckets: [{ready: 40}]}}), 40);
-    assert.equal(sharedScale({a: {buckets: [{ready: 0}]}}), 1);
-    assert.equal(sharedScale(null), 1);
-});
-
 // Rejects: newest first, and markers of an unknown kind or without a time.
 test('normalizeMarkers keeps known kinds, oldest first', () => {
     assert.deepEqual(normalizeMarkers({markers: [
@@ -801,20 +792,6 @@ test('backlogStatus marks a chart whose last read failed as stale', () => {
     assert.equal(backlogStatus({window: null, buckets: [], error: true}), 'failed');
     assert.equal(backlogStatus({window, buckets: [], error: true}), 'stale');
     assert.equal(backlogStatus({window, buckets: [], error: false}), 'ok');
-});
-
-// Rejects: two backlog cards of one queue name on two connections that read the same, and a connection prefix
-// on a name that is unique.
-// Still passes: two rows of one connection and name (the screen never lists them twice).
-test('cardName adds the connection only when the name repeats', () => {
-    const a = {name: 'emails', connection: 'database'};
-    const b = {name: 'emails', connection: 'reports'};
-    const c = {name: 'default', connection: 'database'};
-
-    assert.equal(cardName(a, [a, b, c]), 'database:emails');
-    assert.equal(cardName(b, [a, b, c]), 'reports:emails');
-    assert.equal(cardName(c, [a, b, c]), 'default');
-    assert.equal(cardName(c, null), 'default');
 });
 
 // Rejects: an unknown count shown as 0, a delayed or batched part left out, and an unknown batch part shown as none.
