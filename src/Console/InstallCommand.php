@@ -18,6 +18,7 @@ use Justrau\Orrery\Retry\Fence;
 use Justrau\Orrery\Retry\FenceTargets;
 use Justrau\Orrery\Storage\HostFiles;
 use Justrau\Orrery\Storage\PackageSession;
+use Justrau\Orrery\Workers\Pools;
 use Symfony\Component\Console\Attribute\AsCommand;
 use Throwable;
 
@@ -69,6 +70,7 @@ class InstallCommand extends Command
         $this->reportSchema();
         $this->reportFence();
         $this->reportRetention();
+        $this->reportWorkerPools();
 
         // A refused mirror (reportMirror() printed why), a refused sibling file or one that cannot
         // be created (reportSchema() printed why), or a fence migration that could not be written,
@@ -321,6 +323,27 @@ class InstallCommand extends Command
 
         $this->components->warn('The retention policy is invalid: orrery:tick deletes no mirror rows until it is fixed.');
         $this->components->bulletList($errors);
+    }
+
+    /**
+     * The declared worker pools (orrery.workers.pools), validated as
+     * orrery:workers reads them. Nothing when none are declared; invalid
+     * pools are a warning, as an invalid retention policy.
+     */
+    protected function reportWorkerPools(): void
+    {
+        ['pools' => $pools, 'errors' => $errors] = Pools::read($this->laravel->make('config'));
+
+        if ($errors !== []) {
+            $this->components->warn('The worker pools are invalid ('.Pools::KEY.'): orrery:workers prints no configuration until they are fixed.');
+            $this->components->bulletList($errors);
+
+            return;
+        }
+
+        if ($pools !== []) {
+            $this->components->info('The worker pools are valid ('.count($pools).' in '.Pools::KEY.'); php artisan orrery:workers prints their process-manager configuration.');
+        }
     }
 
     protected function registerServiceProvider(): void

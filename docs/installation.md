@@ -102,6 +102,8 @@ Run your workers as usual, under an external process manager (systemd, superviso
 php artisan queue:work database --queue=default
 ```
 
+To get a ready supervisord, systemd or Forge configuration, declare your worker pools in `config/orrery.php` and run `php artisan orrery:workers` (see [Worker pools](operations.md#worker-pools)).
+
 **Configure every connection that a worker uses in the application that serves the dashboard too.** The dashboard decides when a reservation expires from the `retry_after` of the job's queue connection in its own configuration. Without it, a running job has an unknown lease: the dashboard shows no expiry for it, never flags it as expired, and decides whether its worker is live from the heartbeat only.
 
 ## The scheduler

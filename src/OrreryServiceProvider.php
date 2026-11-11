@@ -111,6 +111,8 @@ class OrreryServiceProvider extends ServiceProvider
                 Console\ReconcileCommand::class,
                 // The operator's resolve of an operation.
                 Console\ResolveCommand::class,
+                // The process-manager configuration of the declared worker pools (output only).
+                Console\WorkersCommand::class,
             ]);
 
             $this->publishes([

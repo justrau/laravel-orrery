@@ -8,7 +8,7 @@ Orrery is a Horizon-style dashboard for the `database` queue driver of Laravel. 
 - [The dashboard](dashboard.md): the screens, with screenshots, and what the numbers mean.
 - [Configuration](configuration.md): every key of `config/orrery.php`, and the retention.
 - [Notifications](notifications.md): the long-wait alerts, the stuck jobs and their notifications.
-- [Operations](operations.md): pause, continue and terminate, retry and forget, bulk runs, deploys and the commands.
+- [Operations](operations.md): pause, continue and terminate, retry and forget, bulk runs, deploys, worker pools, turning Orrery off and the commands.
 - [Storage](storage.md): the database sessions, SQLite files, the optional `jobs` index, the deferred indexes and the measurement cache.
 - [Security](security.md): access, redaction, error reports and the Content Security Policy.
 - [Known limits](known-limits.md): what Orrery does not do, or does only in part.

@@ -30,8 +30,8 @@ use Symfony\Component\Console\Output\BufferedOutput;
 #[FreshSchema]
 final class CommandExitCodeTest extends TestCase
 {
-    /** Commands without an outage row, with the reason: orrery:install builds the schema itself (InstallSchemaReportTest covers its failures). */
-    private const NOT_OPERATOR_WORK = ['orrery:install'];
+    /** Commands without an outage row, with the reason: orrery:install builds the schema itself (InstallSchemaReportTest covers its failures); orrery:workers reads only the configuration (WorkersCommandTest). */
+    private const NOT_OPERATOR_WORK = ['orrery:install', 'orrery:workers'];
 
     /**
      * Rejects: a command body that runs inside the watcher (Watcher::run() or attempt()), which reports the error and exits 0 although the work did not happen, and a command of src/CLAUDE.md's operator list that this provider leaves out.

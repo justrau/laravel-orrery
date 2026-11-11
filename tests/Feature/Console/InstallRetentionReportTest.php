@@ -11,7 +11,7 @@ use Justrau\Orrery\Tests\TestCase;
 
 /**
  * orrery:install validates the retention policy (at the
- * maintenance and install entry points). The install writes into a private
+ * maintenance and install entry points) and the worker pools. The install writes into a private
  * skeleton copy (Support\UsesPrivateSkeleton).
  */
 #[FreshSchema]
@@ -54,5 +54,26 @@ final class InstallRetentionReportTest extends TestCase
         self::assertStringContainsString('retention policy is invalid', $output);
         self::assertStringContainsString('trim.completed', $output);
         self::assertStringContainsString('trim.unknown', $output);
+    }
+
+    /**
+     * Rejects: an install that does not report invalid worker pools with their field, that fails on them (they
+     * are a warning, as the retention policy), or that prints a pools line when none are declared.
+     */
+    public function test_install_reports_invalid_worker_pools(): void
+    {
+        self::assertSame(0, Artisan::call('orrery:install'));
+        self::assertStringNotContainsString('worker pools', Artisan::output());
+
+        $this->app['config']->set('orrery.workers.pools', ['default' => ['connection' => 'database', 'queues' => ['default'], 'processes' => 2]]);
+        self::assertSame(0, Artisan::call('orrery:install'));
+        self::assertStringContainsString('The worker pools are valid', Artisan::output());
+
+        $this->app['config']->set('orrery.workers.pools', ['default' => ['connection' => 'database', 'queues' => ['default'], 'processes' => 0]]);
+        self::assertSame(0, Artisan::call('orrery:install'));
+        $output = Artisan::output();
+
+        self::assertStringContainsString('The worker pools are invalid', $output);
+        self::assertStringContainsString('orrery.workers.pools.default.processes', $output);
     }
 }

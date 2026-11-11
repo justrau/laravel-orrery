@@ -57,7 +57,7 @@ Open `/orrery` in your browser. In the `local` environment everyone can use it. 
 - [The dashboard](docs/dashboard.md): the screens and what the numbers mean.
 - [Configuration](docs/configuration.md): every configuration key, and the retention.
 - [Notifications](docs/notifications.md): long-wait alerts and stuck jobs.
-- [Operations](docs/operations.md): pause, continue and terminate, retry and forget, bulk runs, deploys and the commands.
+- [Operations](docs/operations.md): pause, continue and terminate, retry and forget, bulk runs, deploys, worker pools, turning Orrery off and the commands.
 - [Storage](docs/storage.md): database sessions, SQLite files, the optional and deferred indexes, and the measurement cache.
 - [Security](docs/security.md): access, redaction and the Content Security Policy.
 - [Known limits](docs/known-limits.md).

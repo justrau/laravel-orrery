@@ -91,6 +91,78 @@ php artisan orrery:deployed --label="v1.4.2"
 - The tick records a restart marker when the value of `queue:restart` in the default cache store changes. With several servers the store must be shared, as `queue:restart` needs anyway. A marker shows that a restart was requested, not that the workers stopped.
 - Markers are kept for 7 days.
 
+## Worker pools
+
+Orrery never starts or supervises workers. You can declare the worker layout that you intend in `config/orrery.php`, and `php artisan orrery:workers` prints the configuration for your process manager. The command only prints: it writes no file and starts nothing.
+
+```php
+'workers' => [
+    'heartbeat_seconds' => 15,
+    'pools' => [
+        'default' => [
+            'connection' => 'database',
+            'queues' => ['high', 'default'],
+            'processes' => 2,
+            'tries' => 3,
+            'timeout' => 90,
+        ],
+    ],
+],
+```
+
+- The key is the pool name: lowercase letters, digits and dashes. Keep it stable: every worker of the pool gets `--name=<pool>`, and its heartbeat records that name.
+- `connection` must be a `database` queue connection of `queue.connections`. `queues` is a non-empty list in priority order (it becomes `--queue=high,default`). `processes` is at least 1.
+- Optional `queue:work` options: `tries`, `timeout`, `sleep`, `backoff` (seconds, or a list such as `[1, 5, 10]`), `memory` (MB), `max_jobs`, `max_time`, `rest` and `force` (`true` or `false`). An option that you leave out keeps Laravel's default.
+- The validation is strict. An unknown key, a wrong type, a value out of range, a connection that is not a `database` queue connection, an empty queue list or a queue name with a comma is an error that names the pool and the field. `orrery:workers` then prints the errors and exits 1, and `orrery:install` warns.
+
+`php artisan orrery:workers [--format=list|supervisor|systemd|forge]`. The default format is `list`. Options: `--user=` (default: the current user), `--php=` (default: this PHP binary under the CLI, else `php`), `--path=` (default: the application directory), `--prefix=` (default: the application name as a slug), `--log-dir=` (default: `storage/logs`). Every value is quoted for its format, so queue names and paths with spaces or quotes work. A value that a format cannot carry (a line break, or a `;` or `#` after a space in a supervisord value) is refused with exit 1. Without pools the command prints a hint and exits 0. It also runs while Orrery is off.
+
+`list` prints one line per pool, to run from the application directory:
+
+```text
+default (2 processes): php artisan queue:work database --queue=high,default --name=default --tries=3 --timeout=90
+```
+
+`supervisor` prints one program per pool. `stopwaitsecs` is the pool's timeout plus 30 seconds, because supervisord must wait longer than the longest job before it kills a worker:
+
+```ini
+[program:laravel-default]
+command=/usr/bin/php /var/www/app/artisan queue:work database --queue=high,default --name=default --tries=3 --timeout=90
+process_name=%(program_name)s_%(process_num)02d
+numprocs=2
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=forge
+redirect_stderr=true
+stdout_logfile=/var/www/app/storage/logs/laravel-default.log
+stopwaitsecs=120
+```
+
+`systemd` prints one template unit per pool, with its enable line as a comment. `TimeoutStopSec` is the timeout plus 30 seconds (`infinity` for `timeout` 0):
+
+```ini
+# /etc/systemd/system/laravel-default@.service
+# systemctl enable --now laravel-default@{1..2}
+[Unit]
+Description=laravel queue worker default %i (Orrery pool)
+After=network.target
+
+[Service]
+User=forge
+WorkingDirectory=/var/www/app
+ExecStart=/usr/bin/php /var/www/app/artisan queue:work database --queue=high,default --name=default --tries=3 --timeout=90
+Restart=always
+KillSignal=SIGTERM
+TimeoutStopSec=120
+
+[Install]
+WantedBy=multi-user.target
+```
+
+`forge` prints, per pool, the fields of Laravel Forge's "Add background process" form as tables. Use the Custom tab (name, command, working directory, user, processes, stop seconds, stop signal): Forge's Queue worker tab has no field for `--name`, `--max-jobs` or `--max-time`. The command also prints the values of the Queue worker tab, and names the options that it cannot set.
+
 ## Turning Orrery off
 
 If Orrery causes trouble in production, turn it off with an environment change. You do not need a code deploy:
@@ -109,7 +181,7 @@ php artisan queue:restart
 - **Restart the workers.** A running worker keeps the configuration that it loaded at its start. Run `php artisan queue:restart`. Until each worker restarts, it observes as before.
 - **What stops.** Orrery then behaves as if it were not installed. Your `database` queues use Laravel's own `DatabaseQueue`, and failed jobs go to Laravel's own failed-job provider. Orrery registers no queue, job or worker listener, stamps no payload, writes no heartbeat, reads no signal, defers nothing to a commit and does not schedule `orrery:tick`. Web requests, dispatches and workers open no connection to the package tables. The migrations still load, so `php artisan migrate` works.
 - **The dashboard** answers every page and API request with 503 and the text "Orrery is disabled (ORRERY_ENABLED=false).". The API body is `{"error": "orrery_disabled", "message": …}`. The access check comes first: a visitor without access still gets 401 or 403. `/orrery/api/health` also answers 503.
-- **The commands** `orrery:tick`, `orrery:retry`, `orrery:forget`, `orrery:clear`, `orrery:clear-metrics`, `orrery:pause`, `orrery:terminate`, `orrery:reconcile` and `orrery:deployed` refuse with that text and exit 1. If you schedule `orrery:tick` yourself (`orrery.schedule` false), that line fails every minute while Orrery is off: remove it or ignore the failures. `orrery:install` and the two commands of [the removal](upgrading.md#removing-orrery), `orrery:continue` and `orrery:resolve`, still run.
+- **The commands** `orrery:tick`, `orrery:retry`, `orrery:forget`, `orrery:clear`, `orrery:clear-metrics`, `orrery:pause`, `orrery:terminate`, `orrery:reconcile` and `orrery:deployed` refuse with that text and exit 1. If you schedule `orrery:tick` yourself (`orrery.schedule` false), that line fails every minute while Orrery is off: remove it or ignore the failures. `orrery:install`, `orrery:workers` and the two commands of [the removal](upgrading.md#removing-orrery), `orrery:continue` and `orrery:resolve`, still run.
 - **Pauses.** While Orrery is off, its global and connection pauses do not hold the workers: only Orrery reads them. A queue pause still holds, because it is Laravel's own pause. Run `orrery:continue` (it works while Orrery is off) or `queue:continue` to lift it.
 
 To turn Orrery on again, set `ORRERY_ENABLED=true` (or remove the line), then run `php artisan config:cache` and `php artisan queue:restart`. Observation starts again from that moment. The dashboard then shows the time while Orrery was off as follows:
@@ -138,5 +210,6 @@ To turn Orrery on again, set `ORRERY_ENABLED=true` (or remove the line), then ru
 | `orrery:clear [connection] [--queue=] [--force]` | Deletes the waiting (unreserved) jobs of one queue and their mirror rows. Unlike `queue:clear`, it keeps reserved jobs. An empty connection or `--queue=` is refused. |
 | `orrery:clear-metrics` | Deletes the per-minute counts. The queue state stays, and every earlier minute reads as unknown. |
 | `orrery:deployed [--label=] [--window=600]` | Records a deploy marker. |
+| `orrery:workers [--format=list\|supervisor\|systemd\|forge]` | Prints the process-manager configuration of the declared worker pools (see [Worker pools](#worker-pools)). It writes no file and exits 1 when a pool is invalid. |
 
 Every command except `orrery:tick` exits non-zero when its requested work did not happen. While Orrery is off (`ORRERY_ENABLED=false`), the commands that act refuse and exit 1 (see [Turning Orrery off](#turning-orrery-off)). `orrery:clear` also deletes the mirror rows of waiting bulk jobs whose id the package has not resolved yet, on every connection name of the same jobs table; a bulk push whose mirror rows are written after `orrery:clear` ran keeps those rows. The queue name is compared byte by byte: `high` never clears `HIGH`.

@@ -103,6 +103,26 @@ return [
     // degradation record.
     'workers' => [
         'heartbeat_seconds' => (int) env('ORRERY_HEARTBEAT_SECONDS', 15),
+
+        // The intended worker layout. Orrery never starts workers: `php
+        // artisan orrery:workers --format=supervisor|systemd|forge|list`
+        // prints the process-manager configuration of these pools, and
+        // every worker gets --name=<pool>. Keyed by a stable pool name
+        // (lowercase letters, digits and dashes). Each pool: `connection`
+        // (a `database` queue connection), `queues` (in priority order),
+        // `processes` (at least 1), and the optional queue:work options
+        // tries, timeout, sleep, backoff (seconds, or a list), memory (MB),
+        // max_jobs, max_time, rest and force. An option left out keeps
+        // Laravel's default. An unknown key or a wrong type is an error.
+        'pools' => [
+            // 'default' => [
+            //     'connection' => 'database',
+            //     'queues' => ['high', 'default'],
+            //     'processes' => 2,
+            //     'tries' => 3,
+            //     'timeout' => 90,
+            // ],
+        ],
     ],
 
     // The control plane: when the package storage cannot be

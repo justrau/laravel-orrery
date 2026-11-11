@@ -22,6 +22,7 @@
 | `observer.shared_breaker_path` | `null` | The directory of that file. Null: `storage/framework`. |
 | `tick.deadline_seconds` | `30` | The time limit of one `orrery:tick` run. The later phases wait for the next run. |
 | `workers.heartbeat_seconds` | `15` (`ORRERY_HEARTBEAT_SECONDS`) | The least time between two heartbeat writes of a worker. |
+| `workers.pools` | `[]` | The intended worker pools, keyed by name, for `orrery:workers` (see [Worker pools](operations.md#worker-pools)). Orrery never starts workers. |
 | `control.stale_signals_seconds` | `900` | How long a worker keeps its last signals when it cannot read new ones. After that it ignores them. |
 | `control.signal_cache_seconds` | `1` (`ORRERY_SIGNAL_CACHE_SECONDS`) | How long a worker keeps the signals that it read. |
 | `retry.fence_retention_days` | `30` | Days to keep a fence row after its operation ended and its deadline passed. |
