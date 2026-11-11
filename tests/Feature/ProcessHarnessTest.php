@@ -9,6 +9,7 @@ use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Schema;
+use Justrau\Orrery\Listeners\ForgetStoppedWorker;
 use Justrau\Orrery\Tests\Feature\Jobs\BasicJob;
 use Justrau\Orrery\Tests\Feature\Jobs\FailingJob;
 use Justrau\Orrery\Tests\Feature\Jobs\HookedJob;
@@ -80,10 +81,15 @@ final class ProcessHarnessTest extends TestCase
         $id = Queue::push(new BasicJob);
         self::assertSame(1, DB::table('jobs')->where('id', $id)->count());
 
-        $worker = WorkerProcess::start(self::WORK_ONCE, $env);
+        $barrier = Barrier::forTest();
+        $worker = WorkerProcess::start(self::WORK_ONCE, $env, $barrier->holdEnvironment(ForgetStoppedWorker::BEFORE_FORGET));
 
-        // The worker's first heartbeat row (its first poll) is visible here.
-        $worker->waitUntil(fn (): bool => $this->mirror()->table('orrery_worker_heartbeats')->where('pid', $worker->pid())->exists(), 60, 'its heartbeat row is visible');
+        // A --once worker deletes its own heartbeat row when its command
+        // ends (ForgetStoppedWorker). It holds before that delete, so its
+        // row (written at its first poll) is visible here.
+        $barrier->await(ForgetStoppedWorker::BEFORE_FORGET.'.reached', 60, $worker->abandonIfExited());
+        self::assertTrue($this->mirror()->table('orrery_worker_heartbeats')->where('pid', $worker->pid())->exists(), 'its heartbeat row is not visible. '.$worker->describe());
+        $barrier->arrive(ForgetStoppedWorker::BEFORE_FORGET.'.release');
         self::assertSame(0, $worker->waitForExit(60), $worker->describe());
 
         // The worker read the parent's committed row, and the parent reads
