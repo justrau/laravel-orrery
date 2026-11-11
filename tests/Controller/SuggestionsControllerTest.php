@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Justrau\Orrery\Tests\Controller;
 
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Justrau\Orrery\Http\Suggestions;
 use Justrau\Orrery\Monitoring\SampleCounts;
@@ -19,6 +20,23 @@ use PHPUnit\Framework\Attributes\DataProvider;
 final class SuggestionsControllerTest extends ControllerTest
 {
     private const T = 1_790_000_000;
+
+    /** The request time: 12 s into the minute 1_790_000_100. */
+    private const NOW = 1_790_000_112.0;
+
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Carbon::setTestNow(Carbon::createFromTimestamp(self::NOW, 'UTC'));
+    }
+
+    protected function tearDown(): void
+    {
+        Carbon::setTestNow();
+
+        parent::tearDown();
+    }
 
     /**
      * Rejects: a class list that is not distinct, that ranks a match inside the name above one at the start of the
@@ -113,6 +131,66 @@ final class SuggestionsControllerTest extends ControllerTest
     }
 
     /**
+     * Rejects: a sample read grouped by the name (MySQL's default collation merges `Sync` and `SYNC` into one
+     * class), a read of samples older than SAMPLE_MINUTES (an unbounded scan), or a read past SAMPLE_CLASSES
+     * without `limited`.
+     * Still passes: a window one minute wider than SAMPLE_MINUTES on one side (the old sample is two hours old).
+     */
+    public function test_class_samples_are_byte_exact_recent_and_bounded(): void
+    {
+        $this->sample('App\\Jobs\\Sync', 1_790_000_100);
+        $this->sample('App\\Jobs\\SYNC', 1_790_000_040);
+        $this->sample('App\\Jobs\\Archived', 1_790_000_100 - 7200);
+
+        $response = $this->getJson('/orrery/api/suggestions?field=class&q=sync')->assertOk();
+
+        self::assertSame(['App\\Jobs\\Sync', 'App\\Jobs\\SYNC'], array_column($response->json('values'), 'value'));
+        self::assertFalse($response->json('limited'));
+        self::assertSame([], $this->getJson('/orrery/api/suggestions?field=class&q=archived')->assertOk()->json('values'));
+
+        $rows = [];
+
+        for ($n = 0; $n < Suggestions::SAMPLE_CLASSES; $n++) {
+            $rows[] = $this->sampleRow(sprintf('App\\Jobs\\Many%03d', $n), 1_790_000_040);
+        }
+
+        foreach (array_chunk($rows, 200) as $chunk) {
+            $this->mirror()->table(SampleCounts::TABLE)->insert($chunk);
+        }
+
+        self::assertTrue($this->getJson('/orrery/api/suggestions?field=class&q=many')->assertOk()->json('limited'));
+    }
+
+    /**
+     * Rejects: the tags of a job past the TAG_JOB_SCAN newest (the extra row that detects the bound), or a hit
+     * bound without `limited`.
+     * Still passes: a bound slightly above TAG_JOB_SCAN (one row past it is tested).
+     */
+    public function test_the_tag_scan_reads_only_the_newest_jobs(): void
+    {
+        $oldest = null;
+        $rows = [];
+
+        for ($n = 0; $n <= Suggestions::TAG_JOB_SCAN; $n++) {
+            $row = $this->jobRow('App\\Jobs\\T', self::T + $n);
+            $oldest ??= $row['uuid'];
+            $rows[] = $row;
+        }
+
+        foreach (array_chunk($rows, 200) as $chunk) {
+            $this->mirror()->table('orrery_jobs')->insert($chunk);
+        }
+
+        $this->tag('old:tag', $oldest, self::T);
+        $this->tag('new:tag', $rows[Suggestions::TAG_JOB_SCAN]['uuid'], self::T + Suggestions::TAG_JOB_SCAN);
+
+        $response = $this->getJson('/orrery/api/suggestions?field=tag')->assertOk();
+
+        self::assertSame([['value' => 'new:tag', 'monitored' => false]], $response->json('values'));
+        self::assertTrue($response->json('limited'));
+    }
+
+    /**
      * Rejects: a tag list without the monitored tags, monitored tags not first, the tags of the newest jobs
      * missing, a duplicate, or a monitored flag that is wrong.
      * Still passes: monitored tags in another order among themselves (byte order of the tag index is used).
@@ -168,6 +246,9 @@ final class SuggestionsControllerTest extends ControllerTest
         ];
     }
 
+    /**
+     * @return array<string, mixed>
+     */
     private function jobRow(string $name, float $pushedAt): array
     {
         return [
@@ -199,9 +280,17 @@ final class SuggestionsControllerTest extends ControllerTest
 
     private function sample(string $name, int $minute): void
     {
-        $this->mirror()->table(SampleCounts::TABLE)->insert([
+        $this->mirror()->table(SampleCounts::TABLE)->insert($this->sampleRow($name, $minute));
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function sampleRow(string $name, int $minute): array
+    {
+        return [
             'scope' => 'job', 'series' => SampleCounts::series('job', $name), 'connection' => null, 'queue' => null, 'name' => $name, 'minute' => $minute,
             'completed' => 1, 'failed' => 0, 'runtime_ms_sum' => 0, 'runtime_count' => 0, 'pushed' => null,
-        ]);
+        ];
     }
 }
