@@ -56,7 +56,12 @@ class PingController
         'Illuminate\Foundation\Http\Middleware\PreventRequestForgery',
         'Illuminate\Foundation\Http\Middleware\VerifyCsrfToken',
         'Illuminate\Foundation\Http\Middleware\ValidateCsrfToken',
+        // An interface: Laravel's exclusion matches classes only, so excluded() adds each implementer.
+        'Illuminate\Contracts\Session\Middleware\AuthenticatesSessions',
     ];
+
+    /** The request attribute that marks an answer of this controller (Http\Middleware\PingGuard). */
+    public const ANSWERED = 'orrery.ping.answered';
 
     private const HEADERS = ['Cache-Control' => 'no-store, private'];
 
@@ -65,6 +70,7 @@ class PingController
     public function __invoke(Request $request, Ping $ping): SymfonyResponse
     {
         $token = config('orrery.ping.token');
+        $request->attributes->set(self::ANSWERED, true);
 
         if (self::tokenState($token) !== 'set') {
             abort(404, '', self::HEADERS);
@@ -93,6 +99,50 @@ class PingController
         $result = $ping->run();
 
         return new JsonResponse($result, $result['status'] === 'ok' ? 200 : 503, self::HEADERS, self::JSON);
+    }
+
+    /**
+     * The middleware names of the ping route, after PingGuard:
+     * `orrery.ping.middleware` when it is a list (an application's own
+     * stack for the ping), else the `orrery` group.
+     *
+     * @return list<string>
+     */
+    public static function middleware(): array
+    {
+        $configured = config('orrery.ping.middleware');
+
+        return is_array($configured) ? array_values(array_filter($configured, 'is_string')) : ['orrery'];
+    }
+
+    /**
+     * The classes of $resolved (the route's resolved middleware) that
+     * implement an interface of STATELESS: the route excludes them too,
+     * because Laravel's exclusion matches classes and their subclasses only.
+     *
+     * @param  list<mixed>  $resolved
+     * @return list<string>
+     */
+    public static function implementers(array $resolved): array
+    {
+        $interfaces = array_values(array_filter(self::STATELESS, 'interface_exists'));
+        $excluded = [];
+
+        foreach ($resolved as $middleware) {
+            if (! is_string($middleware)) {
+                continue;
+            }
+
+            $class = explode(':', $middleware, 2)[0];
+
+            foreach ($interfaces as $interface) {
+                if (class_exists($class) && is_a($class, $interface, true)) {
+                    $excluded[] = $class;
+                }
+            }
+        }
+
+        return array_values(array_unique($excluded));
     }
 
     /**

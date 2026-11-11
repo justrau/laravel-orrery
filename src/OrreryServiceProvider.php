@@ -91,10 +91,20 @@ class OrreryServiceProvider extends ServiceProvider
 
         if (! $routesCached) {
             // Before the dashboard group: its page route matches every path.
-            Route::group(self::pingRouteGroup(), static function (): void {
-                Route::get('/ping', Http\Controllers\PingController::class)
+            Route::group(self::pingRouteGroup(), function (): void {
+                $ping = Route::get('/ping', Http\Controllers\PingController::class)
                     ->name('orrery.ping')
+                    ->middleware([Http\Middleware\PingGuard::class, ...Http\Controllers\PingController::middleware()])
                     ->withoutMiddleware(Http\Controllers\PingController::STATELESS);
+
+                // After every provider defined its groups: the classes that implement a STATELESS interface.
+                $this->app->booted(static function (FoundationApplication $app) use ($ping): void {
+                    $implementers = Http\Controllers\PingController::implementers($app->make('router')->resolveMiddleware($ping->gatherMiddleware()));
+
+                    if ($implementers !== []) {
+                        $ping->withoutMiddleware($implementers);
+                    }
+                });
             });
 
             Route::group(self::routeGroup(), function (): void {
@@ -153,23 +163,23 @@ class OrreryServiceProvider extends ServiceProvider
     }
 
     /**
-     * The attributes of the ping route's group: the dashboard's domain,
-     * prefix and `orrery` middleware group (so an application's additions to
-     * that group, such as an IP allow-list, cover the ping too), but no
-     * Authenticate (the ping's token is its access check) and no
-     * RefuseWhileDisabled (the ping answers its own `disabled`). The route
-     * removes the session, cookie and CSRF middleware of the group
-     * (PingController::STATELESS), and the controller limits failed token
-     * checks itself.
+     * The attributes of the ping route's group: the dashboard's domain and
+     * prefix. The route's middleware is PingGuard, then the `orrery` group
+     * (so an application's additions to that group, such as an IP
+     * allow-list, cover the ping too) or `orrery.ping.middleware`
+     * (PingController::middleware()), but no Authenticate (the ping's token
+     * is its access check) and no RefuseWhileDisabled (the ping answers its
+     * own `disabled`). The route removes the session, cookie and CSRF
+     * middleware (PingController::STATELESS and implementers()), and the controller limits
+     * failed token checks itself.
      *
-     * @return array{domain: mixed, prefix: mixed, middleware: list<string>}
+     * @return array{domain: mixed, prefix: mixed}
      */
     public static function pingRouteGroup(): array
     {
         return [
             'domain' => config('orrery.domain'),
             'prefix' => config('orrery.path'),
-            'middleware' => ['orrery'],
         ];
     }
 

@@ -140,6 +140,12 @@ return [
         'token' => env('ORRERY_PING_TOKEN'),
         'tick_max_age' => (int) env('ORRERY_PING_TICK_MAX_AGE', 300),
         'long_waits' => (bool) env('ORRERY_PING_LONG_WAITS', false),
+        // The middleware of the ping route. Null: the `orrery` group, without
+        // its session, cookie and CSRF middleware. A list replaces it, for
+        // example when the group has a middleware that needs the session
+        // (the ping starts none). Never put `auth` here: the ping answers a
+        // redirect with 503.
+        'middleware' => null,
     ],
 
     // The control plane: when the package storage cannot be
