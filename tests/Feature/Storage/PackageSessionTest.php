@@ -1117,7 +1117,7 @@ final class PackageSessionTest extends TestCase
      */
     public function test_mysql_init_command_with_a_comment_keeps_the_package_settings(): void
     {
-        $this->skipUnlessDriver('mysql');
+        $this->skipUnlessDriver('mysql', 'mariadb');
         $options = (array) $this->app['config']->get('database.connections.'.TestEnvironment::PRIMARY.'.options', []);
         $this->defineConnection('commented_init', TestEnvironment::PRIMARY, ['options' => [PackageSession::mysqlInitCommandAttribute() => 'SET @c4a_marker = 7 -- the application note'] + $options]);
 
@@ -1141,7 +1141,7 @@ final class PackageSessionTest extends TestCase
      */
     public function test_mysql_package_settings_work_with_multi_statements_off(): void
     {
-        $this->skipUnlessDriver('mysql');
+        $this->skipUnlessDriver('mysql', 'mariadb');
         $options = (array) $this->app['config']->get('database.connections.'.TestEnvironment::PRIMARY.'.options', []);
         $multi = defined('Pdo\Mysql::ATTR_MULTI_STATEMENTS')
             ? (int) constant('Pdo\Mysql::ATTR_MULTI_STATEMENTS')
@@ -1165,7 +1165,11 @@ final class PackageSessionTest extends TestCase
                 self::assertSame(1, (int) $session->scalar('select @@autocommit'), "{$name}, {$round}: autocommit.");
                 self::assertSame(5, (int) $session->scalar('select @@session.lock_wait_timeout'), "{$name}, {$round}: lock_wait_timeout.");
                 self::assertSame(5, (int) $session->scalar('select @@session.innodb_lock_wait_timeout'), "{$name}, {$round}: innodb_lock_wait_timeout.");
-                self::assertSame(PackageSession::DEFAULT_STATEMENT_TIMEOUT_MS, (int) $session->scalar('select @@session.max_execution_time'), "{$name}, {$round}: max_execution_time.");
+                // MariaDB's max_statement_time is in seconds.
+                $timeout = $this->testEnvironment()->driver === 'mariadb'
+                    ? (int) round((float) $session->scalar('select @@session.max_statement_time') * 1000)
+                    : (int) $session->scalar('select @@session.max_execution_time');
+                self::assertSame(PackageSession::DEFAULT_STATEMENT_TIMEOUT_MS, $timeout, "{$name}, {$round}: the statement timeout.");
             }
         }
 

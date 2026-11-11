@@ -32,7 +32,7 @@ final class PhysicalTables
     {
         $sql = match ($driver) {
             'sqlite' => "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'",
-            'mysql' => "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'",
+            'mysql', 'mariadb' => "SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'",
             'pgsql' => "SELECT tablename FROM pg_catalog.pg_tables WHERE schemaname = 'public'",
             default => throw new HarnessRefusal('Unsupported driver '.$driver),
         };

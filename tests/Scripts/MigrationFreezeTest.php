@@ -10,9 +10,11 @@ use PHPUnit\Framework\TestCase;
 
 /**
  * The migration freeze. The main
- * migration file and the three baseline fixtures (the schema of
+ * migration file and the four baseline fixtures (the schema of
  * PackageSchema::BASELINE per engine, SchemaBaselineTest) are recorded by
- * their sha256, captured at task 5b's commit. Until the tag v0.1.0 a schema
+ * their sha256, captured at task 5b's commit (the MariaDB fixture later,
+ * from the same version 10 create(): it differs from the MySQL fixture only
+ * in MariaDB's byte-exact collation). Until the tag v0.1.0 a schema
  * change captures the fixtures again and records their new hashes here in
  * the same commit; after the tag they never change, and every schema change
  * raises VERSION with one upgrade migration per version. The test reads
@@ -27,6 +29,7 @@ final class MigrationFreezeTest extends TestCase
     /** The frozen files and their sha256. */
     private const HASHES = [
         'database/migrations/2026_09_23_000000_create_orrery_tables.php' => '628fffa6921b41d8f15189f2056bbdfd4ab16b1845ded285bc6befbdbed9db3b',
+        'tests/Fixtures/schema-baseline/mariadb.sql' => '1481431687e7b080669aefbd522abdbf79565d5e782681bd8c5874e86e2afff2',
         'tests/Fixtures/schema-baseline/mysql.sql' => '0fff0f877b380aab4418454a6bd1fb25b49c142b7b690a40ace5b78843d6e8d0',
         'tests/Fixtures/schema-baseline/pgsql.sql' => 'fc6b0b22aa6d249726dfa122ccc4bb951d560f0c7e6ed631a85d63d934141c2e',
         'tests/Fixtures/schema-baseline/sqlite.sql' => '8cb6a61c72f58d086ed62ef0dee2ea2ba10f8e0237d4df852a590e49a8fd01f3',

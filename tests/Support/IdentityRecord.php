@@ -298,7 +298,7 @@ final class IdentityRecord
             return $record;
         }
 
-        if ($driver === 'mysql') {
+        if ($driver === 'mysql' || $driver === 'mariadb') {
             [$record['database'], $session, $marker] = self::serverIdentity(
                 $pdo,
                 'SELECT DATABASE(), CONNECTION_ID(), (SELECT COUNT(*) FROM orrery_marker.marker), (SELECT MIN(token) FROM orrery_marker.marker)',

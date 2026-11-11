@@ -742,7 +742,7 @@ final class HarnessIdentityTest extends TestCase
     {
         $server = ['ORRERY_TEST_DRIVER' => 'mysql', 'ORRERY_TEST_DATABASE' => 'orrery_harness', 'ORRERY_TEST_TOKEN' => str_repeat('a', 32), 'ORRERY_TEST_RUN_ID' => 'run_1_0000000a'];
 
-        yield 'unknown driver' => [['ORRERY_TEST_DRIVER' => 'sqlsrv'], 'must be sqlite, mysql or pgsql'];
+        yield 'unknown driver' => [['ORRERY_TEST_DRIVER' => 'sqlsrv'], 'must be sqlite, mysql, pgsql or mariadb'];
         yield 'unknown mirror mode' => [['ORRERY_TEST_MIRROR' => 'both'], 'must be same or separate'];
         yield 'invalid prefix' => [['ORRERY_TEST_PREFIX' => 'Pfx-'], 'ORRERY_TEST_PREFIX must match'];
         yield 'prefix too long' => [['ORRERY_TEST_PREFIX' => str_repeat('p', 17)], 'ORRERY_TEST_PREFIX must match'];
@@ -1068,7 +1068,7 @@ final class HarnessIdentityTest extends TestCase
 
     private static function quote(string $driver, string $name): string
     {
-        return $driver === 'mysql' ? '`'.$name.'`' : '"'.$name.'"';
+        return $driver === 'mysql' || $driver === 'mariadb' ? '`'.$name.'`' : '"'.$name.'"';
     }
 
     /**

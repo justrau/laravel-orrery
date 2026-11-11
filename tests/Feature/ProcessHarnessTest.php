@@ -767,7 +767,7 @@ final class ProcessHarnessTest extends TestCase
      */
     private function serverSessionDatabase(TestEnvironment $env, int $session): ?string
     {
-        $sql = $env->driver === 'mysql'
+        $sql = $env->isMysqlFamily()
             ? 'SELECT DB AS name FROM information_schema.PROCESSLIST WHERE ID = ?'
             : 'SELECT datname AS name FROM pg_stat_activity WHERE pid = ?';
         $row = DB::connection(TestEnvironment::PRIMARY)->selectOne($sql, [$session]);
@@ -798,17 +798,18 @@ final class ProcessHarnessTest extends TestCase
     private static function poisonFor(TestEnvironment $env): array
     {
         return [
-            'ORRERY_TEST_DRIVER' => $env->driver === 'mysql' ? 'pgsql' : 'mysql',
+            'ORRERY_TEST_DRIVER' => $env->isMysqlFamily() ? 'pgsql' : 'mysql',
             'ORRERY_TEST_DATABASE' => 'orrery_poison',
             'ORRERY_TEST_SQLITE_FILE' => '/nonexistent/orrery-sqlite-poison/primary.sqlite',
             'ORRERY_TEST_MIRROR' => $env->separate() ? 'same' : 'separate',
             'ORRERY_TEST_PREFIX' => $env->prefix === 'poison_' ? 'venom_' : 'poison_',
             'ORRERY_TEST_MYSQL_PORT' => '1024',
             'ORRERY_TEST_PGSQL_PORT' => '1024',
+            'ORRERY_TEST_MARIADB_PORT' => '1024',
             'ORRERY_TEST_PASSWORD' => 'poison',
             'ORRERY_TEST_TOKEN' => str_repeat('0', 32),
             'ORRERY_TEST_RUN_ID' => 'run_1_00000000',
-            'ORRERY_EXPECT_DRIVER' => $env->driver === 'mysql' ? 'pgsql' : 'mysql',
+            'ORRERY_EXPECT_DRIVER' => $env->isMysqlFamily() ? 'pgsql' : 'mysql',
             'ORRERY_TEST_BARRIER_DIR' => '/nonexistent/orrery-barrier-0000000000000000',
             'ORRERY_TEST_HOLD_AT' => 'poison.point',
             'DB_URL' => 'mysql://intruder:secret@127.0.0.1:1/production',

@@ -148,7 +148,7 @@ trait PackageSessionHelpers
     protected function expectedLevel(string $connection): string
     {
         return match ($this->testEnvironment()->driver) {
-            'mysql' => 'REPEATABLE-READ',
+            'mysql', 'mariadb' => 'REPEATABLE-READ',
             'pgsql' => 'read committed',
             default => '0',
         };
@@ -175,7 +175,9 @@ trait PackageSessionHelpers
     protected function statementTimeout(Connection $session): string
     {
         return match ($session->getDriverName()) {
-            'mysql', 'mariadb' => (string) $session->scalar('select @@max_execution_time'),
+            'mysql' => (string) $session->scalar('select @@max_execution_time'),
+            // MariaDB's max_statement_time is in seconds.
+            'mariadb' => (string) (int) round((float) $session->scalar('select @@max_statement_time') * 1000),
             'pgsql' => (string) $session->scalar('show statement_timeout'),
             default => throw new LogicException('SQLite has no statement timeout.'),
         };

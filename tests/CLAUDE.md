@@ -1,6 +1,6 @@
 # tests/
 
-Run as few tests as possible (root `CLAUDE.md`, "Test policy"). The runners are in `bin/CLAUDE.md`. A direct `vendor/bin/phpunit` is only for in-memory SQLite: with MySQL or Postgres variables set, `tests/bootstrap.php` refuses and exits 78.
+Run as few tests as possible (root `CLAUDE.md`, "Test policy"). The runners are in `bin/CLAUDE.md`. A direct `vendor/bin/phpunit` is only for in-memory SQLite: with server variables set (MySQL, Postgres or MariaDB), `tests/bootstrap.php` refuses and exits 78.
 
 ## The harness
 
@@ -23,7 +23,7 @@ Run as few tests as possible (root `CLAUDE.md`, "Test policy"). The runners are 
 ## The schema modes (`ORRERY_TEST_SCHEMA`, `bin/test --schema=`)
 
 - `fresh` (PHPUnit default, in-memory SQLite, CI): every test migrates and rolls back. The strict mode.
-- `reuse` (default of `bin/test mysql`, `pgsql` and `sqlite --sqlite-file`): `Support\ReusedSchema` migrates once per process. After each test it rolls back open transactions, compares a schema fingerprint with the migrated state (on a difference: drops every table and fails the test, naming `#[FreshSchema]`), empties the tables that have rows and resets used counters, then asserts that every table is empty.
+- `reuse` (default of `bin/test mysql`, `pgsql`, `mariadb` and `sqlite --sqlite-file`): `Support\ReusedSchema` migrates once per process. After each test it rolls back open transactions, compares a schema fingerprint with the migrated state (on a difference: drops every table and fails the test, naming `#[FreshSchema]`), empties the tables that have rows and resets used counters, then asserts that every table is empty.
 - **The limit.** Reuse compares captured schema properties; it does not trace DDL. Every test that runs DDL or changes schema or database settings carries `#[Support\FreshSchema]` (method, class or parent), including changes the fingerprint does not see. `MirrorOutage::begin()`, `UsesAltServer::useAltServer()` and `startPrivateSkeleton()` refuse without it.
 - `ORRERY_TEST_HARNESS_TIMING=<file>` writes the time of each harness phase as JSON.
 
@@ -33,7 +33,7 @@ Package state lives in container bindings; Testbench builds a new application pe
 
 ## Worker processes
 
-Process tests start real workers and need a shared database: a SQLite file, MySQL or Postgres. On in-memory SQLite they skip with a reason (group `shared-database`).
+Process tests start real workers and need a shared database: a SQLite file, MySQL, Postgres or MariaDB. On in-memory SQLite they skip with a reason (group `shared-database`).
 
 - `Support\WorkerProcess::start($artisanArgs, $env, $extraEnv)` starts `tests/Support/bin/artisan` and returns only after the child is registered and its identity line matches. Every wait has a deadline. It unsets inherited `DB_*`, `DATABASE_URL`, `ORRERY_TEST_*`, `ORRERY_EXPECT_*` and `ORRERY_IDENTITY_LOG` for the child.
 - `tests/Support/bin/artisan` loads only the package provider and runs only `queue:work`, `queue:listen` and `orrery:*` except `orrery:install` (the parent owns the schema). Exit codes: 64 usage or refused command, 78 refused configuration, 79 a gate did not open, 80 a hold timed out, 1 the command threw. `ORRERY_TEST_FOREIGN_QUEUE=1` binds Laravel's own `DatabaseQueue` connector after the provider.

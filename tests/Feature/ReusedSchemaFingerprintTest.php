@@ -180,7 +180,7 @@ final class ReusedSchemaFingerprintTest extends TestCase
         $add('sqlite', self::sqliteChanges());
 
         $add(TestEnvironment::fromEnv()->driver, match (TestEnvironment::fromEnv()->driver) {
-            'mysql' => self::mysqlChanges(),
+            'mysql', 'mariadb' => self::mysqlChanges(),
             'pgsql' => self::postgresChanges(),
             default => [],
         });
@@ -292,7 +292,7 @@ final class ReusedSchemaFingerprintTest extends TestCase
 
     private static function quote(string $engine, string $name): string
     {
-        return $engine === 'mysql' ? "`{$name}`" : "\"{$name}\"";
+        return in_array($engine, ['mysql', 'mariadb'], true) ? "`{$name}`" : "\"{$name}\"";
     }
 
     /**
@@ -304,7 +304,7 @@ final class ReusedSchemaFingerprintTest extends TestCase
     private static function probeSchema(string $engine, TestEnvironment $env, PDO $primary, ?PDO $mirror): void
     {
         [$serial, $bigSerial, $tiny, $text, $suffix] = match ($engine) {
-            'mysql' => ['INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY', 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY', 'TINYINT UNSIGNED', 'TEXT', ' DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'],
+            'mysql', 'mariadb' => ['INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY', 'BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY', 'TINYINT UNSIGNED', 'TEXT', ' DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci'],
             'pgsql' => ['serial PRIMARY KEY', 'bigserial PRIMARY KEY', 'smallint', 'text', ''],
             default => ['INTEGER PRIMARY KEY AUTOINCREMENT', 'INTEGER PRIMARY KEY AUTOINCREMENT', 'INTEGER', 'TEXT', ''],
         };
@@ -316,7 +316,7 @@ final class ReusedSchemaFingerprintTest extends TestCase
 
         $p = $env->primaryPrefix();
         $migrations($primary, $p);
-        $primary->exec('CREATE TABLE '.$q($p.'probe_jobs')." (id {$bigSerial}, queue VARCHAR(191) NOT NULL, attempts {$tiny} NOT NULL DEFAULT 0, reserved_at ".($engine === 'mysql' ? 'INT UNSIGNED' : 'INTEGER')." NULL, note VARCHAR(191) NULL){$suffix}");
+        $primary->exec('CREATE TABLE '.$q($p.'probe_jobs')." (id {$bigSerial}, queue VARCHAR(191) NOT NULL, attempts {$tiny} NOT NULL DEFAULT 0, reserved_at ".(in_array($engine, ['mysql', 'mariadb'], true) ? 'INT UNSIGNED' : 'INTEGER')." NULL, note VARCHAR(191) NULL){$suffix}");
         $primary->exec('CREATE INDEX '.$q($p.'probe_jobs_queue_index').' ON '.$q($p.'probe_jobs').' (queue)');
         $primary->exec('CREATE UNIQUE INDEX '.$q($p.'probe_jobs_note_unique').' ON '.$q($p.'probe_jobs').' (note)');
         $primary->exec('CREATE TABLE '.$q($p.'probe_tags')." (id {$bigSerial}, tag VARCHAR(191) NOT NULL){$suffix}");
@@ -324,7 +324,7 @@ final class ReusedSchemaFingerprintTest extends TestCase
         // delete of the parent first fails.
         $primary->exec('CREATE TABLE '.$q($p.'probe_a_parents')." (id {$bigSerial}){$suffix}");
         $primary->exec('CREATE TABLE '.$q($p.'probe_x_children').' (parent_id '.match ($engine) {
-            'mysql' => 'BIGINT UNSIGNED',
+            'mysql', 'mariadb' => 'BIGINT UNSIGNED',
             'pgsql' => 'bigint',
             default => 'INTEGER',
         }.' NOT NULL REFERENCES '.$q($p.'probe_a_parents')." (id)){$suffix}");
@@ -352,7 +352,7 @@ final class ReusedSchemaFingerprintTest extends TestCase
     private static function tables(string $engine, PDO $pdo): array
     {
         return $pdo->query(match ($engine) {
-            'mysql' => 'SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()',
+            'mysql', 'mariadb' => 'SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()',
             'pgsql' => "SELECT c.relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'public' AND c.relkind IN ('r', 'p', 'v', 'm', 'S')",
             default => "SELECT name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'",
         })->fetchAll(PDO::FETCH_COLUMN);

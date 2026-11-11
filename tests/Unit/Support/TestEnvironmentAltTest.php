@@ -71,6 +71,33 @@ final class TestEnvironmentAltTest extends TestCase
     }
 
     /**
+     * Rejects: a MariaDB environment that connects with the MySQL driver name or port (the
+     * identity check would then expect a MySQL server), that loses its port in a child process,
+     * or that accepts ORRERY_TEST_ALT (MariaDB has no alt server).
+     * Still passes: a MariaDB configuration whose charset differs from MySQL's (both use utf8mb4 here).
+     */
+    public function test_mariadb_has_its_own_driver_and_port_and_no_alt_server(): void
+    {
+        $env = TestEnvironment::fromArray(self::server('mariadb'));
+        $connection = $env->queueConnection();
+
+        self::assertSame('mariadb', $connection['driver']);
+        self::assertSame(33108, $connection['port']);
+        self::assertSame('root', $connection['username']);
+        self::assertSame('utf8mb4', $connection['charset']);
+        self::assertTrue($env->isMysqlFamily());
+        self::assertSame('33108', $env->toProcessEnv()['ORRERY_TEST_MARIADB_PORT']);
+        self::assertSame(34002, TestEnvironment::fromArray(self::server('mariadb') + ['ORRERY_TEST_MARIADB_PORT' => '34002'])->queueConnection()['port']);
+
+        try {
+            TestEnvironment::fromArray(self::server('mariadb') + ['ORRERY_TEST_ALT' => '1']);
+            self::fail('ORRERY_TEST_ALT with MariaDB was accepted');
+        } catch (HarnessRefusal $refusal) {
+            self::assertStringContainsString('no alt server', $refusal->getMessage());
+        }
+    }
+
+    /**
      * @return array<string, string>
      */
     private static function server(string $driver): array

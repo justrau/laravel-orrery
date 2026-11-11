@@ -43,7 +43,7 @@ final class RetryTimezoneTest extends RetryTestCase
 
         $app['config']->set('app.timezone', 'Europe/Vilnius');
         $zone = match (TestEnvironment::fromEnv()->driver) {
-            'mysql' => '+03:00',
+            'mysql', 'mariadb' => '+03:00',
             'pgsql' => 'Europe/Moscow',
             default => null,
         };

@@ -320,14 +320,14 @@ final class ReusedSchema
      */
     private function leftovers(PDO $pdo, string $keep): array
     {
-        $objects = match ($this->env->driver) {
+        $objects = match ($this->dialect()) {
             'mysql' => $pdo->query('SELECT TABLE_TYPE, TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()')->fetchAll(PDO::FETCH_NUM),
             'pgsql' => $pdo->query("SELECT 'schema'::text, nspname::text FROM pg_namespace WHERE nspname <> 'public' AND ".self::postgresSchemas('nspname')
                 ." UNION ALL SELECT 'relation '::text || c.relkind::text, n.nspname::text || '.' || c.relname::text FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace"
                 ." WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S') AND ".self::postgresSchemas('n.nspname'))->fetchAll(PDO::FETCH_NUM),
             default => $pdo->query("SELECT type, name FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'")->fetchAll(PDO::FETCH_NUM),
         };
-        $allowed = $this->env->driver === 'pgsql' ? ['public.'.$keep, 'public.'.$keep.'_id_seq'] : [$keep];
+        $allowed = $this->dialect() === 'pgsql' ? ['public.'.$keep, 'public.'.$keep.'_id_seq'] : [$keep];
         $left = [];
         $hasKeep = false;
 
@@ -529,20 +529,29 @@ final class ReusedSchema
     /**
      * @param  array<string, mixed>  $config
      */
+    /**
+     * The SQL dialect of the engine: MariaDB reads and resets as MySQL.
+     */
+    private function dialect(): string
+    {
+        return $this->env->isMysqlFamily() ? 'mysql' : $this->env->driver;
+    }
+
     private function connect(array $config): PDO
     {
         [$dsn, $username, $password, $options] = self::pdoArguments($config);
         $options[PDO::ATTR_TIMEOUT] = $this->env->isServer() ? TestEnvironment::CONNECT_TIMEOUT : self::LOCK_WAIT_SECONDS;
         $pdo = new PDO($dsn, $username, $password, $options);
 
-        match ($this->env->driver) {
+        match ($this->dialect()) {
             // The counters of information_schema.TABLES come from the storage
             // engine, not from the statistics cache. (A fingerprint read with
             // the cached statistics and a second read for the counters took
             // as long as this one statement: 8.3 against 8.7 ms per check,
             // MySQL 8.4, load 9-10, 2026-11-08.)
-            'mysql' => $pdo->exec('SET SESSION information_schema_stats_expiry = 0'
-                .', SESSION lock_wait_timeout = '.self::LOCK_WAIT_SECONDS
+            // MariaDB has no statistics cache to turn off.
+            'mysql' => $pdo->exec('SET '.($this->env->driver === 'mariadb' ? '' : 'SESSION information_schema_stats_expiry = 0, ')
+                .'SESSION lock_wait_timeout = '.self::LOCK_WAIT_SECONDS
                 .', SESSION innodb_lock_wait_timeout = '.self::LOCK_WAIT_SECONDS
                 .', SESSION foreign_key_checks = 0'),
             'pgsql' => $pdo->exec("SET lock_timeout = '".self::LOCK_WAIT_SECONDS."s'"),
@@ -573,7 +582,7 @@ final class ReusedSchema
      */
     private function fingerprintSql(): string
     {
-        return match ($this->env->driver) {
+        return match ($this->dialect()) {
             'mysql' => self::mysqlFingerprintSql(),
             'pgsql' => self::postgresFingerprintSql(),
             default => "SELECT 'object', type, name, tbl_name, COALESCE(sql, '') FROM sqlite_master WHERE name NOT LIKE 'sqlite\\_%' ESCAPE '\\'",
@@ -623,7 +632,7 @@ final class ReusedSchema
      */
     private function lines(string $label, array $rows): array
     {
-        $arity = self::ARITY[$this->env->driver];
+        $arity = self::ARITY[$this->dialect()];
         $lines = [];
 
         foreach ($rows as $row) {
@@ -651,7 +660,7 @@ final class ReusedSchema
      */
     private function plan(PDO $pdo, string $keep, array $rows): array
     {
-        $driver = $this->env->driver;
+        $driver = $this->dialect();
         $marker = $this->env->mirrorPrefix().PackageSchema::MARKER;
         $tables = [];
 
@@ -716,7 +725,7 @@ final class ReusedSchema
             if ($row[0] === 'filled') {
                 $state['filled'][] = $plan['tables'][(int) $row[1]] ?? (string) $row[1];
             } elseif ($row[0] === 'counter') {
-                $state['counters'][] = $this->env->driver === 'pgsql'
+                $state['counters'][] = $this->dialect() === 'pgsql'
                     ? $this->quote((string) $row[1]).'.'.$this->quote((string) $row[2])
                     : $this->quote((string) $row[1]);
             }
@@ -743,7 +752,7 @@ final class ReusedSchema
 
     private function quote(string $name): string
     {
-        return $this->env->driver === 'mysql'
+        return $this->dialect() === 'mysql'
             ? '`'.str_replace('`', '``', $name).'`'
             : '"'.str_replace('"', '""', $name).'"';
     }
@@ -761,7 +770,7 @@ final class ReusedSchema
      */
     private function reset(PDO $pdo, array $state): void
     {
-        match ($this->env->driver) {
+        match ($this->dialect()) {
             'mysql' => $this->resetMysql($pdo, $state['filled'], $state['counters']),
             'pgsql' => $this->resetPostgres($pdo, $state['filled'], $state['counters']),
             default => $this->resetSqlite($pdo, $state['filled'], $state['counters']),
@@ -901,7 +910,7 @@ final class ReusedSchema
      */
     private function dropAll(PDO $pdo): void
     {
-        if ($this->env->driver === 'mysql') {
+        if ($this->dialect() === 'mysql') {
             $kinds = ['VIEW' => [], 'TABLE' => []];
 
             foreach ($pdo->query('SELECT TABLE_NAME, TABLE_TYPE FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE()')->fetchAll(PDO::FETCH_NUM) as [$name, $type]) {
@@ -917,7 +926,7 @@ final class ReusedSchema
             return;
         }
 
-        if ($this->env->driver === 'pgsql') {
+        if ($this->dialect() === 'pgsql') {
             $schemas = $pdo->query("SELECT nspname FROM pg_namespace WHERE nspname <> 'public' AND ".self::postgresSchemas('nspname'))->fetchAll(PDO::FETCH_COLUMN);
 
             if ($schemas !== []) {
