@@ -282,7 +282,8 @@ final class SamplesTest extends TestCase
         $heartbeatReads = 0;
         $queueReads = 0;
         Event::listen(QueryExecuted::class, static function (QueryExecuted $query) use (&$heartbeatReads, &$queueReads): void {
-            if (str_contains($query->sql, 'orrery_worker_heartbeats') && str_starts_with(strtolower(ltrim($query->sql)), 'select')) {
+            // The live workers' read has no where; the heartbeat sweep's read of the stale rows has one.
+            if (str_contains($query->sql, 'orrery_worker_heartbeats') && str_starts_with(strtolower(ltrim($query->sql)), 'select') && ! str_contains(strtolower($query->sql), ' where ')) {
                 $heartbeatReads++;
             }
 
