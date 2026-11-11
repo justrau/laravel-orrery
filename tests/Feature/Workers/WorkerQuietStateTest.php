@@ -9,6 +9,7 @@ use Illuminate\Support\Carbon;
 use Justrau\Orrery\Listeners\RecordWorkerHeartbeat;
 use Justrau\Orrery\Runtime\WorkerEvidence;
 use Justrau\Orrery\Tests\ControllerTest;
+use Justrau\Orrery\Tests\Support\TestEnvironment;
 use Justrau\Orrery\Workers\Heartbeats;
 use Justrau\Orrery\Workers\LiveWorkers;
 
@@ -32,8 +33,10 @@ final class WorkerQuietStateTest extends ControllerTest
 
         $app['config']->set('orrery.dashboard.measure_cache_seconds', 0);
         // A second database queue connection with its own jobs table, and one that a test makes foreign.
-        $app['config']->set('queue.connections.second', ['driver' => 'database', 'table' => 'jobs_second', 'queue' => 'default', 'retry_after' => 90]);
-        $app['config']->set('queue.connections.foreign', ['driver' => 'database', 'table' => 'jobs_foreign', 'queue' => 'default', 'retry_after' => 90]);
+        // Both name the harness's queue connection: without it they follow database.default, which
+        // `migrate --database=testbench_mirror` makes the mirror while the package migration decides.
+        $app['config']->set('queue.connections.second', ['driver' => 'database', 'connection' => TestEnvironment::PRIMARY, 'table' => 'jobs_second', 'queue' => 'default', 'retry_after' => 90]);
+        $app['config']->set('queue.connections.foreign', ['driver' => 'database', 'connection' => TestEnvironment::PRIMARY, 'table' => 'jobs_foreign', 'queue' => 'default', 'retry_after' => 90]);
     }
 
     protected function setUp(): void
