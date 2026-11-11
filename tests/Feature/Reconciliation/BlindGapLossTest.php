@@ -241,6 +241,8 @@ final class BlindGapLossTest extends ReconciliationTestCase
             'the same gap without its window start' => [600.0, null, 90, Reconciliation::UNKNOWN_REASON],
             'from beyond the longest grace: anchored at from' => [700.0, 0.0, 90, Reconciliation::UNKNOWN_REASON],
             'from within a longer retry_after' => [700.0, 0.0, 900, Reconciliation::BLIND_GAP_REASON],
+            'at the reach cap of 15 minutes' => [900.0, 0.0, 3600, Reconciliation::BLIND_GAP_REASON],
+            'past the reach cap, however long retry_after is' => [900.5, 0.0, 3600, Reconciliation::UNKNOWN_REASON],
         ];
     }
 
@@ -351,6 +353,70 @@ final class BlindGapLossTest extends ReconciliationTestCase
 
         $row = $this->rowOrFail($uuid);
         self::assertSame(['reserved', $replacement, null, null], [$row->status, (int) $row->job_id, $row->absent_since, $row->unknown_reason]);
+    }
+
+    /**
+     * Rejects: a reach that reads only the reconciled connection's retry_after: the longest grace of every database
+     * queue connection wins.
+     */
+    public function test_the_reach_is_the_longest_grace_of_the_connections(): void
+    {
+        $this->app['config']->set('queue.connections.database_long', ['retry_after' => 800] + (array) $this->app['config']->get('queue.connections.database'));
+        $base = Clock::now();
+        [$uuid, $jobId] = $this->pushed();
+        $this->sweptAt($base);
+        $this->gap($base + 750, $base + 2400, $base);
+        $this->moveClock(2500);
+
+        $this->lose($jobId);
+
+        self::assertSame(['unknown', Reconciliation::BLIND_GAP_REASON], [$this->rowOrFail($uuid)->status, $this->rowOrFail($uuid)->unknown_reason]);
+    }
+
+    /**
+     * An off period longer than the samples retention, through orrery:tick, after workers drained for 10 minutes
+     * past the last tick: the gap is recorded from that last evidence (before the clip) with the last tick as its
+     * window start, not from the clip, so the lost job is still a blind-gap loss.
+     *
+     * Rejects: a gap start clipped to the samples retention, which made every job lost in a long off period alert.
+     */
+    public function test_an_off_period_longer_than_the_samples_retention_is_still_suppressed(): void
+    {
+        [$uuid, $jobId] = $this->pushed();
+        $this->tick();
+        $base = Clock::now();
+        // The scheduler stopped first: a worker still finished a job 10 minutes after the last tick.
+        $this->mirror()->table('orrery_jobs')->insert([
+            'uuid' => strtolower((string) Str::uuid()), 'connection' => 'database', 'queue' => 'default', 'name' => 'App\\Jobs\\Drain',
+            'status' => 'completed', 'payload' => '{}', 'payload_bytes' => 2, 'pushed_at' => Clock::toDecimal($base),
+            'reserved_at' => Clock::toDecimal($base + 599), 'finished_at' => Clock::toDecimal($base + 600), 'updated_at' => Clock::toDecimal($base + 600),
+        ]);
+        $this->queueTable()->where('id', $jobId)->delete();
+
+        $this->moveClock(30 * 3600);
+        $this->tick();
+        self::assertEqualsWithDelta([[$base + 600, $base + 30 * 3600, $base]], BlindGaps::anchored(), 0.001);
+
+        $this->moveClock(Reconciliation::MIN_GRACE_SECONDS);
+        $this->tick();
+
+        self::assertSame(['unknown', Reconciliation::BLIND_GAP_REASON], [$this->rowOrFail($uuid)->status, $this->rowOrFail($uuid)->unknown_reason]);
+    }
+
+    /**
+     * Rejects: the failure rule keeping the reason of an earlier absence when it clears absent_since.
+     */
+    public function test_a_failure_clears_the_reason(): void
+    {
+        [$uuid] = $this->pushed();
+        $job = $this->queue()->pop();
+        self::assertNotNull($job);
+        $this->mirror()->table('orrery_jobs')->where('uuid', $uuid)->update(['absent_since' => Clock::toDecimal(Clock::now()), 'unknown_reason' => Reconciliation::BLIND_GAP_REASON]);
+
+        $job->fail(new \RuntimeException('Boom.'));
+
+        $row = $this->rowOrFail($uuid);
+        self::assertSame(['failed', null, null], [$row->status, $row->absent_since, $row->unknown_reason]);
     }
 
     private function tick(): void

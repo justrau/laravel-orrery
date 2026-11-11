@@ -55,9 +55,9 @@ use Throwable;
  *       (a row that the sweep found absent already has its first absence,
  *       and keeps `absent`). The anchor is the start of the window whose
  *       walk found the gap (the last time the tick side had decided:
- *       BlindGaps::anchored()) when the gap's `from` lies at most the
- *       longest grace of the database queue connections (max(retry_after,
- *       600 s)) after it: a scheduler stopped before the workers, or workers
+ *       BlindGaps::anchored()) when the gap's `from` lies at most
+ *       min(the longest grace of the database queue connections
+ *       (max(retry_after, 600 s)), MAX_ANCHOR_REACH_SECONDS) after it: a scheduler stopped before the workers, or workers
  *       that drain their last jobs one by one, put `from` after the last
  *       tick. Else the anchor is `from` itself.
  *   So the job left the queue between a check at most GAP_SECONDS before
@@ -174,6 +174,14 @@ final class Reconciliation
     /** The unknown reason of a job whose jobs row left during a recorded blind gap (Monitoring\BlindGaps). */
     public const BLIND_GAP_REASON = 'blind_gap';
 
+    /**
+     * The most that a blind gap's start may lie after its window's start and
+     * still be anchored there (blindGapLoss()): 15 minutes, so a long
+     * retry_after never stretches the time before a gap in which a real loss
+     * would be suppressed.
+     */
+    public const MAX_ANCHOR_REACH_SECONDS = 900;
+
     /** The settings key of the rotating cursor of reconcileRemoved(). */
     public const REMOVED_CURSOR = 'reconcile_removed_cursor';
 
@@ -272,7 +280,7 @@ final class Reconciliation
         }
 
         $swept = $gaps === [] ? null : $this->lastVerified($connection);
-        $reach = $gaps === [] ? 0.0 : $this->longestGrace();
+        $reach = $gaps === [] ? 0.0 : $this->anchorReach();
 
         $rows = $mirror->table(self::TABLE)
             ->where('connection', $connection)
@@ -1049,14 +1057,12 @@ final class Reconciliation
     }
 
     /**
-     * The grace of markUnknown for a queue connection: max(retry_after, 600) seconds.
+     * How far after the last tick a gap's start may lie and still be
+     * anchored at that tick (blindGapLoss()): the longest grace of the
+     * database queue connections (at least MIN_GRACE_SECONDS), at most
+     * MAX_ANCHOR_REACH_SECONDS.
      */
-    /**
-     * The longest grace of the database queue connections (at least
-     * MIN_GRACE_SECONDS): how long after the last tick a gap's start may lie
-     * and still be anchored at that tick (blindGapLoss()).
-     */
-    private function longestGrace(): float
+    private function anchorReach(): float
     {
         $longest = (float) self::MIN_GRACE_SECONDS;
 
@@ -1064,9 +1070,12 @@ final class Reconciliation
             $longest = max($longest, $this->grace($connection));
         }
 
-        return $longest;
+        return min($longest, (float) self::MAX_ANCHOR_REACH_SECONDS);
     }
 
+    /**
+     * The grace of markUnknown for a queue connection: max(retry_after, 600) seconds.
+     */
     private function grace(string $connection): float
     {
         $retryAfter = $this->config()->get("queue.connections.{$connection}.retry_after", self::DEFAULT_RETRY_AFTER);
