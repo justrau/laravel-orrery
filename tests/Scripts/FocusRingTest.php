@@ -38,7 +38,8 @@ final class FocusRingTest extends TestCase
      */
     private const RINGS = [
         'resources/js/components/ui/FilterBar.vue' => [
-            '.o-filters__search input, .o-filters__chip input, .o-filters__chip select' => '.o-filters__search:focus-within, .o-filters__chip:focus-within',
+            // The chip's input is SuggestInput's (the Class and Tag suggestions), reached with :deep().
+            '.o-filters__search input, .o-filters__chip :deep(input), .o-filters__chip select' => '.o-filters__search:focus-within, .o-filters__chip:focus-within',
         ],
         'resources/js/screens/batches/BatchesScreen.vue' => [
             '.o-batches__search-input' => '.o-batches__search:focus-within',

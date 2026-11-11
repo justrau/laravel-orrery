@@ -18,6 +18,7 @@
     } from '../../support/filters.js';
     import {phpTrim, qProblem, tabItems} from '../../support/lists.js';
     import {nowSeconds} from '../../support/time.js';
+    import SuggestInput from './SuggestInput.vue';
 
     /** The wait before a typed search text is applied. */
     const SEARCH_DEBOUNCE_MS = 300;
@@ -35,12 +36,17 @@
      * the screen stay; the cursor never goes into the URL). The byte-exact
      * values (connection, queue, class, batch) are never trimmed.
      *
+     * The Class and Tag fields suggest the values the package has seen
+     * (SuggestInput, `GET /api/suggestions`); free text still works.
+     *
      * Below 768 px the tabs scroll as chips, and every filter but the search
      * sits behind a "Filters N" button, with the active filters in
      * words under it. Escape closes that panel and returns the focus to the
      * button.
      */
     export default {
+        components: {SuggestInput},
+
         props: {
             filters: {type: Object, required: true},
             fields: {type: Array, default: () => ['q', 'queue', 'class', 'tag', 'range']},
@@ -102,6 +108,15 @@
 
             clearable() {
                 return this.count > 0 || !!this.filters.q;
+            },
+
+            /** The ids of the Class and Tag inputs: unique per filter bar. */
+            classId() {
+                return `o-filters-class-${this.$.uid}`;
+            },
+
+            tagId() {
+                return `o-filters-tag-${this.$.uid}`;
             },
         },
 
@@ -217,7 +232,8 @@
             },
 
             onPanelKeydown(event) {
-                if (event.key !== 'Escape' || !this.panelOpen) return;
+                // An Escape that closed a suggestion list is not the panel's.
+                if (event.key !== 'Escape' || !this.panelOpen || event.defaultPrevented) return;
 
                 this.togglePanel();
                 this.$nextTick(() => this.$refs.panelButton && this.$refs.panelButton.focus());
@@ -262,17 +278,17 @@
                     </select>
                 </label>
 
-                <label v-if="has('class')" class="o-filters__chip" :class="{'o-filters__chip--set': !!filters.class}">
-                    <span class="o-filters__chip-label">Class</span>
-                    <input v-model="classText" type="text" placeholder="Any" aria-label="Exact job class"
-                           @keydown.enter.prevent="commitText('class', classText)" @blur="commitText('class', classText)">
-                </label>
+                <div v-if="has('class')" class="o-filters__chip" :class="{'o-filters__chip--set': !!filters.class}">
+                    <label class="o-filters__chip-label" :for="classId">Class</label>
+                    <suggest-input v-model="classText" field="class" :input-id="classId" label="Exact job class" placeholder="Any"
+                                   @commit="value => commitText('class', value)" @blur="commitText('class', classText)" />
+                </div>
 
-                <label v-if="has('tag')" class="o-filters__chip" :class="{'o-filters__chip--set': !!filters.tag}">
-                    <span class="o-filters__chip-label">Tag</span>
-                    <input v-model="tagText" type="text" placeholder="Any" aria-label="Exact tag"
-                           @keydown.enter.prevent="commitText('tag', tagText)" @blur="commitText('tag', tagText)">
-                </label>
+                <div v-if="has('tag')" class="o-filters__chip" :class="{'o-filters__chip--set': !!filters.tag}">
+                    <label class="o-filters__chip-label" :for="tagId">Tag</label>
+                    <suggest-input v-model="tagText" field="tag" :input-id="tagId" label="Exact tag" placeholder="Any"
+                                   @commit="value => commitText('tag', value)" @blur="commitText('tag', tagText)" />
+                </div>
 
                 <span v-if="filters.batch" class="o-filters__chip o-filters__chip--set" :title="filters.batch">
                     <span class="o-filters__chip-label">Batch</span>
@@ -407,7 +423,7 @@
     }
 
     .o-filters__search input,
-    .o-filters__chip input,
+    .o-filters__chip :deep(input),
     .o-filters__chip select {
         background: transparent;
         border: 0;
@@ -423,8 +439,7 @@
         flex: 1 1 auto;
     }
 
-    .o-filters__search input::placeholder,
-    .o-filters__chip input::placeholder {
+    .o-filters__search input::placeholder {
         color: var(--color-text-tertiary);
     }
 
@@ -460,6 +475,8 @@
         min-width: 0;
         padding-left: 10px;
         padding-right: 8px;
+        /* The suggestion list of the Class and Tag fields is placed against the chip. */
+        position: relative;
     }
 
     .o-filters__chip--set {
@@ -473,15 +490,10 @@
         line-height: var(--leading-table);
     }
 
-    .o-filters__chip input,
     .o-filters__chip select,
     .o-filters__chip-value {
         font-weight: var(--font-weight-medium);
         max-width: 220px;
-    }
-
-    .o-filters__chip input {
-        width: 120px;
     }
 
     .o-filters__chip-value {
@@ -668,7 +680,6 @@
             flex-direction: column;
         }
 
-        .o-filters__chip input,
         .o-filters__chip select {
             flex: 1 1 auto;
             max-width: none;
