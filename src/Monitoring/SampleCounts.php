@@ -48,8 +48,9 @@ use Throwable;
  *    Skip m (no write) when m < live M - 300, or without M when m < the
  *    current minute - 300 (it left the recount window, and retention may
  *    have trimmed its rows), or m <= RETIRED_THROUGH. When m is
- *    in an invalid interval, write nothing for m, raise M past it, and
- *    commit.
+ *    in an invalid interval, write nothing for m, raise M past the end of
+ *    that interval (at most to m_now), and commit: one unit crosses the
+ *    whole interval, so a long blind gap costs one unit, not one per minute.
  * 1. The reads before BEGIN stand when the version of INVALID, M and
  *    RETIRED_THROUGH under the lock equal the values read before them;
  *    else the minute is read again here. The reads: three grouped reads over
@@ -98,9 +99,10 @@ use Throwable;
  *
  * The blind gaps: before the first unit, run() lets BlindGaps::decide()
  * turn a window without evidence of observation (longer than
- * BlindGaps::GAP_SECONDS since the previous tick) into invalid intervals, so the
+ * BlindGaps::GAP_SECONDS since the last decision) into invalid intervals, so the
  * catch-up never publishes such a minute as a covered 0. A failed decision
- * fails the run before any minute is published.
+ * fails the run before any minute is published, and a decision that stops
+ * at its probe cap publishes no minute from the stop's minute on.
  *
  * The arrivals (`pushed`, schema step 7): a minute's arrivals are known only
  * when its `total` row has a non-null `pushed` (SampleCoverage decides that
@@ -194,7 +196,8 @@ final class SampleCounts
         $deadline = Clock::monotonic() + $this->countSeconds();
         self::ensureInvalidRow($session);
         // A window without observation becomes invalid minutes before the counts reach it (BlindGaps).
-        $this->blindGaps->decide($session, $now, $this->retentionHours());
+        // A walk stopped at its cap leaves the rest undecided: no minute from the stop's minute on is published.
+        $limit = min($current, self::minuteOf($this->blindGaps->decide($session, $now, $this->retentionHours())));
 
         $through = self::countedThrough($session);
         $start = $through === null ? $current - self::RECOUNT_SECONDS : min($current - self::RECOUNT_SECONDS, $through);
@@ -205,7 +208,7 @@ final class SampleCounts
         $file = ($this->lockModeForTesting ?? Retention::lockModeOf($session)) === 'file';
         $sincePause = Clock::monotonic();
 
-        for ($minute = $start; $minute < $current && $units < self::MAX_MINUTES; $minute += self::MINUTE) {
+        for ($minute = $start; $minute < $limit && $units < self::MAX_MINUTES; $minute += self::MINUTE) {
             // The first unit always runs, so a run always makes progress.
             if ($units > 0 && self::stops($deadline, $budget)) {
                 break;
@@ -227,9 +230,14 @@ final class SampleCounts
             $aliases ??= $this->waits->primaryAliases();
             $units++;
 
-            if (self::outdatedOr($session, fn (): bool => $this->minute($minute, $current, $aliases))) {
+            [$done, $next] = self::outdatedOr($session, fn (): array => $this->minute($minute, $current, $aliases));
+
+            if ($done) {
                 $published++;
             }
+
+            // A unit inside an invalid interval moves M past the whole interval: the next unit starts after it.
+            $minute = max($minute, $next - self::MINUTE);
         }
 
         return $published;
@@ -496,6 +504,24 @@ final class SampleCounts
     }
 
     /**
+     * The end of the interval that holds $minute, or null.
+     *
+     * @param  list<array{0: int, 1: int}>  $intervals
+     */
+    private static function coveringEnd(array $intervals, int $minute): ?int
+    {
+        $end = null;
+
+        foreach ($intervals as [$from, $to]) {
+            if ($minute >= $from && $minute < $to) {
+                $end = max($end ?? $to, $to);
+            }
+        }
+
+        return $end;
+    }
+
+    /**
      * Lowers the rows per write chunk (tests only); null restores it.
      */
     public static function useRowsPerChunkForTesting(?int $rows): void
@@ -520,15 +546,18 @@ final class SampleCounts
 
     /**
      * The minute's transaction (steps 0 to 5 of the class comment). Returns
-     * whether it published the minute.
+     * whether it published the minute, and the next minute to work on: the
+     * end of the invalid interval that holds the minute (at most $current),
+     * else the following minute.
      *
      * @param  array<string, string>  $aliases
+     * @return array{0: bool, 1: int}
      */
-    private function minute(int $minute, int $current, array $aliases): bool
+    private function minute(int $minute, int $current, array $aliases): array
     {
         $sessions = Container::getInstance()->make(PackageSession::class);
 
-        return $sessions->bounded($sessions->mirror(), function (Connection $session) use ($minute, $current, $aliases): bool {
+        return $sessions->bounded($sessions->mirror(), function (Connection $session) use ($minute, $current, $aliases): array {
             // Before BEGIN: the frontier and, for a minute that it will publish, the two grouped
             // reads in autocommit. So the transaction (on SQLite the file lock) holds only the
             // writes, and no hot-path write waits behind the reads of a busy minute.
@@ -536,7 +565,7 @@ final class SampleCounts
             $pre = self::publishes($seen, $minute, $current) ? $this->read($session, $minute, $aliases) : null;
             Hooks::reach(self::AFTER_READS);
 
-            return $this->transactions->run($session, function (Connection $tx) use ($minute, $current, $aliases, $seen, $pre): bool {
+            return $this->transactions->run($session, function (Connection $tx) use ($minute, $current, $aliases, $seen, $pre): array {
                 $invalid = self::lockInvalid($tx, $current);
 
                 if ($invalid['corrupt']) {
@@ -551,14 +580,18 @@ final class SampleCounts
 
                 if ($minute < $window || ($retired !== null && $minute <= $retired)) {
                     // It left the live recount window: its stored counts stay, never recounted.
-                    return false;
+                    return [false, $minute + self::MINUTE];
                 }
 
-                if (self::covers($invalid['intervals'], $minute)) {
-                    // Its evidence was destroyed: no total row, so it stays unknown.
-                    self::raise($tx, $live, $minute + self::MINUTE);
+                $end = self::coveringEnd($invalid['intervals'], $minute);
 
-                    return false;
+                if ($end !== null) {
+                    // Its evidence was destroyed (or never observed): no total row, so it stays unknown.
+                    // M moves past the whole interval in this one unit, up to the current minute.
+                    $next = max($minute + self::MINUTE, min($end, $current));
+                    self::raise($tx, $live, $next);
+
+                    return [false, $next];
                 }
 
                 // The reads before BEGIN stand only while the version of INVALID (a trim or a clear
@@ -571,7 +604,7 @@ final class SampleCounts
                 Hooks::reach(self::BEFORE_FRONTIER);
                 self::raise($tx, $live, $minute + self::MINUTE);
 
-                return true;
+                return [true, $minute + self::MINUTE];
             });
         });
     }

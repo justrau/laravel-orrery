@@ -14,6 +14,7 @@ use Justrau\Orrery\Lifecycle\RuntimeClock;
 use Justrau\Orrery\Maintenance\Retention;
 use Justrau\Orrery\Maintenance\TickBudget;
 use Justrau\Orrery\Maintenance\TickOutcome;
+use Justrau\Orrery\Monitoring\BlindGaps;
 use Justrau\Orrery\Monitoring\SampleCounts;
 use Justrau\Orrery\Monitoring\SampleCoverage;
 use Justrau\Orrery\Monitoring\Samples;
@@ -267,7 +268,8 @@ final class SampleCountsTest extends RetentionTestCase
         ]);
         $this->failAggregation();
 
-        // 30 minutes later: M is 30 minutes old, within the bound of 120 minutes.
+        // 30 minutes later: M is 30 minutes old, within the bound of 120 minutes. The scheduler ran every minute.
+        $this->previousTick($start + 1740);
         $this->at($start + 1800);
         $this->tick();
         self::assertSame(2, $this->mirror()->table('orrery_jobs')->count(), 'The floor holds the rows that the counts have not passed.');
@@ -308,6 +310,8 @@ final class SampleCountsTest extends RetentionTestCase
             Retention::useLimitsForTesting(batch: 1, rows: 1);
         }
 
+        // The scheduler ran every minute while the aggregation failed (BlindGaps decided each tick).
+        $this->previousTick($start + 120 * 60);
         $this->at($start + 121 * 60);
         $this->tick();
         Retention::useLimitsForTesting();
@@ -895,6 +899,8 @@ final class SampleCountsTest extends RetentionTestCase
             Retention::useLimitsForTesting(batch: 1, rows: 1);
         }
 
+        // The scheduler ran every minute while the aggregation failed (BlindGaps decided each tick).
+        $this->previousTick($start + 120 * 60);
         $this->at($start + 121 * 60);
         $this->tick();
         Retention::useLimitsForTesting();
@@ -1501,12 +1507,14 @@ final class SampleCountsTest extends RetentionTestCase
     }
 
     /**
-     * The outcome of a tick that started at $at (BlindGaps measures from it).
+     * The state after a tick that started at $at: its outcome, and the blind-gap decision through $at
+     * (BlindGaps measures its window from there).
      */
     private function previousTick(float $at): void
     {
         $this->mirror()->table('orrery_settings')->upsert([
             ['key' => TickOutcome::KEY, 'value' => json_encode(['started_at' => $at, 'finished_at' => $at + 1, 'failed' => [], 'skip_streaks' => (object) []])],
+            ['key' => BlindGaps::KEY, 'value' => json_encode(['checked_through' => $at, 'gaps' => []])],
         ], ['key'], ['value']);
     }
 

@@ -116,7 +116,7 @@ final class BlindGapsTest extends RetentionTestCase
 
         self::assertSame($gap ? [[self::PREVIOUS, self::PREVIOUS + $window]] : [], BlindGaps::read());
         self::assertSame($gap, $this->invalidIntervals() !== []);
-        self::assertSame($gap, $this->mirror()->table('orrery_settings')->where('key', BlindGaps::KEY)->exists(), 'A window of GAP_SECONDS is not decided at all.');
+        self::assertSame(self::PREVIOUS + $window, $this->checkedThrough(), 'Either way the window is decided.');
     }
 
     /**
@@ -162,7 +162,8 @@ final class BlindGapsTest extends RetentionTestCase
     }
 
     /**
-     * Rejects: the first tick ever (no COUNTED_AT) treated as the end of a gap, which would make every minute before it unknown.
+     * Rejects: the first tick ever (no decision, no tick outcome) treated as the end of a gap, which would make every
+     * minute before it unknown, and a first tick that does not start the decision's progress.
      */
     public function test_the_first_tick_is_not_a_gap(): void
     {
@@ -171,31 +172,44 @@ final class BlindGapsTest extends RetentionTestCase
         $this->aggregate();
 
         self::assertSame([], BlindGaps::read());
-        self::assertNull($this->mirror()->table('orrery_settings')->where('key', BlindGaps::KEY)->value('value'));
+        self::assertSame(self::B + 20 * 60 + 3.0, $this->checkedThrough(), 'The progress starts at the first tick.');
         self::assertSame([], $this->invalidIntervals());
         self::assertSame(5, $this->countTotals(), 'The first run counts its recount window as before.');
     }
 
     /**
-     * Rejects: a trigger on the counts' own frontier: ticks that ran while their `sample_counts` phase failed are no
-     * gap, so the catch-up counts their quiet minutes as 0, as before.
+     * Rejects: a window taken from the tick outcome: ticks that ran while their `sample_counts` phase failed decided
+     * nothing, so their window is decided now, from the evidence: observed minutes keep their real counts, and a
+     * quiet span longer than GAP_SECONDS is unknown, never a covered 0.
      */
-    public function test_ticks_whose_phases_failed_are_no_gap(): void
+    #[DataProvider('observed')]
+    public function test_a_failed_sample_counts_leaves_its_window_to_the_next_decision(bool $observed): void
     {
         $now = self::B + 20 * 60 + 3.0;
-        // M and COUNTED_AT are 20 minutes old, but the previous tick ran a minute ago.
+        // The last decision is 20 minutes old, but the previous tick ran (and failed sample_counts) a minute ago.
         $this->frontier(self::B, self::PREVIOUS);
-        $this->mirror()->table('orrery_settings')->where('key', TickOutcome::KEY)->update(['value' => json_encode([
-            'started_at' => $now - 60, 'finished_at' => $now - 59, 'failed' => ['sample_counts'], 'skip_streaks' => (object) [],
-        ])]);
-        $this->at($now);
+        $this->mirror()->table('orrery_settings')->where('key', TickOutcome::KEY)->update(['value' => $this->outcome($now - 60, ['sample_counts'])]);
 
+        if ($observed) {
+            for ($t = self::B + 30.0; $t < $now; $t += 200) {
+                $this->mirrorJob('completed', ['finished_at' => $t]);
+            }
+        }
+
+        $this->at($now);
         $this->aggregate();
 
-        self::assertSame([], BlindGaps::read());
-        self::assertSame([], $this->invalidIntervals());
-        self::assertSame(20, $this->countTotals(), 'Every minute of the failed phases is counted.');
-        self::assertSame(['completed' => 0, 'failed' => 0], $this->throughput(self::B, self::B + 60)[self::B]);
+        self::assertSame($observed ? [] : [[self::PREVIOUS, $now]], BlindGaps::read());
+        self::assertSame($observed ? ['completed' => 1, 'failed' => 0] : ['completed' => null, 'failed' => null], $this->throughput(self::B, self::B + 60)[self::B]);
+        self::assertSame($observed ? ['completed' => 0, 'failed' => 0] : ['completed' => null, 'failed' => null], $this->throughput(self::B + 60, self::B + 120)[self::B + 60]);
+    }
+
+    /**
+     * @return array<string, array{0: bool}>
+     */
+    public static function observed(): array
+    {
+        return ['workers observed' => [true], 'nothing observed' => [false]];
     }
 
     /**
@@ -229,7 +243,8 @@ final class BlindGapsTest extends RetentionTestCase
     }
 
     /**
-     * Rejects: an unbounded walk or record for a gap longer than the samples retention.
+     * Rejects: an unbounded walk or record for a gap longer than the samples retention, and a catch-up that spends
+     * a unit (and so about 22 ticks) on each unknown minute of it.
      */
     public function test_a_gap_longer_than_the_samples_retention_is_clipped_to_it(): void
     {
@@ -241,6 +256,7 @@ final class BlindGapsTest extends RetentionTestCase
 
         self::assertSame([[$now - 24 * 3600, $now]], BlindGaps::read());
         self::assertSame([[SampleCounts::minuteOf($now - 24 * 3600), SampleCounts::minuteOf($now) + 60]], $this->invalidIntervals());
+        self::assertSame(SampleCounts::minuteOf($now), $this->through(), 'One run crosses the whole unknown day: one unit, not one per minute.');
     }
 
     /**
@@ -259,16 +275,15 @@ final class BlindGapsTest extends RetentionTestCase
 
         Hooks::$callback = static function (string $point) use (&$inner, $gaps, $session, $now): void {
             if ($point === BlindGaps::BEFORE_RECORD && $inner === null) {
-                $inner = [];
+                $inner = 0.0;
                 $inner = $gaps->decide($session, $now, 24);
             }
         };
 
         $outer = $gaps->decide($session, $now, 24);
 
-        self::assertSame([[self::PREVIOUS, $now]], $inner, 'The run that commits first records the gap.');
-        self::assertSame([], $outer, 'The other run sees the newer record under the lock and writes nothing.');
-        self::assertSame(1, $this->invalidVersion());
+        self::assertSame([$now, $now], [$inner, $outer], 'Both runs see the window decided through now.');
+        self::assertSame(1, $this->invalidVersion(), 'Only the run that commits first writes the invalid minutes.');
         self::assertSame([[self::PREVIOUS, $now]], BlindGaps::read());
     }
 
@@ -294,7 +309,10 @@ final class BlindGapsTest extends RetentionTestCase
 
         self::assertSame(0, $this->countTotals());
         self::assertSame(self::B, $this->through());
+        self::assertSame(self::PREVIOUS, $this->checkedThrough(), 'A failed decision keeps the progress.');
 
+        // The failed tick still wrote its outcome; the next tick, a minute later, decides the whole window.
+        $this->mirror()->table('orrery_settings')->where('key', TickOutcome::KEY)->update(['value' => $this->outcome(self::B + 20 * 60 + 3.0, ['sample_counts'])]);
         Hooks::$callback = null;
         $this->at(self::B + 21 * 60 + 3.0);
         $this->aggregate();
@@ -309,11 +327,12 @@ final class BlindGapsTest extends RetentionTestCase
     public function test_the_record_keeps_only_the_gaps_inside_the_samples_retention(): void
     {
         $now = self::B + 20 * 60 + 3.0;
-        $this->mirror()->table('orrery_settings')->insert(['key' => BlindGaps::KEY, 'value' => json_encode([
-            'checked_through' => self::PREVIOUS - 7200,
+        $this->frontier(self::B, self::PREVIOUS);
+        // Gaps written as [from, to] (before their window's start was stored) still read.
+        $this->mirror()->table('orrery_settings')->where('key', BlindGaps::KEY)->update(['value' => json_encode([
+            'checked_through' => self::PREVIOUS,
             'gaps' => [[$now - 25 * 3600, $now - 24 * 3600 - 1], [$now - 24 * 3600 - 10, $now - 23 * 3600]],
         ])]);
-        $this->frontier(self::B, self::PREVIOUS);
         $this->at($now);
 
         $this->aggregate();
@@ -415,6 +434,158 @@ final class BlindGapsTest extends RetentionTestCase
         }
     }
 
+    /**
+     * Rejects: a window anchored on the tick outcome: a tick whose decision failed (here at BEFORE_RECORD, as a lock
+     * timeout would) still writes its outcome, so the next tick a minute later saw a 60 s window and published the
+     * off period as covered zeros.
+     */
+    public function test_a_tick_whose_decision_failed_leaves_the_window_to_the_next_tick(): void
+    {
+        $this->at(self::PREVIOUS);
+        $this->tick();
+        Hooks::$callback = static function (string $point): void {
+            if ($point === BlindGaps::BEFORE_RECORD) {
+                throw new RuntimeException('Lock wait timeout.');
+            }
+        };
+
+        $this->at(self::B + 20 * 60 + 3.0);
+        $this->tick();
+        self::assertSame([], BlindGaps::read());
+        Hooks::$callback = null;
+
+        $now = self::B + 21 * 60 + 3.0;
+        $this->at($now);
+        $this->tick();
+
+        self::assertSame([[self::PREVIOUS, $now]], BlindGaps::read());
+
+        foreach ($this->throughput(self::B, self::B + 21 * 60) as $minute => $counts) {
+            self::assertSame(['completed' => null, 'failed' => null], $counts, "Minute {$minute} is unknown, not 0.");
+        }
+    }
+
+    /**
+     * Rejects: a walk that marks the rest of a window blind at its probe cap (observed time recorded as a gap), and
+     * counts that publish the undecided minutes as 0; the next tick decides the rest from the stop.
+     */
+    public function test_a_walk_at_its_cap_leaves_the_rest_undecided(): void
+    {
+        $this->frontier(self::B, self::PREVIOUS);
+        $now = self::B + 30 * 60 + 3.0;
+        $finished = [];
+
+        // A busy window: a completion every 100 s, so every probe finds evidence.
+        for ($t = self::B + 30.0; $t < $now; $t += 100) {
+            $finished[] = $t;
+            $this->mirrorJob('completed', ['finished_at' => $t]);
+        }
+
+        $gaps = $this->app->make(BlindGaps::class);
+        $gaps->useMaxProbesForTesting(2);
+        $this->at($now);
+        $this->aggregate();
+
+        $stop = $this->checkedThrough();
+        self::assertNotNull($stop);
+        self::assertLessThan($now - BlindGaps::GAP_SECONDS, $stop, 'The walk stopped early.');
+        self::assertSame([], BlindGaps::read(), 'Nothing observed is recorded as a gap.');
+        self::assertSame([], $this->invalidIntervals());
+        $limit = SampleCounts::minuteOf($stop);
+        self::assertSame($limit, $this->through(), 'No minute from the stop on is published.');
+
+        $gaps->useMaxProbesForTesting(null);
+        $this->at($now + 60);
+        $this->aggregate();
+
+        self::assertSame([], BlindGaps::read());
+        self::assertSame($now + 60, $this->checkedThrough());
+
+        foreach ($this->throughput(self::B, self::B + 30 * 60) as $minute => $counts) {
+            $expected = count(array_filter($finished, static fn (float $t): bool => SampleCounts::minuteOf($t) === $minute));
+            self::assertSame(['completed' => $expected, 'failed' => 0], $counts, "Minute {$minute} has its real count.");
+        }
+    }
+
+    /**
+     * Rejects: a cap that is not derived from the window: a window of a day needs about 3 × 288 probes.
+     */
+    public function test_the_probe_cap_follows_the_window(): void
+    {
+        self::assertSame(3, BlindGaps::maxProbes(0.0));
+        self::assertSame(6, BlindGaps::maxProbes(300.0));
+        self::assertSame(867, BlindGaps::maxProbes(86_400.0));
+    }
+
+    /**
+     * Rejects: evidence of one status only: a released job (pending again, its reservation kept) and a reserved job
+     * that completes while the walk runs keep their reservation time as evidence, so a rate-limited queue is not
+     * blind; and a gap at the window's end that reaches past the time before the walk.
+     */
+    public function test_a_reservation_is_evidence_in_every_status(): void
+    {
+        $this->frontier(self::B, self::PREVIOUS);
+        $now = self::B + 20 * 60 + 3.0;
+
+        for ($t = self::B + 30.0; $t < self::B + 600; $t += 200) {
+            $this->mirrorJob('pending', ['reserved_at' => $t, 'finished_at' => null, 'releases' => 1]);
+        }
+
+        for ($t = self::B + 630.0; $t < self::B + 1000; $t += 200) {
+            // Completed after the walk began: only its reservation is inside the window.
+            $this->mirrorJob('completed', ['reserved_at' => $t, 'finished_at' => $now + 5]);
+        }
+
+        $this->at($now);
+        $this->aggregate();
+
+        self::assertSame([[self::B + 830.0, $now]], BlindGaps::read(), 'Only the span after the last reservation is blind, and it ends at the walk.');
+    }
+
+    /**
+     * Rejects: a short window that leaves `checked_through` (quiet normal ticks would then add up to a false gap), and
+     * one that writes it on every tick instead of every REFRESH_SECONDS.
+     */
+    public function test_normal_ticks_keep_the_window_short_and_write_every_second_time(): void
+    {
+        $this->frontier(self::B, self::PREVIOUS);
+        $seen = [];
+
+        for ($tick = 1; $tick <= 10; $tick++) {
+            $this->at(self::PREVIOUS + 60 * $tick);
+            $this->aggregate();
+            $seen[] = $this->checkedThrough();
+        }
+
+        self::assertSame([], BlindGaps::read(), 'Ten quiet minutes of normal ticks are no gap.');
+        self::assertSame([], $this->invalidIntervals());
+        self::assertSame([
+            self::PREVIOUS, self::PREVIOUS + 120, self::PREVIOUS + 120, self::PREVIOUS + 240, self::PREVIOUS + 240,
+            self::PREVIOUS + 360, self::PREVIOUS + 360, self::PREVIOUS + 480, self::PREVIOUS + 480, self::PREVIOUS + 600,
+        ], $seen);
+    }
+
+    /**
+     * Rejects: an unguarded write of a short window that replaces a record another run wrote after the read (its
+     * gaps would be lost).
+     */
+    public function test_a_short_window_never_overwrites_a_newer_record(): void
+    {
+        $this->frontier(self::B, self::PREVIOUS);
+        $this->at(self::PREVIOUS + 200);
+        Hooks::$callback = function (string $point): void {
+            if ($point === BlindGaps::BEFORE_ADVANCE) {
+                Hooks::$callback = null;
+                $this->mirror()->table('orrery_settings')->where('key', BlindGaps::KEY)->update(['value' => json_encode(['checked_through' => self::PREVIOUS + 190, 'gaps' => [[self::PREVIOUS - 900, self::PREVIOUS - 300, self::PREVIOUS - 1000]]], JSON_PRESERVE_ZERO_FRACTION)]);
+            }
+        };
+
+        $this->aggregate();
+
+        self::assertSame([[self::PREVIOUS - 900, self::PREVIOUS - 300]], BlindGaps::read());
+        self::assertSame(self::PREVIOUS + 190, $this->checkedThrough());
+    }
+
     private function at(float $time): void
     {
         Carbon::setTestNow(Carbon::createFromTimestamp($time, 'UTC'));
@@ -426,15 +597,28 @@ final class BlindGapsTest extends RetentionTestCase
     }
 
     /**
-     * The state after a tick that started at $tickAt and counted through $through.
+     * The state after a tick that started at $tickAt, counted through $through and decided through $tickAt.
      */
     private function frontier(int $through, float $tickAt): void
     {
         $this->mirror()->table('orrery_settings')->upsert([
             ['key' => SampleCounts::COUNTED_THROUGH, 'value' => (string) $through],
             ['key' => SampleCounts::COUNTED_AT, 'value' => Clock::toDecimal($tickAt)],
-            ['key' => TickOutcome::KEY, 'value' => json_encode(['started_at' => $tickAt, 'finished_at' => $tickAt + 1, 'failed' => [], 'skip_streaks' => (object) []])],
+            ['key' => TickOutcome::KEY, 'value' => $this->outcome($tickAt)],
+            ['key' => BlindGaps::KEY, 'value' => json_encode(['checked_through' => $tickAt, 'gaps' => []], JSON_PRESERVE_ZERO_FRACTION)],
         ], ['key'], ['value']);
+    }
+
+    private function outcome(float $startedAt, array $failed = []): string
+    {
+        return (string) json_encode(['started_at' => $startedAt, 'finished_at' => $startedAt + 1, 'failed' => $failed, 'skip_streaks' => (object) []], JSON_PRESERVE_ZERO_FRACTION);
+    }
+
+    private function checkedThrough(): ?float
+    {
+        $value = json_decode((string) $this->mirror()->table('orrery_settings')->where('key', BlindGaps::KEY)->value('value'), true);
+
+        return is_array($value) && is_numeric($value['checked_through'] ?? null) ? (float) $value['checked_through'] : null;
     }
 
     private function through(): ?int
