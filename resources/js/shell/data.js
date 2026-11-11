@@ -108,13 +108,14 @@ export function sidebarQueues(workload) {
  * connections that share one jobs table), in the order of first appearance
  * in the workload answer. Each is `{key, connections, heading, queues}`,
  * with the heading "Queues · database, database-long" and the
- * sidebarQueues() entries of the section.
+ * sidebarQueues() entries of the section. The key joins the names with a
+ * NUL character, which no connection name holds (a comma can).
  */
 export function sidebarQueueGroups(workload) {
     const groups = new Map();
 
     for (const queue of sidebarQueues(workload)) {
-        const key = queue.connections.join(',');
+        const key = queue.connections.join('\0');
 
         if (!groups.has(key)) {
             groups.set(key, {key, connections: queue.connections, heading: `Queues · ${queue.connections.join(', ')}`, queues: []});
@@ -955,10 +956,13 @@ export function heartbeatAge(worker, now) {
 /**
  * The dot of a listed worker from the server's `state` (`GET /api/workers`):
  * `{key, label}`. `quiet` (amber) is a worker whose last heartbeat is older
- * than two heartbeat intervals and that holds no live lease; the label
- * names the heartbeat's age at `now`, so it goes on growing between reads.
- * `live` keeps the green dot. A missing or other state is `unknown`, never
- * guessed as live.
+ * than its quiet window (`quiet_seconds`) and that holds no live lease; the
+ * label names the heartbeat's age at `now`, so it goes on growing between
+ * reads. `live` keeps the green dot; its label says "live through an
+ * active lease" when the heartbeat is older than the quiet window (or out
+ * of the listing window) and a lease keeps it live. `unknown` (a worker of
+ * an uninstrumented connection without a recent heartbeat), and a missing
+ * or other state, is "Worker state unknown", never guessed as live.
  */
 export function workerState(worker, now) {
     const state = worker && worker.state;
@@ -970,7 +974,11 @@ export function workerState(worker, now) {
     }
 
     if (state === 'live') {
-        return {key: 'live', label: worker.heartbeat_fresh === false ? 'No fresh heartbeat: live through an active lease' : 'Fresh heartbeat'};
+        const age = heartbeatAge(worker, now);
+        const window = toSeconds(worker.quiet_seconds);
+        const leased = toSeconds(worker.active_leases) > 0 && age !== null && window !== null && age > window;
+
+        return {key: 'live', label: worker.heartbeat_fresh === false || leased ? 'No fresh heartbeat: live through an active lease' : 'Fresh heartbeat'};
     }
 
     return {key: 'unknown', label: 'Worker state unknown'};

@@ -351,6 +351,15 @@ test('queueState of a queue whose every worker is quiet', () => {
     assert.equal(queueState(row('q', {processes: 2}), NOW).kind, 'running');
 });
 
+// Rejects: "Workers quiet" or "Running" while every worker is quiet or of
+// unknown state and one is unknown. It would still pass other detail text.
+test('queueState of a queue whose workers are quiet or of unknown state', () => {
+    assert.deepEqual(queueState(row('q', {processes: 2, quiet_processes: 1, unknown_state_processes: 1}), NOW),
+        {kind: 'unknown', label: 'Worker state unknown', detail: 'no recent heartbeat, and the running jobs are not mirrored'});
+    assert.equal(queueState(row('q', {processes: 2, quiet_processes: 0, unknown_state_processes: 2}), NOW).kind, 'unknown');
+    assert.equal(queueState(row('q', {processes: 3, quiet_processes: 1, unknown_state_processes: 1}), NOW).kind, 'running');
+});
+
 // Rejects: a queue pause offered as a broad pause, Orrery's or Laravel's global pause offered as the connection's (a
 // connection continue cannot lift it), and a tint without a pause.
 test('sectionPausedBroadly and pausedFrom', () => {

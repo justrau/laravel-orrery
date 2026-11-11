@@ -121,6 +121,7 @@ export function normalizeRow(row) {
         ready: num(row.length),
         workers: num(row.processes),
         quietWorkers: num(row.quiet_processes),
+        unknownStateWorkers: num(row.unknown_state_processes),
         oldestAge: num(row.oldest_age),
         threshold: threshold === null ? 0 : threshold,
         overLimit: row.over_limit === true,
@@ -281,6 +282,11 @@ export function queueState(row, now) {
 
     if (row.quietWorkers === row.workers) {
         return {kind: 'quiet', label: 'Workers quiet', detail: 'no heartbeat from its workers lately'};
+    }
+
+    // On an uninstrumented connection a busy worker and a dead one look the same.
+    if (row.unknownStateWorkers > 0 && (row.quietWorkers ?? 0) + row.unknownStateWorkers === row.workers) {
+        return {kind: 'unknown', label: 'Worker state unknown', detail: 'no recent heartbeat, and the running jobs are not mirrored'};
     }
 
     return {kind: 'running', label: 'Running', detail: null};

@@ -10,7 +10,8 @@ import {readStored, removeStored, writeStored} from './storage.js';
  * - The bounds: SIDEBAR_MIN_WIDTH, and the smaller of SIDEBAR_MAX_WIDTH and
  *   half the viewport (never below the minimum).
  * - The keys: Left and Right by SIDEBAR_STEP (Shift: SIDEBAR_BIG_STEP),
- *   Home and End to the bounds.
+ *   Home and End to the bounds, Enter to the default width. With Cmd, Ctrl
+ *   or Alt held a key is the browser's or the system's, not the handle's.
  * - The default width (the `--container-sidebar` token) is not stored, so a
  *   reset removes the stored value.
  */
@@ -36,8 +37,15 @@ export function clampSidebarWidth(width, viewport) {
     return Math.min(sidebarMaxWidth(viewport), Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)));
 }
 
-/** The width after the key `key` on the handle, or null for a key the handle does not handle. */
-export function sidebarWidthForKey(width, key, shift, viewport) {
+/**
+ * The width after the key `key` on the handle, or null for a key the
+ * handle does not handle. `modifiers` holds the event's `metaKey`,
+ * `ctrlKey` and `altKey`: with one of them, null. Enter gives the default
+ * width, unclamped (the shell clamps what it draws).
+ */
+export function sidebarWidthForKey(width, key, shift, viewport, modifiers = {}) {
+    if (modifiers && (modifiers.metaKey || modifiers.ctrlKey || modifiers.altKey)) return null;
+
     const step = shift ? SIDEBAR_BIG_STEP : SIDEBAR_STEP;
 
     switch (key) {
@@ -45,8 +53,14 @@ export function sidebarWidthForKey(width, key, shift, viewport) {
         case 'ArrowRight': return clampSidebarWidth(width + step, viewport);
         case 'Home': return SIDEBAR_MIN_WIDTH;
         case 'End': return sidebarMaxWidth(viewport);
+        case 'Enter': return SIDEBAR_DEFAULT_WIDTH;
         default: return null;
     }
+}
+
+/** The handle's `aria-valuetext`: "236 pixels". */
+export function sidebarWidthText(width) {
+    return `${Math.round(width)} pixels`;
 }
 
 /** The stored width within the bounds, else the default width. */

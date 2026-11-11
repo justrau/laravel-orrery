@@ -84,6 +84,17 @@ test('queueState: a queue whose every worker is quiet is not running', () => {
     assert.deepEqual(queueState({...known, processes: 0, quiet_processes: 0}).pill, {key: 'idle', label: 'No workers'});
 });
 
+// Rejects: "Workers quiet" or "Running" for a queue whose workers are quiet
+// or of unknown state, with at least one unknown (busy and dead look the
+// same on an uninstrumented connection). It would still pass another label.
+test('queueState: workers of unknown state are never quiet', () => {
+    const unknown = {key: 'unknown', label: 'Worker state unknown'};
+
+    assert.deepEqual(queueState({...known, processes: 2, quiet_processes: 1, unknown_state_processes: 1}).pill, unknown);
+    assert.deepEqual(queueState({...known, processes: 2, quiet_processes: 0, unknown_state_processes: 2}).pill, unknown);
+    assert.deepEqual(queueState({...known, processes: 3, quiet_processes: 1, unknown_state_processes: 1}).pill, {key: 'running', label: 'Running'});
+});
+
 // Rejects: a pauses field that is not a list (or an invalid cause) read as a pause, or as known off.
 test('queueState reads only a list of causes as pauses', () => {
     assert.equal(queueState({pauses: true, processes: 1}).pause.paused, false);
