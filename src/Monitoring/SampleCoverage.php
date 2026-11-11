@@ -451,17 +451,20 @@ final class SampleCoverage
             'pushed' => ', COUNT(*) AS pushed',
         };
 
-        $groups = $bucket;
+        // MySQL and MariaDB group by the select aliases: MariaDB's
+        // ONLY_FULL_GROUP_BY (Laravel's strict mode) does not match a
+        // selected expression with the same expression in GROUP BY.
+        $groups = $binary ? 'bucket' : $bucket;
 
-        foreach ($names as $expression) {
-            $groups .= ', '.$expression;
+        foreach ($names as $alias => $expression) {
+            $groups .= ', '.($binary ? $alias : $expression);
         }
 
         $result = [];
         $query->selectRaw($select)->groupByRaw($groups);
 
         if ($rowLimit !== null) {
-            $query->orderByRaw($bucket.' DESC')->limit($rowLimit + 1);
+            $query->orderByRaw('bucket DESC')->limit($rowLimit + 1);
         }
 
         $read = $query->get();

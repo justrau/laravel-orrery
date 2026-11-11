@@ -618,6 +618,9 @@ final class SampleCounts
     {
         $from = Clock::toDecimal((float) $minute);
         $to = Clock::toDecimal((float) ($minute + self::MINUTE));
+        // MySQL and MariaDB group by the select aliases: MariaDB's
+        // ONLY_FULL_GROUP_BY does not match a selected CAST() with the same
+        // CAST() in GROUP BY.
         $binary = in_array($tx->getDriverName(), ['mysql', 'mariadb'], true);
         $zero = ['completed' => 0, 'failed' => 0, 'runtime_ms_sum' => 0, 'runtime_count' => 0, 'pushed' => 0];
         $queues = [];
@@ -631,7 +634,7 @@ final class SampleCounts
             ->selectRaw($binary
                 ? 'CAST(`connection` AS BINARY) AS c, CAST(`queue` AS BINARY) AS q, CAST(`name` AS BINARY) AS n, COUNT(*) AS completed, SUM(`runtime_ms`) AS runtime_ms_sum, COUNT(`runtime_ms`) AS runtime_count'
                 : '"connection" AS c, "queue" AS q, "name" AS n, COUNT(*) AS completed, SUM("runtime_ms") AS runtime_ms_sum, COUNT("runtime_ms") AS runtime_count')
-            ->groupByRaw($binary ? 'CAST(`connection` AS BINARY), CAST(`queue` AS BINARY), CAST(`name` AS BINARY)' : '"connection", "queue", "name"')
+            ->groupByRaw($binary ? 'c, q, n' : '"connection", "queue", "name"')
             ->get();
 
         $failures = $tx->table('orrery_jobs')
@@ -641,7 +644,7 @@ final class SampleCounts
             ->selectRaw($binary
                 ? 'CAST(`connection` AS BINARY) AS c, CAST(`queue` AS BINARY) AS q, CAST(`name` AS BINARY) AS n, COUNT(*) AS failed'
                 : '"connection" AS c, "queue" AS q, "name" AS n, COUNT(*) AS failed')
-            ->groupByRaw($binary ? 'CAST(`connection` AS BINARY), CAST(`queue` AS BINARY), CAST(`name` AS BINARY)' : '"connection", "queue", "name"')
+            ->groupByRaw($binary ? 'c, q, n' : '"connection", "queue", "name"')
             ->get();
 
         // The arrivals: every status by pushed_at, through the index `pushed`.
@@ -651,7 +654,7 @@ final class SampleCounts
             ->selectRaw($binary
                 ? 'CAST(`connection` AS BINARY) AS c, CAST(`queue` AS BINARY) AS q, CAST(`name` AS BINARY) AS n, COUNT(*) AS pushed'
                 : '"connection" AS c, "queue" AS q, "name" AS n, COUNT(*) AS pushed')
-            ->groupByRaw($binary ? 'CAST(`connection` AS BINARY), CAST(`queue` AS BINARY), CAST(`name` AS BINARY)' : '"connection", "queue", "name"')
+            ->groupByRaw($binary ? 'c, q, n' : '"connection", "queue", "name"')
             ->get();
 
         foreach ([$completions, $failures, $arrivals] as $rows) {
