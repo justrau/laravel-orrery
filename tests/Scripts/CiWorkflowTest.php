@@ -160,6 +160,29 @@ final class CiWorkflowTest extends TestCase
     }
 
     /**
+     * Rejects: a service container image that a tag alone names (a moved tag changes CI without a
+     * commit), and an image of another release than the local test server of its engine.
+     * Still passes: a digest that is not the digest of the tag in its name.
+     */
+    public function test_every_service_image_is_pinned_by_digest_to_the_local_release(): void
+    {
+        $compose = Yaml::parseFile(self::root().'/docker/testing/compose.yaml')['services'];
+        $seen = 0;
+
+        foreach (glob(self::root().'/.github/workflows/*.yml') ?: [] as $file) {
+            foreach (self::workflow(basename($file))['jobs'] as $id => $job) {
+                foreach ($job['services'] ?? [] as $name => $service) {
+                    $seen++;
+                    self::assertMatchesRegularExpression('/^[a-z0-9.-]+:[0-9.]+@sha256:[0-9a-f]{64}$/D', $service['image'], basename($file)." {$id} {$name}");
+                    self::assertSame($compose[$name]['image'], explode('@', $service['image'])[0], basename($file)." {$id} {$name}: CI and the local server run one release");
+                }
+            }
+        }
+
+        self::assertGreaterThanOrEqual(5, $seen);
+    }
+
+    /**
      * Rejects: a workflow that grants more than read access to the contents, that keeps the
      * checkout credentials, or that uses an action by a tag or a branch instead of a commit SHA.
      * Still passes: a SHA that is not the commit of the release its comment names.
