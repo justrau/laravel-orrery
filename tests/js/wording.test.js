@@ -24,8 +24,8 @@ import {
 
 // Rejects: a blind-gap loss worded like any other lost job, a raw reason code, and a missing or new reason shown as blank.
 test('unknownReasonText and unknownReasonLabel word every unknown reason', () => {
-    assert.match(unknownReasonText('blind_gap'), /^Orrery was off or not observing/);
-    assert.equal(unknownReasonLabel('blind_gap'), 'Orrery was off or not observing');
+    assert.match(unknownReasonText('blind_gap'), /^Orrery was not observing this period \(switched off, or no process recorded activity while the scheduler was down\)/);
+    assert.equal(unknownReasonLabel('blind_gap'), 'Orrery was not observing');
     assert.equal(unknownReasonText('absent'), 'The job left the jobs table, and no outcome was observed.');
     assert.equal(unknownReasonLabel('absent'), 'left the queue unobserved');
     assert.equal(unknownReasonLabel('connection_removed'), 'connection removed');

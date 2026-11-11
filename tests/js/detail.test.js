@@ -238,7 +238,7 @@ test('headerFacts lists the identity and the times, unknown as "—"', () => {
 // Rejects: an unknown job without its reason (a blind-gap loss would read like any lost job), the raw code, and a missing reason shown as blank.
 test('headerFacts says why an unknown row is unknown', () => {
     const blind = Object.fromEntries(headerFacts(failedDetail({status: 'unknown', unknown_reason: 'blind_gap'}), T).map(fact => [fact.label, fact.value]));
-    assert.match(blind['Why unknown'], /^Orrery was off or not observing/);
+    assert.match(blind['Why unknown'], /^Orrery was not observing this period/);
     assert.match(blind['Why unknown'], /No stuck-job alert/);
 
     const absent = Object.fromEntries(headerFacts(failedDetail({status: 'unknown', unknown_reason: 'absent'}), T).map(fact => [fact.label, fact.value]));
