@@ -6,6 +6,8 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-11
+
 ### Added
 
 - **Dark mode.** The dashboard follows the dark or light appearance of the operating system (`prefers-color-scheme`). There is no toggle. Every colour, shadow and gradient comes from a design token with a light and a dark value, and the body text keeps WCAG AA contrast in both. The README shows the Overview in dark mode.
@@ -77,5 +79,6 @@ The first release: a Horizon-style dashboard for the `database` queue driver of 
 - The package's error reports (`WatchedOperationFailed`) carry no job value: no bindings, no previous exception and no trace.
 - Failure-group keys are an HMAC under `app.key`, so a key in a URL does not reveal its message.
 
-[Unreleased]: https://github.com/justrau/laravel-orrery/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/justrau/laravel-orrery/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/justrau/laravel-orrery/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/justrau/laravel-orrery/releases/tag/v0.1.0

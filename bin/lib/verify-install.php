@@ -167,7 +167,7 @@ final class Docs
 
     public const REPOSITORY_LINE = 'composer config repositories.orrery vcs https://github.com/justrau/laravel-orrery';
 
-    public const REQUIRE_LINE = 'composer require justrau/laravel-orrery:^0.1';
+    public const REQUIRE_LINE = 'composer require justrau/laravel-orrery:^0.2';
 
     public const CANDIDATE_REQUIRE = 'composer require justrau/laravel-orrery:dev-candidate';
 
