@@ -1107,7 +1107,9 @@ final class AuthorizationTest extends TestCase
                 || str_starts_with((string) $route->getName(), 'orrery.')
                 || str_starts_with(ltrim($route->getActionName(), '\\'), 'Justrau\\Orrery\\');
 
-            if (! $package) {
+            // The monitoring ping has its own token check, not these abilities (PingRouteTest;
+            // OperateAbilityTest pins that it is the only such route).
+            if (! $package || $route->getName() === 'orrery.ping') {
                 continue;
             }
 

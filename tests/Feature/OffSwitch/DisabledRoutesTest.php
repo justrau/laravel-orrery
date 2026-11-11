@@ -43,7 +43,8 @@ final class DisabledRoutesTest extends ControllerTest
 
         foreach ($this->app['router']->getRoutes()->getRoutes() as $route) {
             /** @var Route $route */
-            if (! str_starts_with($route->uri(), 'orrery')) {
+            // The monitoring ping answers its own `disabled` after its token check (PingRouteTest).
+            if (! str_starts_with($route->uri(), 'orrery') || $route->getName() === 'orrery.ping') {
                 continue;
             }
 

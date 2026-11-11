@@ -48,7 +48,10 @@ final class EveryEndpointCanaryTest extends RetryTestCase
      * Routes ("METHOD uri") that this test does not request, with the
      * reason. Empty: the SPA page and the API catch-all are requested too.
      */
-    private const EXCLUDED = [];
+    private const EXCLUDED = [
+        // Token-protected and job-free by construction (versions, ages, counts and queue names): PingRouteTest::test_the_body_carries_no_secret.
+        'GET orrery/ping' => 'monitoring ping',
+    ];
 
     private const TAG = 'orders';
 

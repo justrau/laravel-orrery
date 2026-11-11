@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Justrau\Orrery\Tests\Controller;
 
 use Illuminate\Http\Request;
+use Illuminate\Routing\Middleware\ThrottleRequests;
 use Illuminate\Routing\Route;
+use Justrau\Orrery\Http\Controllers\PingController;
 use Justrau\Orrery\Http\Middleware\Authenticate;
 use Justrau\Orrery\Orrery;
 use Justrau\Orrery\OrreryServiceProvider;
@@ -49,6 +51,11 @@ final class OperateAbilityTest extends TestCase
 
             $count++;
 
+            // The one exception: the monitoring ping has its own token check (PingController, PingRouteTest).
+            if (self::isPing($route)) {
+                continue;
+            }
+
             if (! in_array(Authenticate::class, $route->gatherMiddleware(), true)) {
                 $missing[] = implode('|', $route->methods()).' '.$route->uri();
             }
@@ -56,6 +63,32 @@ final class OperateAbilityTest extends TestCase
 
         $this->assertGreaterThan(20, $count, 'The package routes were not found.');
         $this->assertSame([], $missing, 'A package route does not carry the Authenticate middleware.');
+    }
+
+    /**
+     * Rejects: an exception that covers more than the one GET ping route, or a ping route that lost its throttle.
+     */
+    public function test_only_the_throttled_ping_route_has_no_authenticate_middleware(): void
+    {
+        $exempt = [];
+
+        /** @var Route $route */
+        foreach ($this->app['router']->getRoutes()->getRoutes() as $route) {
+            if (self::isPing($route)) {
+                $exempt[] = implode('|', $route->methods()).' '.$route->uri();
+                $this->assertNotSame([], array_filter($route->gatherMiddleware(), static fn (mixed $middleware): bool => is_string($middleware) && str_starts_with($middleware, ThrottleRequests::class.':')));
+            }
+        }
+
+        $this->assertSame(['GET|HEAD orrery/ping'], $exempt);
+    }
+
+    /** The monitoring ping: exactly its name, its GET and HEAD methods and its controller. */
+    private static function isPing(Route $route): bool
+    {
+        return $route->getName() === 'orrery.ping'
+            && $route->methods() === ['GET', 'HEAD']
+            && ltrim($route->getActionName(), '\\') === PingController::class;
     }
 
     public function test_every_non_get_package_route_is_denied_to_a_viewer_without_operate(): void

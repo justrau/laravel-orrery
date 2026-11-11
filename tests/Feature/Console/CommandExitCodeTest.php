@@ -104,6 +104,7 @@ final class CommandExitCodeTest extends TestCase
             'resolve an id' => ['orrery:resolve', ['id' => $uuid], 1],
             'resolve all' => ['orrery:resolve', ['--all' => true], 1],
             'deployed' => ['orrery:deployed', ['--label' => 'v1'], 1],
+            'ping' => ['orrery:ping', [], 1],
         ];
     }
 

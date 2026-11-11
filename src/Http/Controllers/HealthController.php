@@ -527,9 +527,12 @@ class HealthController extends Controller
     }
 
     /**
+     * The read of windows(), outside the watcher: the caller watches it
+     * (also Monitoring\Ping's `observations` check).
+     *
      * @return array{0: list<array{context: string, process: string, started_at: float, ended_at: float|null, end_label: string|null, dropped: int, unmatched_observations: int, unverified: int, rollback_unverified: int, last_error_operation: string|null, last_error_at: float|null}>, 1: bool}
      */
-    private static function readWindows(float $from, float $to): array
+    public static function readWindows(float $from, float $to): array
     {
         $rows = Container::getInstance()->make(PackageSession::class)->mirror()->table(HealthEvents::TABLE)
             ->where('started_at', '<=', Clock::toDecimal($to))

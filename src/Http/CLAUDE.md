@@ -6,6 +6,7 @@ The controllers' docblocks hold the contract of each endpoint, and this file hol
 
 - Routes in `routes/web.php` mount under `orrery.path` (default `orrery`), behind the `orrery` middleware group and `Middleware\Authenticate`. Register each new API route before the catch-all (`ApiNotFoundController`), which answers an unknown `/api/...` path with a JSON 404.
 - Two abilities, checked by the shipped gates for the user of `orrery.guard` (`Authenticate::guard()`); a guard that cannot give a user denies. `viewOrrery` guards every route; when it fails, no user on `orrery.guard` gives 401 `unauthenticated`, a user gives 403 `forbidden`. `operateOrrery` also guards every write route (every method except GET, HEAD, OPTIONS, TRACE), else 403 `forbidden_action`. The check is by method, so a new write route cannot forget it; `OperateAbilityTest` counts the write routes. The `local` environment always has access; without an `Orrery::operateUsing()` callback only `local` can operate. The page route answers plain HTTP errors.
+- **The one exception: `GET {path}/ping`** (`PingController`, name `orrery.ping`) has its own group (`OrreryServiceProvider::pingRouteGroup()`: `orrery.middleware` and a prefixed throttle of 60 per minute, no `Authenticate`, no `RefuseWhileDisabled`), registered before the dashboard group, whose page route matches every path. Its access check is `orrery.ping.token` (404 without one; 403 with an empty body for a missing or wrong token; `hash_equals`). `OperateAbilityTest` pins that it is the only route without `Authenticate`; `AuthorizationTest`, `EveryEndpointCanaryTest` and `DisabledRoutesTest` skip it by name.
 - `orrery:install` publishes `stubs/OrreryServiceProvider.stub`, where the user defines the gates.
 - `Orrery::scriptVariables()` puts `canOperate`, `appName`, `environment` and more in `window.Orrery`.
 
@@ -36,7 +37,7 @@ The controllers' docblocks hold the contract of each endpoint, and this file hol
 
 ## Other endpoints
 
-`/api/workload` (`DatabaseWorkloadRepository` documents each field), `/api/workers`, `/api/health`, `/api/counts`, `/api/control`, `/api/tags`, `/api/batches`, `/api/throughput`, `/api/markers`, `/api/queues/history?connection=&queue=`, `/api/settings/retention`, `/api/classes` and `/api/classes/series`, `/api/failures/groups` and `/api/failures/groups/{key}` (byte-exact, through `orrery_jobs.failure_key`, capped by `dashboard.group_count_cap`).
+`/ping` (`Monitoring\Ping` documents each check; 200 or 503, `Cache-Control: no-store`, while off 503 `{"status": "disabled"}`), `/api/workload` (`DatabaseWorkloadRepository` documents each field), `/api/workers`, `/api/health`, `/api/counts`, `/api/control`, `/api/tags`, `/api/batches`, `/api/throughput`, `/api/markers`, `/api/queues/history?connection=&queue=`, `/api/settings/retention`, `/api/classes` and `/api/classes/series`, `/api/failures/groups` and `/api/failures/groups/{key}` (byte-exact, through `orrery_jobs.failure_key`, capped by `dashboard.group_count_cap`).
 
 ## The page
 

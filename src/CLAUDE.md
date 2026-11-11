@@ -51,6 +51,7 @@ Where the code and a spec disagree, read the code and report the difference.
 - `orrery:clear [connection] [--queue=]`: `Actions\WaitingJobs::clear()`, shared with `POST /api/queues/clear`. Only waiting jobs of the byte-exact queue, in batches of one transaction each on the queue connection (no fence row), with their mirror rows on every alias of the jobs table. A batch whose bulk-row probe fails is kept, and the command exits 1. A queue connection inside a transaction is refused; a later batch that fails ends the clear with the counts so far (exit 1). `orrery:clear-metrics`: clears the per-minute counts.
 - `orrery:reconcile`, `orrery:resolve {id?} {--all}`: operator paths of reconciliation and of operations that wait for an operator.
 - `orrery:pause`, `orrery:continue`, `orrery:terminate` (`--connection=`, `--queue=`, actor `cli`), `orrery:deployed {--label=} {--window=600}`.
+- `orrery:ping {--json}`: the checks of `Monitoring\Ping` (the ping route's), exit 1 when one fails or the package is off; no token.
 - `orrery:workers {--format=list|supervisor|systemd|forge}` (`--user`, `--php`, `--path`, `--prefix`, `--log-dir`): prints the process-manager configuration of `workers.pools` (`Workers\Pools` validates, `Workers\ProcessConfig` renders and quotes per format). Output only, no package storage: it runs while the package is off, and `CommandExitCodeTest` lists it with `orrery:install` as no operator work.
 - While the package is off, every command except `orrery:install`, `orrery:workers`, `orrery:continue` and `orrery:resolve` (the removal procedure) uses `RefusesWhileDisabled`: exit 1 before `handle()` resolves its arguments.
 - Every operator command whose requested work did not happen exits non-zero. `CommandExitCodeTest` checks a mirror outage for every `orrery:*` command except `orrery:install`, and fails when a command has no row; each command's own test covers its other failures. `orrery:resolve` also exits 1 when an operation stays open after its step. A queue pause or continue whose Laravel part happened before the package record failed says so (`Control\QueuePauseRecordFailed`) and exits 1. The watcher rule covers hooks and listeners, not operator commands.
@@ -63,6 +64,7 @@ The file documents most keys (the first keys, `name`, `domain`, `path`, `proxy_p
 - `database` (`ORRERY_CONNECTION`): empty means the default connection, and on a SQLite file the sibling file.
 - `guard`: the guard that decides 401 versus 403.
 - `sessions.pooled`, `sessions.statement_timeout_ms` (10000; 0 off).
+- `ping.token` (null: the ping route answers 404), `ping.tick_max_age` (300), `ping.long_waits` (false).
 - `workers.pools`: the declared worker pools (stable names, explicit connection, queues, processes, `queue:work` options) for `orrery:workers`; a later drift check compares them with the live workers by `--name`.
 - `sqlite_automatic_access` (true): D18.
 - `swap_connector` (true): the kill switch of the connector swap.

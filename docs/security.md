@@ -24,6 +24,16 @@
 - **Error reports carry no job value.** The package reports its own failures through `report()`, at most once per operation per 60 seconds, as `Justrau\Orrery\Exceptions\WatchedOperationFailed`: no previous exception, an empty trace, and a message from an allowlist (the operation, the exception class, the SQLSTATE, the driver code and the SQL with `?` placeholders, never the bindings; URLs keep only their scheme and host). Match on its fields `operation`, `causeClass`, `sqlState` and `driverCode`, not on the message. Out of the package's control: the SQL breadcrumbs of your error tracker, and the first line of your own exception that passes through a package operation (for example from your `actorUsing()` resolver).
 - **Serialized cache values.** The package's own cache entries are arrays of scalars, so it works with `cache.serializable_classes => false`.
 
+## The monitoring ping
+
+`GET /orrery/ping` (see [Monitoring](operations.md#monitoring)) is the one route without the dashboard login: an uptime monitor cannot sign in. A token protects it instead.
+
+- **Off by default.** Without `ORRERY_PING_TOKEN` the route answers 404, as an unknown route.
+- **The token.** Generate a long random value, for example `php -r 'echo bin2hex(random_bytes(32)), PHP_EOL;'`, and set `ORRERY_PING_TOKEN` in your `.env` (then `php artisan config:cache`). A request sends it as `Authorization: Bearer <token>`, as the header `X-Orrery-Token`, or as `?token=` for a monitor that takes only a URL. The comparison takes constant time (`hash_equals`). A missing or wrong token gets 403 with an empty body.
+- **The rate limit.** Every request, also one with a wrong token, counts against 60 requests per minute and client (Laravel's `ThrottleRequests`, with its own key prefix). Past the limit the answer is 429. The limit uses your default cache store.
+- **Use HTTPS.** A token in a query string can reach proxy and server logs and the browser history. Prefer a header where your monitor allows it, and rotate the token when it may have leaked.
+- **What the answer shows.** The status of each check, versions, ages, counts and the names of queues over their limit. Never a job value, a payload, an exception message, a process identity or a configuration value. The route keeps the `orrery.middleware` group (by default `web`), but not the `viewOrrery` and `operateOrrery` gates.
+
 ## Content Security Policy
 
 The dashboard runs under a strict policy: no `unsafe-inline`, no `unsafe-eval`. Its CSS and JavaScript are inlined into the page, and each inlined element carries the nonce of Laravel's `Vite::cspNonce()` when your middleware sets one. The dashboard uses the system font, and the page loads no font and no external script. The package sets no policy itself: add a middleware to `orrery.middleware`, for example:

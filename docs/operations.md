@@ -163,6 +163,44 @@ WantedBy=multi-user.target
 
 `forge` prints, per pool, the fields of Laravel Forge's "Add background process" form as tables. Use the Custom tab (name, command, working directory, user, processes, stop seconds, stop signal): Forge's Queue worker tab has no field for `--name`, `--max-jobs` or `--max-time`. The command also prints the values of the Queue worker tab, and names the options that it cannot set.
 
+## Monitoring
+
+Orrery offers one check for an uptime monitor (`GET /orrery/ping`) and one for a cron monitor (`php artisan orrery:ping`). Both run the same checks:
+
+| Check | Fails with | When |
+| --- | --- | --- |
+| `package_database` | `unreachable` | One trivial read of the package database fails (with the session's connect and statement timeouts). The other checks are then `unknown`. |
+| `schema` | `migrate_needed` | The package schema is not this release's version: run `php artisan migrate`. |
+| `tick` | `late` | The last `orrery:tick` started more than `ping.tick_max_age` seconds ago (300), or no tick has run (`age` null). |
+| `observations` | `dropped` | A health window of the last `ping.tick_max_age` seconds dropped observations. |
+| `long_waits` | `over_limit` | Only with `ping.long_waits` true: a queue is over its long-wait limit (`orrery.waits`) at a recent tick and no pause holds it. It names the connection and queue. |
+
+A check that cannot be read fails with `unknown`: unknown is never ok.
+
+**The route.** Set `ORRERY_PING_TOKEN` (see [Security](security.md#the-monitoring-ping)), then point the monitor at:
+
+```text
+https://example.com/orrery/ping?token=<token>
+```
+
+or send the token as `Authorization: Bearer <token>` or `X-Orrery-Token: <token>`. The route answers 200 when every check passes, else 503. `HEAD` works like `GET`, and every answer has `Cache-Control: no-store`:
+
+```json
+{"status":"ok","checks":{"package_database":{"ok":true},"schema":{"ok":true,"version":10},"tick":{"ok":true,"age":42},"observations":{"ok":true,"dropped":0}},"as_of":1790000000.25}
+```
+
+```json
+{"status":"fail","checks":{"package_database":{"ok":true},"schema":{"ok":true,"version":10},"tick":{"ok":false,"reason":"late","age":912},"observations":{"ok":true,"dropped":0}},"as_of":1790000000.25}
+```
+
+A 503 means that Orrery does not observe or maintain reliably now. It does not say that your queue or your workers fail: the dashboard and `/orrery/api/health` show the details. Without a token the route answers 404, and with a missing or wrong token 403. While Orrery is off (`ORRERY_ENABLED=false`) the route answers 503 `{"status":"disabled"}` after the token check, so the monitor alerts: pause the monitor when you turn Orrery off on purpose.
+
+**The command.** `php artisan orrery:ping` prints the checks as a table and exits 0 when all pass, else 1 (also while Orrery is off). `--json` prints the body of the route. It needs no token. For a cron monitor such as healthchecks.io, report its result every few minutes:
+
+```cron
+*/5 * * * * cd /path-to-your-project && php artisan orrery:ping > /dev/null && curl -fsS -m 10 --retry 3 https://hc-ping.com/<uuid> > /dev/null
+```
+
 ## Turning Orrery off
 
 If Orrery causes trouble in production, turn it off with an environment change. You do not need a code deploy:
@@ -181,7 +219,7 @@ php artisan queue:restart
 - **Restart the workers.** A running worker keeps the configuration that it loaded at its start. Run `php artisan queue:restart`. Until each worker restarts, it observes as before.
 - **What stops.** Orrery then behaves as if it were not installed. Your `database` queues use Laravel's own `DatabaseQueue`, and failed jobs go to Laravel's own failed-job provider. Orrery registers no queue, job or worker listener, stamps no payload, writes no heartbeat, reads no signal, defers nothing to a commit and does not schedule `orrery:tick`. Web requests, dispatches and workers open no connection to the package tables. The migrations still load, so `php artisan migrate` works.
 - **The dashboard** answers every page and API request with 503 and the text "Orrery is disabled (ORRERY_ENABLED=false).". The API body is `{"error": "orrery_disabled", "message": …}`. The access check comes first: a visitor without access still gets 401 or 403. `/orrery/api/health` also answers 503.
-- **The commands** `orrery:tick`, `orrery:retry`, `orrery:forget`, `orrery:clear`, `orrery:clear-metrics`, `orrery:pause`, `orrery:terminate`, `orrery:reconcile` and `orrery:deployed` refuse with that text and exit 1. If you schedule `orrery:tick` yourself (`orrery.schedule` false), that line fails every minute while Orrery is off: remove it or ignore the failures. `orrery:install`, `orrery:workers` and the two commands of [the removal](upgrading.md#removing-orrery), `orrery:continue` and `orrery:resolve`, still run.
+- **The commands** `orrery:tick`, `orrery:retry`, `orrery:forget`, `orrery:clear`, `orrery:clear-metrics`, `orrery:pause`, `orrery:terminate`, `orrery:reconcile` and `orrery:deployed` refuse with that text and exit 1. If you schedule `orrery:tick` yourself (`orrery.schedule` false), that line fails every minute while Orrery is off: remove it or ignore the failures. `orrery:install`, `orrery:workers`, `orrery:ping` (it exits 1) and the two commands of [the removal](upgrading.md#removing-orrery), `orrery:continue` and `orrery:resolve`, still run.
 - **Pauses.** While Orrery is off, its global and connection pauses do not hold the workers: only Orrery reads them. A queue pause still holds, because it is Laravel's own pause. Run `orrery:continue` (it works while Orrery is off) or `queue:continue` to lift it.
 
 To turn Orrery on again, set `ORRERY_ENABLED=true` (or remove the line), then run `php artisan config:cache` and `php artisan queue:restart`. Observation starts again from that moment. The dashboard then shows the time while Orrery was off as follows:
@@ -210,6 +248,7 @@ To turn Orrery on again, set `ORRERY_ENABLED=true` (or remove the line), then ru
 | `orrery:clear [connection] [--queue=] [--force]` | Deletes the waiting (unreserved) jobs of one queue and their mirror rows. Unlike `queue:clear`, it keeps reserved jobs. An empty connection or `--queue=` is refused. |
 | `orrery:clear-metrics` | Deletes the per-minute counts. The queue state stays, and every earlier minute reads as unknown. |
 | `orrery:deployed [--label=] [--window=600]` | Records a deploy marker. |
+| `orrery:ping [--json]` | Runs the monitoring checks (see [Monitoring](#monitoring)). It exits 1 when a check fails. |
 | `orrery:workers [--format=list\|supervisor\|systemd\|forge]` | Prints the process-manager configuration of the declared worker pools (see [Worker pools](#worker-pools)). It writes no file and exits 1 when a pool is invalid. |
 
 Every command except `orrery:tick` exits non-zero when its requested work did not happen. While Orrery is off (`ORRERY_ENABLED=false`), the commands that act refuse and exit 1 (see [Turning Orrery off](#turning-orrery-off)). `orrery:clear` also deletes the mirror rows of waiting bulk jobs whose id the package has not resolved yet, on every connection name of the same jobs table; a bulk push whose mirror rows are written after `orrery:clear` ran keeps those rows. The queue name is compared byte by byte: `high` never clears `HIGH`.
