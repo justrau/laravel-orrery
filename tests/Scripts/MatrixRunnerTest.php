@@ -927,7 +927,8 @@ final class MatrixRunnerTest extends TestCase
     /**
      * Rejects: a CI leg that drops ORRERY_TEST_SERVER_VERSION (bin/matrix removes every inherited
      * ORRERY_* variable, so the job of the previous MariaDB LTS release would expect 12.3 and fail),
-     * that hands it to the SQLite runs (the harness refuses it there), or that passes it outside --ci.
+     * that hands it to the SQLite runs (the harness refuses it there), that passes it outside --ci
+     * (a local server run on 12.3 would fail), or that sets it when the job does not (the 12.3 job).
      * Still passes: a value off the allowed list (the harness refuses it, not bin/matrix).
      */
     public function test_the_ci_mode_passes_the_server_release_to_the_server_runs_only(): void
@@ -948,10 +949,23 @@ final class MatrixRunnerTest extends TestCase
             }
         }
 
+        // The job of the default release (12.3) sets no variable: its runs get none.
         @unlink($this->calls);
-        $local = $this->matrix(['--php=8.4', '--laravel=13', '--db=sqlite', '--no-lowest'], ['ORRERY_TEST_SERVER_VERSION' => '11.8']);
+        $current = $this->matrix(['--ci', '--php=8.5', '--laravel=13', '--no-lowest', '--db=mariadb'], array_diff_key($env, ['ORRERY_TEST_SERVER_VERSION' => true]));
+
+        self::assertSame(0, $current['exit'], $current['stdout'].$current['stderr']);
+        self::assertContains('mariadb', array_column($this->callsOf('bin/test'), 'engine'));
+
+        foreach ($this->callsOf('bin/test') as $call) {
+            self::assertArrayNotHasKey('ORRERY_TEST_SERVER_VERSION', $call['env'], $call['run']);
+        }
+
+        // Outside --ci a local server run never gets it.
+        @unlink($this->calls);
+        $local = $this->matrix(['--php=8.5', '--laravel=13', '--db=sqlite,mariadb', '--no-lowest'], ['ORRERY_TEST_SERVER_VERSION' => '11.8']);
 
         self::assertSame(0, $local['exit'], $local['stdout'].$local['stderr']);
+        self::assertContains('mariadb', array_column($this->callsOf('bin/test'), 'engine'));
 
         foreach ($this->callsOf('bin/test') as $call) {
             self::assertArrayNotHasKey('ORRERY_TEST_SERVER_VERSION', $call['env'], $call['run']);

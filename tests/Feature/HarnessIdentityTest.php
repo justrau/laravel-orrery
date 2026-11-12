@@ -705,6 +705,7 @@ final class HarnessIdentityTest extends TestCase
      * Rejects: an identity check that accepts any server release, that ignores
      * ORRERY_TEST_SERVER_VERSION (an 11.8 server would fail the CI job of the
      * previous LTS release), or that accepts the default release when 11.8 is selected.
+     * Also rejects: a server environment without a release that matches every release.
      * Still passes: a check that reads the release from another PDO attribute
      * (the synthetic record carries only the value).
      */
@@ -724,6 +725,15 @@ final class HarnessIdentityTest extends TestCase
         IdentityRecord::fromArray($older)->assertMatches($previous);
         self::assertStringContainsString('primary.server_version: expected 12.3.*, got "11.8.5-MariaDB-ubu2404"', $this->refusalOf(static fn () => IdentityRecord::fromArray($older)->assertMatches($default)));
         self::assertStringContainsString('primary.server_version: expected 11.8.*, got "12.3.1-MariaDB-ubu2404"', $this->refusalOf(static fn () => IdentityRecord::fromArray($current)->assertMatches($previous)));
+
+        // A server environment without a release (only the private constructor
+        // can build one) is refused, never matched as "any release".
+        $unselected = Closure::bind(static fn (): TestEnvironment => new TestEnvironment(
+            driver: 'mariadb', database: 'orrery_harness', mirror: 'separate', prefix: '', port: 33108, password: 'orrery',
+            token: str_repeat('a', 32), runId: 'run_1_0000000a', ci: false, expectDriver: null, expectPhp: null,
+        ), null, TestEnvironment::class)();
+        self::assertNull($unselected->serverVersion);
+        self::assertStringContainsString('primary.server_version: the environment selects no server release', $this->refusalOf(static fn () => IdentityRecord::fromArray($current)->assertMatches($unselected)));
     }
 
     public function test_a_wrong_token_fails_the_identity(): void

@@ -2791,6 +2791,9 @@ final class TestDbLogicTest extends TestCase
             'ORRERY_STUB_OUT' => $out,
             'ORRERY_TEST_RUN_ID' => 'run_9_99999999',
             'ORRERY_TEST_TOKEN' => str_repeat('a', 32),
+            // The harness refuses it on SQLite, so the sqlite modes unset it;
+            // --no-provision (the CI job of MariaDB 11.8) passes it on.
+            'ORRERY_TEST_SERVER_VERSION' => '11.8',
         ];
 
         $file = $this->runProcess([...$this->wrapper('bin/test'), 'sqlite', '--sqlite-file', '--php='.PHP_BINARY], $this->fakeEnv($this->registry, $inherited));
@@ -2804,6 +2807,7 @@ final class TestDbLogicTest extends TestCase
         self::assertSame(['file' => true, 'mirror' => true, 'dir_mode' => 0700], $stub['sqlite']);
         self::assertArrayNotHasKey('ORRERY_TEST_RUN_ID', $stub['env']);
         self::assertArrayNotHasKey('ORRERY_TEST_TOKEN', $stub['env']);
+        self::assertArrayNotHasKey('ORRERY_TEST_SERVER_VERSION', $stub['env']);
         // The run's private owner record is in its own directory, which also
         // holds the SQLite directory.
         self::assertSame(dirname($stub['env']['ORRERY_TEST_SQLITE_FILE'], 2), self::ownRecord($stub)['dir']);
@@ -2817,6 +2821,7 @@ final class TestDbLogicTest extends TestCase
         $stub = self::readJson(self::stubRecords($out)[0]);
         self::assertNull($stub['gate']);
         self::assertArrayNotHasKey('ORRERY_TEST_SQLITE_FILE', $stub['env']);
+        self::assertArrayNotHasKey('ORRERY_TEST_SERVER_VERSION', $stub['env']);
         array_map('unlink', self::stubRecords($out));
 
         $ci = $this->runProcess([...$this->wrapper('bin/test'), 'mysql', '--no-provision', '--php='.PHP_BINARY], $this->fakeEnv($this->registry, $inherited + [
@@ -2831,6 +2836,7 @@ final class TestDbLogicTest extends TestCase
         self::assertSame('orrery_ci_1_2', $stub['env']['ORRERY_TEST_DATABASE']);
         self::assertSame(str_repeat('a', 32), $stub['env']['ORRERY_TEST_TOKEN']);
         self::assertSame('mysql', $stub['env']['ORRERY_TEST_DRIVER']);
+        self::assertSame('11.8', $stub['env']['ORRERY_TEST_SERVER_VERSION'] ?? null);
 
         $noToken = $this->runProcess([...$this->wrapper('bin/test'), 'pgsql', '--no-provision', '--php='.PHP_BINARY], $this->fakeEnv($this->registry, ['ORRERY_TEST_DATABASE' => 'orrery_ci_1_2']));
         self::assertSame(78, $noToken['exit'], $noToken['stderr']);

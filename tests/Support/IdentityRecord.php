@@ -188,9 +188,11 @@ final class IdentityRecord
             $version = (string) $this->get("{$side}.server_version");
 
             if ($env->isServer()) {
-                $wanted = (string) $env->serverVersion;
+                $wanted = $env->serverVersion;
 
-                if (! str_starts_with($version, $wanted)) {
+                if ($wanted === null || $wanted === '') {
+                    $differences[] = "{$side}.server_version: the environment selects no server release, got ".self::show($version);
+                } elseif (! str_starts_with($version, $wanted)) {
                     $differences[] = sprintf('%s.server_version: expected %s*, got %s', $side, $wanted, self::show($version));
                 }
 
