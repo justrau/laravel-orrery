@@ -28,6 +28,13 @@ final class CiWorkflowTest extends TestCase
     private const GITHUB_JOB_LIMIT_MINUTES = 360;
 
     /**
+     * Service images that only CI runs, with no local compose service of their release:
+     * workflow => job => service => image release. The previous MariaDB LTS release runs
+     * only in its nightly job.
+     */
+    private const CI_ONLY_IMAGES = ['tests.yml' => ['mariadb-previous-lts' => ['mariadb' => 'mariadb:11.8']]];
+
+    /**
      * Rejects: a workflow that runs the four variants of the PHP 8.4 x Laravel 12 leg in one job (it passed
      * the 60-minute limit), that drops a leg or a variant, that gives a job less than 50% margin over its
      * measured time, that sets a limit above GitHub's job limit (GitHub would stop the job there), that
@@ -160,26 +167,87 @@ final class CiWorkflowTest extends TestCase
     }
 
     /**
+     * Rejects: a nightly matrix without the job of the previous MariaDB LTS release, a job that runs
+     * another PHP or Laravel than the first production host (PHP 8.3, Laravel 12), another release than
+     * 11.8 or an image not pinned by digest, that does not select 11.8 for the identity check
+     * (ORRERY_TEST_SERVER_VERSION), that passes it through a template expression in the script, that
+     * skips the recent-commit gate, or that shares its database or artifact name with another job.
+     * Still passes: a digest that is not the digest of the tag in its name (only Docker can show that).
+     */
+    public function test_the_previous_mariadb_lts_release_has_its_own_job(): void
+    {
+        $workflow = self::workflow('tests.yml');
+        $job = $workflow['jobs']['mariadb-previous-lts'];
+        $current = $workflow['jobs']['mariadb'];
+
+        self::assertSame('recent', $job['needs']);
+        self::assertSame("needs.recent.outputs.run == 'true'", $job['if']);
+        self::assertGreaterThanOrEqual(self::LONGEST_LEG_MINUTES * 1.5, $job['timeout-minutes']);
+        self::assertLessThanOrEqual(self::GITHUB_JOB_LIMIT_MINUTES, $job['timeout-minutes']);
+        self::assertSame(['mariadb'], array_keys($job['services']));
+
+        $image = $job['services']['mariadb']['image'];
+        self::assertMatchesRegularExpression('/^mariadb:11\.8@sha256:[0-9a-f]{64}$/D', $image);
+        self::assertSame(self::CI_ONLY_IMAGES['tests.yml']['mariadb-previous-lts']['mariadb'], explode('@', $image)[0]);
+        self::assertSame(['33108:3306'], $job['services']['mariadb']['ports']);
+
+        self::assertSame('11.8', $job['env']['ORRERY_TEST_SERVER_VERSION']);
+        self::assertArrayNotHasKey('ORRERY_TEST_SERVER_VERSION', $current['env'], 'the current release is the default');
+        self::assertSame('orrery_ci_${{ github.run_id }}_mariadb_lts', $job['env']['ORRERY_TEST_DATABASE']);
+        self::assertNotSame($current['env']['ORRERY_TEST_DATABASE'], $job['env']['ORRERY_TEST_DATABASE']);
+        self::assertNotSame($workflow['jobs']['leg']['env']['ORRERY_TEST_DATABASE'], $job['env']['ORRERY_TEST_DATABASE']);
+
+        $setup = array_values(array_filter($job['steps'], static fn (array $step): bool => str_starts_with((string) ($step['uses'] ?? ''), 'shivammathur/setup-php')))[0];
+        self::assertSame('8.3', $setup['with']['php-version']);
+
+        $script = implode("\n", array_column($job['steps'], 'run'));
+        self::assertStringContainsString('bin/matrix --ci ', $script);
+        self::assertStringContainsString('--php=8.3 --laravel=12 --no-lowest --db=mariadb', $script);
+        self::assertStringContainsString('"--php-binary=8.3=$(command -v php)"', $script);
+        self::assertStringNotContainsString('--schema=reuse', $script);
+        self::assertStringNotContainsString('${{', $script, 'values reach the script through env:, never a template expression');
+
+        $artifact = array_values(array_filter($job['steps'], static fn (array $step): bool => str_starts_with((string) ($step['uses'] ?? ''), 'actions/upload-artifact')))[0];
+        self::assertSame('matrix-php8.3-laravel12-latest-mariadb11.8', $artifact['with']['name']);
+        $currentArtifact = array_values(array_filter($current['steps'], static fn (array $step): bool => str_starts_with((string) ($step['uses'] ?? ''), 'actions/upload-artifact')))[0];
+        self::assertNotSame($currentArtifact['with']['name'], $artifact['with']['name']);
+    }
+
+    /**
      * Rejects: a service container image that a tag alone names (a moved tag changes CI without a
-     * commit), and an image of another release than the local test server of its engine.
+     * commit), an image of another release than the local test server of its engine unless
+     * CI_ONLY_IMAGES names that job, service and release, and an entry of CI_ONLY_IMAGES that no
+     * workflow uses any more.
      * Still passes: a digest that is not the digest of the tag in its name.
      */
     public function test_every_service_image_is_pinned_by_digest_to_the_local_release(): void
     {
         $compose = Yaml::parseFile(self::root().'/docker/testing/compose.yaml')['services'];
         $seen = 0;
+        $ciOnlySeen = [];
 
         foreach (glob(self::root().'/.github/workflows/*.yml') ?: [] as $file) {
             foreach (self::workflow(basename($file))['jobs'] as $id => $job) {
                 foreach ($job['services'] ?? [] as $name => $service) {
                     $seen++;
                     self::assertMatchesRegularExpression('/^[a-z0-9.-]+:[0-9.]+@sha256:[0-9a-f]{64}$/D', $service['image'], basename($file)." {$id} {$name}");
+                    $ciOnly = self::CI_ONLY_IMAGES[basename($file)][$id][$name] ?? null;
+
+                    if ($ciOnly !== null) {
+                        self::assertSame($ciOnly, explode('@', $service['image'])[0], basename($file)." {$id} {$name}: the CI-only release");
+                        self::assertNotSame($compose[$name]['image'], $ciOnly, basename($file)." {$id} {$name}: the local server runs this release, so it is not CI-only");
+                        $ciOnlySeen[] = basename($file)." {$id} {$name}";
+
+                        continue;
+                    }
+
                     self::assertSame($compose[$name]['image'], explode('@', $service['image'])[0], basename($file)." {$id} {$name}: CI and the local server run one release");
                 }
             }
         }
 
-        self::assertGreaterThanOrEqual(5, $seen);
+        self::assertGreaterThanOrEqual(6, $seen);
+        self::assertSame(['tests.yml mariadb-previous-lts mariadb'], $ciOnlySeen, 'every CI-only image is in use exactly once');
     }
 
     /**

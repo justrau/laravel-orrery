@@ -2,11 +2,12 @@
 #
 # CI has its own provisioning contract, because its service containers are
 # disposable per job:
-# - The job's database name is orrery_ci_<run id>_<job index>. It is validated
-#   by the name rule of bin/lib/testdb.php.
+# - The job's database name is orrery_ci_<run id>_<job index> (the MariaDB
+#   jobs end in _mariadb and _mariadb_lts). It is validated by the name rule
+#   of bin/lib/testdb.php.
 # - The job creates that database, its _mirror twin and the orrery_marker
-#   endpoint marker with a new token, with the clients inside the MySQL 8.4
-#   and Postgres 18 service containers.
+#   endpoint marker with a new token, with the clients inside its service
+#   containers (MySQL 8.4 and Postgres 18; MariaDB in the MariaDB jobs).
 # - bin/matrix --ci then runs the leg in this checkout. It runs Composer with
 #   the leg's resolution (COMPOSER_NO_BLOCKING=1 only for the Composer calls
 #   of a lowest leg), and every PHPUnit run through
@@ -19,6 +20,10 @@
 #   own job (bin/matrix --variants). Each job runs everything that its
 #   variant ran before, and the scripts and workbench groups as every leg
 #   does.
+# - Two jobs run the MariaDB leg: mariadb on the latest LTS release (12.3,
+#   also the local test server), and mariadb-previous-lts on 11.8 with PHP
+#   8.3 and Laravel 12. Only CI runs 11.8; that job sets
+#   ORRERY_TEST_SERVER_VERSION=11.8 for the identity check of the harness.
 # - timeout-minutes is sized for the current suite under --ci, which always
 #   starts fresh: 240 for the variant jobs and the lowest legs, 180 for the
 #   other legs. Every limit stays under GitHub's 6-hour job limit.
@@ -200,7 +205,8 @@ jobs:
   # Laravel on the latest MariaDB LTS release, the image pinned by its
   # digest. bin/matrix --ci runs MariaDB only when --db names it, so the
   # legs above need no MariaDB service. The leg also runs its file SQLite
-  # runs and the scripts group, as every leg does.
+  # runs and the scripts group, as every leg does. The job
+  # mariadb-previous-lts below runs the same on MariaDB 11.8.
   mariadb:
     needs: recent
     if: needs.recent.outputs.run == 'true'
@@ -269,5 +275,82 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: matrix-php8.5-laravel13-latest-mariadb
+          path: .matrix/ci/
+          if-no-files-found: warn
+
+  # The previous MariaDB LTS release: the stack of the first production host
+  # (PHP 8.3, Laravel 12) on MariaDB 11.8, the image pinned by its digest.
+  # Only CI runs this release; docker/testing/compose.yaml and bin/matrix
+  # without --ci have no 11.8 server. ORRERY_TEST_SERVER_VERSION makes the
+  # identity check of the harness expect 11.8 instead of the default 12.3.
+  mariadb-previous-lts:
+    needs: recent
+    if: needs.recent.outputs.run == 'true'
+    name: PHP 8.3, Laravel 12, latest, MariaDB 11.8
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+
+    services:
+      mariadb:
+        image: mariadb:11.8@sha256:d36f18d65a0459510b8b0f643b226a6d299e3206486e2b64ff20754a6d291707
+        env:
+          MARIADB_ROOT_PASSWORD: orrery
+        ports:
+          - 33108:3306
+        options: >-
+          --health-cmd "mariadb-admin ping --host=127.0.0.1 --user=root --password=orrery --silent"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
+          --health-start-period 30s
+
+    env:
+      ORRERY_TEST_DATABASE: orrery_ci_${{ github.run_id }}_mariadb_lts
+      ORRERY_TEST_SERVER_VERSION: '11.8'
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@eb7c497e18156a6bbabfef1d3a82760b9eda3962 # 2.40.0
+        with:
+          php-version: '8.3'
+          extensions: dom, pdo_mysql, pdo_sqlite, pcntl, posix
+          coverage: none
+          tools: composer:v2
+
+      - name: Provision the databases and the endpoint marker
+        env:
+          MARIADB_CONTAINER: ${{ job.services.mariadb.id }}
+        run: |
+          set -euo pipefail
+          base=$ORRERY_TEST_DATABASE
+          php -n bin/lib/testdb.php validate-name "$base"
+          token=$(php -n -r 'echo bin2hex(random_bytes(16));')
+
+          docker exec --env MYSQL_PWD=orrery "$MARIADB_CONTAINER" mariadb --user=root --execute "
+            CREATE DATABASE \`${base}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            CREATE DATABASE \`${base}_mirror\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            CREATE DATABASE orrery_marker;
+            CREATE TABLE orrery_marker.marker (token VARCHAR(64) NOT NULL PRIMARY KEY);
+            INSERT INTO orrery_marker.marker (token) VALUES ('${token}');"
+
+          echo "ORRERY_TEST_TOKEN=${token}" >>"$GITHUB_ENV"
+
+      - name: Run the leg
+        run: |
+          set -euo pipefail
+          bin/matrix --ci --run-id=ci --php=8.3 --laravel=12 --no-lowest --db=mariadb \
+            "--php-binary=8.3=$(command -v php)" \
+            "--composer=$(command -v composer)"
+
+      - name: Keep the results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: matrix-php8.3-laravel12-latest-mariadb11.8
           path: .matrix/ci/
           if-no-files-found: warn

@@ -6,6 +6,10 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 ## [Unreleased]
 
+### Added
+
+- **MariaDB 11.8 is tested.** A second nightly CI job runs the suite on MariaDB 11.8 (the previous LTS release) with PHP 8.3 and Laravel 12, next to the job on MariaDB 12.3.
+
 ### Changed
 
 - **On Packagist.** Install with `composer require justrau/laravel-orrery:^0.4`; the `composer config repositories.orrery vcs …` step is no longer needed. An application that added the GitHub repository can remove it with `composer config --unset repositories.orrery`.
