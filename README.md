@@ -31,7 +31,7 @@ Orrery (`justrau/laravel-orrery`) is a Horizon-style dashboard for the `database
 ## Requirements
 
 - PHP `^8.3`, and Laravel 12.69.0 or later, or 13.30.0 or later.
-- MySQL, MariaDB, Postgres or SQLite. MySQL 8.4, MariaDB 12.3 (the latest LTS release), Postgres 18 and the SQLite of PHP 8.3 to 8.5 are tested.
+- MySQL, MariaDB, Postgres or SQLite. MySQL 8.4, MariaDB 12.3 (the latest LTS release), Postgres 18 and the SQLite of PHP 8.3 to 8.5 are tested. MariaDB 11.8 passed one full run for 0.4.
 - The `database` queue driver, and the failed-job driver `database-uuids` (Laravel's default) for retry and forget.
 
 [Installation](docs/installation.md#requirements) has the full list.
