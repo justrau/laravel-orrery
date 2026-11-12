@@ -87,7 +87,7 @@ final class VerifyInstallTest extends TestCase
         $readme = str_replace(Docs::REQUIRE_LINE, 'composer require justrau/laravel-orrery:dev-main', (string) file_get_contents(dirname(__DIR__, 2).'/README.md'));
 
         $this->expectException(VerifyFailure::class);
-        $this->expectExceptionMessage('^0.3');
+        $this->expectExceptionMessage('^0.4');
         Docs::installSteps($readme, '/tmp/candidate');
     }
 

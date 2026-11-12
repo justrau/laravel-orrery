@@ -4,7 +4,7 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 **Nothing is stable in 0.x.** The configuration keys, the commands and their options, the events, the `Orrery::` static API and the HTTP API under `/orrery/api` can change in any 0.x release. Each entry below names every such change. A stability promise waits for 1.0.
 
-## [Unreleased]
+## [0.4.0] - 2026-11-12
 
 ### Added
 
@@ -16,9 +16,12 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 - **A resizable sidebar.** Drag the handle on the sidebar's right edge (or focus it and use Left and Right, Shift for bigger steps, Home and End) to change its width between 200 px and 480 px, at most half the window; Enter or a double click resets the default width. The width is kept per browser. The narrow drawer layout is unchanged.
 - **Quiet workers.** A listed worker whose last heartbeat is older than two of its write periods plus 5 seconds (35 seconds by default), and that holds no live reservation, is now quiet. The write period is the largest of the worker's own `workers.heartbeat_seconds`, `--sleep` and `--rest`, so a worker with a long `--sleep` is not quiet between two loops. The Workers screen shows a quiet worker with an amber dot and "No heartbeat for …"; the queue inspector shows the amber dot with the same text in its tooltip. The Overview and the Queues screen show "Workers quiet" for a queue whose every worker is quiet. Before, a worker killed with SIGKILL looked healthy until it left the list. A quiet worker stays listed for at least 25 more seconds. On an uninstrumented connection a worker without a recent heartbeat is "Worker state unknown" (grey), not quiet: a busy worker and a dead one look the same there. `GET /orrery/api/workers` adds `state` (`live`, `quiet` or `unknown`) and `quiet_seconds` to each row and child, `GET /orrery/api/workload` adds `quiet_processes` and `unknown_state_processes` to each queue, and each heartbeat row's `options` holds the writer's interval (`orrery_heartbeat_seconds`).
 - **Stopped workers leave the Workers list at once.** A worker that stops normally (`queue:restart`, `--max-jobs`, `--max-time`, `--stop-when-empty`, `--once`, a terminate) deletes its heartbeat row. Before, it stayed listed for 60 seconds. A queue:listen parent shows only its newest child.
+- **Suggestions in the Jobs filters.** The Class and Tag fields suggest the job classes and tags that the package saw recently, as you type (an accessible combobox; free text still works). They come from the new read `GET /orrery/api/suggestions?field=class|tag&q=`, which reads bounded recent rows and returns at most 20 values; a class or tag seen only long ago may not be suggested.
 
 ### Changed
 
+- **Navigation waits for the next screen's data.** Like Inertia or Nuxt, the URL, the sidebar and the content stay on the current screen, with a thin progress bar, until the next screen's first data has arrived (at most 1.6 seconds), then change together. Before, the screen switched at once and filled in while it loaded.
+- **The backlog charts on the Queues screen** have ranges (15 minutes, 1, 6 and 24 hours), a shared or per-queue scale, light axes, and a tooltip with the value and the dated time (also with the arrow keys). Gaps stay gaps, and a period that is partly without data is shaded.
 - **The Overview's attention list is ranked and stacked.** Stalled queues (over the limit with no worker, or only quiet workers) come first, then failure groups that failed in the last 5 minutes (largest count first), then backed-up queues with workers (the furthest over the limit first), then older failure groups. A queue is never called stalled on a guess: with an unknown worker count it says "workers unknown", on an uninstrumented connection (where a busy worker leaves the list) "workers unknown (uninstrumented)", and with workers of unknown state it names them ("2 workers of unknown state", "1 quiet, 1 of unknown state"). The first three items show in full; the rest stack behind "Show 13 more · 9 queues over limit, 4 failure groups" (which also counts the failure groups that have no card of their own), and the browser tab keeps the expanded state. Before, every item showed at full size, all wait warnings first.
 - **The listing window of a worker** is now the larger of 60 seconds and its quiet window plus 25 seconds (60 seconds by default; before, the larger of 60 seconds and two `workers.heartbeat_seconds`), so a killed worker is always quiet for a while before it leaves the list.
 - **Thin scrollbars.** Every scroll area of the dashboard (the sidebar, the content, the inspector, tables and drawers) has a thin, quiet scrollbar on a transparent track, in light and dark mode, instead of the browser's default one.
@@ -122,7 +125,8 @@ The first release: a Horizon-style dashboard for the `database` queue driver of 
 - The package's error reports (`WatchedOperationFailed`) carry no job value: no bindings, no previous exception and no trace.
 - Failure-group keys are an HMAC under `app.key`, so a key in a URL does not reveal its message.
 
-[Unreleased]: https://github.com/justrau/laravel-orrery/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/justrau/laravel-orrery/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/justrau/laravel-orrery/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/justrau/laravel-orrery/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/justrau/laravel-orrery/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/justrau/laravel-orrery/releases/tag/v0.1.0
