@@ -70,7 +70,7 @@ final class VerifyInstallTest extends TestCase
 
         self::assertSame(['repository', 'command', 'command', 'command'], array_column($steps, 'kind'));
         self::assertSame(['composer require justrau/laravel-orrery:dev-candidate', 'php artisan orrery:install', 'php artisan migrate'], array_column(array_slice($steps, 1), 'text'));
-        self::assertSame([true, true, false, false], array_map(static fn (array $s): bool => $s['readme'] !== null, $steps));
+        self::assertSame([false, true, false, false], array_map(static fn (array $s): bool => $s['readme'] !== null, $steps));
         self::assertSame(
             ['type' => 'path', 'url' => '/tmp/candidate', 'options' => ['symlink' => false, 'versions' => ['justrau/laravel-orrery' => 'dev-candidate']]],
             json_decode($steps[0]['text'], true),
@@ -92,18 +92,18 @@ final class VerifyInstallTest extends TestCase
     }
 
     /**
-     * Rejects: a README whose repository command changed (another URL or
-     * another repository type) being run with the path repository in its
-     * place, so the substitution would hide a broken install step.
-     * Still passes: a parser that also accepts the old JSON repository block
-     * next to the command.
+     * Rejects: a README that adds its own Composer repository (the GitHub VCS
+     * line of the pre-Packagist install) being verified with the path
+     * repository in its place, so the verified install would not be the
+     * documented one.
+     * Still passes: a parser that also refuses the JSON form of a repository.
      */
-    public function test_a_readme_without_the_expected_repository_line_is_refused(): void
+    public function test_a_readme_that_adds_a_composer_repository_is_refused(): void
     {
-        $readme = str_replace(Docs::REPOSITORY_LINE, 'composer config repositories.orrery vcs git@github.com:justrau/laravel-orrery.git', (string) file_get_contents(dirname(__DIR__, 2).'/README.md'));
+        $readme = str_replace(Docs::REQUIRE_LINE, "composer config repositories.orrery vcs https://github.com/justrau/laravel-orrery\n".Docs::REQUIRE_LINE, (string) file_get_contents(dirname(__DIR__, 2).'/README.md'));
 
         $this->expectException(VerifyFailure::class);
-        $this->expectExceptionMessage('repositories.orrery');
+        $this->expectExceptionMessage('adds a Composer repository');
         Docs::installSteps($readme, '/tmp/candidate');
     }
 
@@ -115,7 +115,7 @@ final class VerifyInstallTest extends TestCase
      */
     public function test_the_install_steps_end_at_the_next_section(): void
     {
-        $readme = "# Orrery\n\n## Installation\n\n```bash\n".Docs::REPOSITORY_LINE."\n".Docs::REQUIRE_LINE."\nphp artisan orrery:install\n```\n\n"
+        $readme = "# Orrery\n\n## Installation\n\n```bash\n".Docs::REQUIRE_LINE."\nphp artisan orrery:install\n```\n\n"
             ."## Removing\n\n```bash\nphp artisan migrate:reset\n```\n";
 
         self::assertSame(

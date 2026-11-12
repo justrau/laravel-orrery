@@ -4,6 +4,12 @@ All notable changes to Orrery (`justrau/laravel-orrery`) are listed in this file
 
 **Nothing is stable in 0.x.** The configuration keys, the commands and their options, the events, the `Orrery::` static API and the HTTP API under `/orrery/api` can change in any 0.x release. Each entry below names every such change. A stability promise waits for 1.0.
 
+## [Unreleased]
+
+### Changed
+
+- **On Packagist.** Install with `composer require justrau/laravel-orrery:^0.4`; the `composer config repositories.orrery vcs …` step is no longer needed. An application that added the GitHub repository can remove it with `composer config --unset repositories.orrery`.
+
 ## [0.4.0] - 2026-11-12
 
 ### Added

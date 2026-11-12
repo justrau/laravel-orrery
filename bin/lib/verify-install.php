@@ -165,8 +165,6 @@ final class Docs
 
     public const UPGRADING = 'docs/upgrading.md';
 
-    public const REPOSITORY_LINE = 'composer config repositories.orrery vcs https://github.com/justrau/laravel-orrery';
-
     public const REQUIRE_LINE = 'composer require justrau/laravel-orrery:^0.4';
 
     public const CANDIDATE_REQUIRE = 'composer require justrau/laravel-orrery:dev-candidate';
@@ -174,9 +172,11 @@ final class Docs
     /**
      * The install steps of "## Installation" up to the next "## " or "### "
      * heading:
-     * each `{kind: repository|command, text, readme}`. The repository command
-     * and the require line are the one substitution (readme holds the
-     * original); every other command is literal.
+     * each `{kind: repository|command, text, readme}`. The require line is the
+     * one substitution (readme holds the original), preceded by an added path
+     * repository step (readme null): the README installs from Packagist. Every
+     * other command is literal, and a README that adds its own Composer
+     * repository is refused.
      *
      * @return list<array{kind: string, text: string, readme: ?string}>
      */
@@ -184,7 +184,6 @@ final class Docs
     {
         $section = self::section($readme, self::README, '## Installation', ['## ', '### ']);
         $steps = [];
-        $repository = false;
         $require = false;
 
         foreach (self::blocks($section) as [$lang, $body]) {
@@ -199,10 +198,12 @@ final class Docs
                     continue;
                 }
 
-                if ($line === self::REPOSITORY_LINE) {
-                    $steps[] = ['kind' => 'repository', 'text' => json_encode(self::pathRepository($candidateDir), JSON_UNESCAPED_SLASHES) ?: '', 'readme' => $line];
-                    $repository = true;
-                } elseif ($line === self::REQUIRE_LINE) {
+                if (str_starts_with($line, 'composer config repositories')) {
+                    throw new VerifyFailure(self::README.': the installation adds a Composer repository ("'.$line.'"); the package installs from Packagist');
+                }
+
+                if ($line === self::REQUIRE_LINE) {
+                    $steps[] = ['kind' => 'repository', 'text' => json_encode(self::pathRepository($candidateDir), JSON_UNESCAPED_SLASHES) ?: '', 'readme' => null];
                     $steps[] = ['kind' => 'command', 'text' => self::CANDIDATE_REQUIRE, 'readme' => $line];
                     $require = true;
                 } else {
@@ -211,8 +212,8 @@ final class Docs
             }
         }
 
-        if (! $repository || ! $require) {
-            throw new VerifyFailure(self::README.': the installation lacks the line "'.self::REPOSITORY_LINE.'" or the line "'.self::REQUIRE_LINE.'"');
+        if (! $require) {
+            throw new VerifyFailure(self::README.': the installation lacks the line "'.self::REQUIRE_LINE.'"');
         }
 
         return $steps;
@@ -378,8 +379,10 @@ final class Plan
         $lines[] = 'Install (README "Installation", one substitution):';
 
         foreach ($install as $step) {
-            if ($step['readme'] !== null) {
-                $lines[] = '  [substituted] '.($step['kind'] === 'repository' ? 'repositories: '.$step['text'] : $step['text']).'  (README: '.str_replace("\n", ' ', (string) preg_replace('/\s+/', ' ', $step['readme'])).')';
+            if ($step['kind'] === 'repository') {
+                $lines[] = '  [added] repositories: '.$step['text'];
+            } elseif ($step['readme'] !== null) {
+                $lines[] = '  [substituted] '.$step['text'].'  (README: '.str_replace("\n", ' ', (string) preg_replace('/\s+/', ' ', $step['readme'])).')';
             } else {
                 $lines[] = '  '.$step['text'];
             }
@@ -876,7 +879,7 @@ final class Runner
 
         foreach ($steps as $step) {
             if ($step['kind'] === 'repository') {
-                $this->step($id, 'repository (substituted): path '.$candidate);
+                $this->step($id, 'repository (added): path '.$candidate);
                 $composer = json_decode((string) file_get_contents($dir.'/composer.json'), true);
                 $composer['repositories'] = [Docs::pathRepository($candidate)];
                 file_put_contents($dir.'/composer.json', json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES)."\n");

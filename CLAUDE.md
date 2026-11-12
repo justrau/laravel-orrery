@@ -2,7 +2,7 @@
 
 A Laravel package (`justrau/laravel-orrery`, namespace `Justrau\Orrery`) that gives Laravel's **database** queue driver a Horizon-style dashboard. It is a **watcher only**: it never spawns or supervises workers (users run `queue:work` under systemd, supervisord or Forge). It observes the queue lifecycle and gives a dashboard, per-minute metrics, tag monitoring, failed-job retry and forget, bulk runs, stuck-job incidents and a pause/continue/terminate control plane.
 
-The GitHub repository is `justrau/laravel-orrery` (public). The package is not on Packagist. ADR-001 in `docs/architecture/overview.md` maps old names to new ones; new code uses the new names.
+The GitHub repository is `justrau/laravel-orrery` (public). The package is on Packagist (`justrau/laravel-orrery`, auto-updated from GitHub tags). ADR-001 in `docs/architecture/overview.md` maps old names to new ones; new code uses the new names.
 
 ## Where to read more
 

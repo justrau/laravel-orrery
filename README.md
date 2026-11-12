@@ -38,10 +38,9 @@ Orrery (`justrau/laravel-orrery`) is a Horizon-style dashboard for the `database
 
 ## Installation
 
-Orrery is not on Packagist yet. Composer installs it from the public GitHub repository:
+Install it from [Packagist](https://packagist.org/packages/justrau/laravel-orrery):
 
 ```bash
-composer config repositories.orrery vcs https://github.com/justrau/laravel-orrery
 composer require justrau/laravel-orrery:^0.4
 php artisan orrery:install
 php artisan migrate
@@ -68,7 +67,7 @@ The [documentation index](docs/README.md) also links the architecture docs for c
 
 ## Status and stability
 
-- The first release is 0.1.0. The package is not on Packagist yet.
+- The package is on [Packagist](https://packagist.org/packages/justrau/laravel-orrery) as `justrau/laravel-orrery`.
 - **Nothing is stable in 0.x.** The configuration keys, the commands and their options, the events (`LongWaitDetected`, `StuckJobDetected`, `JobFailed`), the `Orrery::` static API and the HTTP API under `/orrery/api` can change in any 0.x release. [CHANGELOG.md](CHANGELOG.md) names each change. A stability promise waits for 1.0.
 
 ## Contributing and security
