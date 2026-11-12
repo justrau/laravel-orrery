@@ -1428,7 +1428,13 @@ final class Runner
 
     private string $composer;
 
-    /** @var array{database: string, token: string}|null */
+    /**
+     * The provisioned database and token of a --ci leg with a server engine,
+     * and the server release its job selects (ORRERY_TEST_SERVER_VERSION;
+     * null for the default release).
+     *
+     * @var array{database: string, token: string, server_version: string|null}|null
+     */
     private ?array $ci = null;
 
     /** @var resource */
@@ -1541,7 +1547,10 @@ final class Runner
                     throw new UsageError('--ci with a server engine needs ORRERY_TEST_TOKEN: the 32-character hex token of the provisioned markers');
                 }
 
-                $this->ci = ['database' => $database, 'token' => $token];
+                // baseEnv() drops every inherited ORRERY_* variable, so the
+                // release reaches the server runs only through runOne().
+                $release = $this->env['ORRERY_TEST_SERVER_VERSION'] ?? '';
+                $this->ci = ['database' => $database, 'token' => $token, 'server_version' => $release === '' ? null : $release];
             }
         }
     }
@@ -2203,6 +2212,10 @@ final class Runner
             if ($this->ci !== null) {
                 $env['ORRERY_TEST_TOKEN'] = $this->ci['token'];
                 $wrapper[] = '--no-provision';
+
+                if ($this->ci['server_version'] !== null) {
+                    $env['ORRERY_TEST_SERVER_VERSION'] = $this->ci['server_version'];
+                }
             } else {
                 // The unit's name is explicit, and bin/test keeps explicit
                 // databases. With --drop-database its lease drops them at
@@ -2690,7 +2703,8 @@ final class MatrixCommand
           --ci                       GitHub Actions only (CI=true): one leg, in this
                                      checkout, without copies, every run fresh; server
                                      engines use bin/test --no-provision
-                                     with ORRERY_TEST_DATABASE and ORRERY_TEST_TOKEN; no
+                                     with ORRERY_TEST_DATABASE and ORRERY_TEST_TOKEN, and
+                                     ORRERY_TEST_SERVER_VERSION when it is set; no
                                      docker group
 
         Exit status: 0 every leg passed (some may have listed known failures),

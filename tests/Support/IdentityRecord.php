@@ -188,7 +188,7 @@ final class IdentityRecord
             $version = (string) $this->get("{$side}.server_version");
 
             if ($env->isServer()) {
-                $wanted = TestEnvironment::SERVER_VERSIONS[$env->driver];
+                $wanted = (string) $env->serverVersion;
 
                 if (! str_starts_with($version, $wanted)) {
                     $differences[] = sprintf('%s.server_version: expected %s*, got %s', $side, $wanted, self::show($version));

@@ -34,7 +34,7 @@ bin/tia -- --stop-on-failure         # arguments after -- go to PHPUnit (not --f
 - `--alt` also uses the second server (`mysql-alt` on 33107, `pgsql-alt` on 54337). MariaDB has no alt server. `--group alt` alone runs nothing: add `--exclude-group orrery-no-exclusion`.
 - `--schema`: default `reuse` for server leases and `--sqlite-file`, `fresh` for in-memory and `--no-provision`.
 - `--timeout`: a hard limit of the PHPUnit run (exit 124, naming the running test).
-- Passed through: `ORRERY_TEST_MIRROR`, `ORRERY_TEST_PREFIX`, `ORRERY_TEST_PG_POOLED=1`, `ORRERY_TEST_SQLITE_JOURNAL=delete` (rollback mode; the whole suite there is only a diagnostic, because classes that rely on automatic reads fail by design).
+- Passed through: `ORRERY_TEST_MIRROR`, `ORRERY_TEST_PREFIX`, `ORRERY_TEST_PG_POOLED=1`, `ORRERY_TEST_SQLITE_JOURNAL=delete` (rollback mode; the whole suite there is only a diagnostic, because classes that rely on automatic reads fail by design), `ORRERY_TEST_SERVER_VERSION=11.8` (mariadb: the identity check expects 11.8; only CI runs that release, and `bin/matrix --ci` hands it to the server runs; the sqlite modes unset it).
 - It unsets `DB_URL`, `DATABASE_URL`, `DB_HOST`, `DB_PORT`, `DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`, `DB_CONNECTION`.
 - Exit codes: 64 usage, 72 slot wait passed, 73 another run holds the name, 74 internal failure (if the cleanup itself fails it prints the recovery command), 78 missing `--no-provision` variables, 124 timeout, else PHPUnit's.
 

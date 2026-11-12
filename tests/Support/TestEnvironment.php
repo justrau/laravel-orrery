@@ -81,8 +81,15 @@ final class TestEnvironment
 
     public const DEFAULT_PASSWORD = 'orrery';
 
-    /** The server version that each engine of docker/testing/compose.yaml (and CI) runs. */
+    /** The server version that each engine of docker/testing/compose.yaml (and CI) runs: the default of the identity check. */
     public const SERVER_VERSIONS = ['mysql' => '8.4.', 'pgsql' => '18.', 'mariadb' => '12.3.'];
+
+    /**
+     * The releases that ORRERY_TEST_SERVER_VERSION may select per engine, the
+     * default first. MariaDB 11.8 (the previous LTS release) runs only in its
+     * own CI job (.github/workflows/tests.yml, mariadb-previous-lts).
+     */
+    public const SERVER_VERSION_CHOICES = ['mysql' => ['8.4'], 'pgsql' => ['18'], 'mariadb' => ['12.3', '11.8']];
 
     /** Seconds before a connection attempt to a server gives up. */
     public const CONNECT_TIMEOUT = 5;
@@ -109,6 +116,7 @@ final class TestEnvironment
         'ORRERY_TEST_PGSQL_ALT_PORT',
         'ORRERY_TEST_SQLITE_JOURNAL',
         'ORRERY_TEST_PG_POOLED',
+        'ORRERY_TEST_SERVER_VERSION',
         SharedCache::VARIABLE,
         'ORRERY_EXPECT_DRIVER',
         'ORRERY_EXPECT_PHP',
@@ -125,6 +133,7 @@ final class TestEnvironment
      * @param  string  $database  the base name, ':memory:', or the canonical SQLite file
      * @param  string  $mirror  same or separate
      * @param  string  $prefix  '' or a prefix that matches PREFIX_PATTERN
+     * @param  string|null  $serverVersion  the release prefix that the identity check expects (such as '12.3.'); null for SQLite
      */
     private function __construct(
         public readonly string $driver,
@@ -142,6 +151,7 @@ final class TestEnvironment
         public readonly string $sqliteJournal = 'wal',
         public readonly bool $pooled = false,
         public readonly ?string $sharedCache = null,
+        public readonly ?string $serverVersion = null,
     ) {}
 
     /**
@@ -154,7 +164,7 @@ final class TestEnvironment
         return new self(
             $this->driver, $this->database, $this->mirror, $this->prefix, $this->port, $this->password, $this->token,
             $this->runId, $this->ci, $this->expectDriver, $this->expectPhp, $this->altPort, $this->sqliteJournal, $this->pooled,
-            SharedCache::validate($directory),
+            SharedCache::validate($directory), $this->serverVersion,
         );
     }
 
@@ -233,7 +243,7 @@ final class TestEnvironment
         $sharedCache = $sharedCache === null ? null : SharedCache::validate($sharedCache);
 
         if ($driver === 'sqlite') {
-            foreach (['ORRERY_TEST_DATABASE', 'ORRERY_TEST_TOKEN', 'ORRERY_TEST_RUN_ID', 'ORRERY_TEST_CI', 'ORRERY_TEST_ALT'] as $name) {
+            foreach (['ORRERY_TEST_DATABASE', 'ORRERY_TEST_TOKEN', 'ORRERY_TEST_RUN_ID', 'ORRERY_TEST_CI', 'ORRERY_TEST_ALT', 'ORRERY_TEST_SERVER_VERSION'] as $name) {
                 if ($value($name) !== null) {
                     throw new HarnessRefusal(
                         "{$name} is set, but the driver is sqlite. The harness never falls back to SQLite silently: "
@@ -296,8 +306,18 @@ final class TestEnvironment
         }
 
         $password = $value('ORRERY_TEST_PASSWORD') ?? self::DEFAULT_PASSWORD;
+        $release = $value('ORRERY_TEST_SERVER_VERSION');
 
-        return new self($driver, $database, $mirror, $prefix, $port, $password, $token, $runId, $ci, $expectDriver, $expectPhp, $altPort, $journal, $pooled, $sharedCache);
+        if ($release !== null && ! in_array($release, self::SERVER_VERSION_CHOICES[$driver], true)) {
+            throw new HarnessRefusal(sprintf(
+                "ORRERY_TEST_SERVER_VERSION must be one of %s with the %s driver, or unset, not '%s'.",
+                implode(', ', self::SERVER_VERSION_CHOICES[$driver]), $driver, $release,
+            ));
+        }
+
+        $serverVersion = $release === null ? self::SERVER_VERSIONS[$driver] : $release.'.';
+
+        return new self($driver, $database, $mirror, $prefix, $port, $password, $token, $runId, $ci, $expectDriver, $expectPhp, $altPort, $journal, $pooled, $sharedCache, $serverVersion);
     }
 
     /**
@@ -638,6 +658,7 @@ final class TestEnvironment
         $env['ORRERY_TEST_TOKEN'] = (string) $this->token;
         $env['ORRERY_TEST_RUN_ID'] = $this->runId ?? false;
         $env['ORRERY_TEST_CI'] = $this->ci ? '1' : false;
+        $env['ORRERY_TEST_SERVER_VERSION'] = $this->serverVersion === self::SERVER_VERSIONS[$this->driver] ? false : rtrim((string) $this->serverVersion, '.');
 
         if ($this->altPort !== null) {
             $env['ORRERY_TEST_ALT'] = '1';

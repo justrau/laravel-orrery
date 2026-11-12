@@ -925,6 +925,40 @@ final class MatrixRunnerTest extends TestCase
     }
 
     /**
+     * Rejects: a CI leg that drops ORRERY_TEST_SERVER_VERSION (bin/matrix removes every inherited
+     * ORRERY_* variable, so the job of the previous MariaDB LTS release would expect 12.3 and fail),
+     * that hands it to the SQLite runs (the harness refuses it there), or that passes it outside --ci.
+     * Still passes: a value off the allowed list (the harness refuses it, not bin/matrix).
+     */
+    public function test_the_ci_mode_passes_the_server_release_to_the_server_runs_only(): void
+    {
+        $token = str_repeat('cd', 16);
+        $env = ['CI' => 'true', 'ORRERY_TEST_DATABASE' => 'orrery_ci_123_mariadb_lts', 'ORRERY_TEST_TOKEN' => $token, 'ORRERY_TEST_SERVER_VERSION' => '11.8'];
+        $run = $this->matrix(['--ci', '--php=8.5', '--laravel=13', '--no-lowest', '--db=mariadb'], $env);
+
+        self::assertSame(0, $run['exit'], $run['stdout'].$run['stderr']);
+        $calls = $this->callsOf('bin/test');
+        self::assertContains('mariadb', array_column($calls, 'engine'));
+
+        foreach ($calls as $call) {
+            if ($call['engine'] === 'mariadb') {
+                self::assertSame('11.8', $call['env']['ORRERY_TEST_SERVER_VERSION'] ?? null, $call['run']);
+            } else {
+                self::assertArrayNotHasKey('ORRERY_TEST_SERVER_VERSION', $call['env'], $call['run']);
+            }
+        }
+
+        @unlink($this->calls);
+        $local = $this->matrix(['--php=8.4', '--laravel=13', '--db=sqlite', '--no-lowest'], ['ORRERY_TEST_SERVER_VERSION' => '11.8']);
+
+        self::assertSame(0, $local['exit'], $local['stdout'].$local['stderr']);
+
+        foreach ($this->callsOf('bin/test') as $call) {
+            self::assertArrayNotHasKey('ORRERY_TEST_SERVER_VERSION', $call['env'], $call['run']);
+        }
+    }
+
+    /**
      * @return iterable<string, array{0: list<string>, 1: list<string>, 2: list<string>}>
      */
     public static function scriptCarriers(): iterable

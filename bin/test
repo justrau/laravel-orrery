@@ -60,6 +60,10 @@
 #   ORRERY_TEST_SQLITE_JOURNAL=delete  (sqlite --sqlite-file) the harness configures
 #                                  rollback mode instead of WAL, so the package
 #                                  makes no automatic access to the file (D18).
+#   ORRERY_TEST_SERVER_VERSION=11.8  (mariadb) the identity check expects
+#                                  MariaDB 11.8 instead of 12.3. Only the CI job
+#                                  mariadb-previous-lts sets it; no local server
+#                                  runs 11.8. The sqlite modes unset it.
 #
 # The wrapper options come directly after the engine. The remaining arguments
 # go to PHPUnit.
@@ -830,7 +834,7 @@ fi
 # record is private, in the run's own directory.
 if [ "$engine" = sqlite ]; then
     export ORRERY_TEST_DRIVER=sqlite
-    unset ORRERY_TEST_RUN_ID ORRERY_TEST_TOKEN ORRERY_TEST_CI ORRERY_TEST_DATABASE ORRERY_TEST_SQLITE_FILE
+    unset ORRERY_TEST_RUN_ID ORRERY_TEST_TOKEN ORRERY_TEST_CI ORRERY_TEST_DATABASE ORRERY_TEST_SQLITE_FILE ORRERY_TEST_SERVER_VERSION
 else
     if [ -z "${ORRERY_TEST_DATABASE:-}" ] || [ -z "${ORRERY_TEST_TOKEN:-}" ]; then
         die 78 "--no-provision needs ORRERY_TEST_DATABASE and ORRERY_TEST_TOKEN"

@@ -701,6 +701,31 @@ final class HarnessIdentityTest extends TestCase
         self::assertStringContainsString('does not hold the database name', $this->refusalOf(static fn () => LeaseProof::verify($otherName)));
     }
 
+    /**
+     * Rejects: an identity check that accepts any server release, that ignores
+     * ORRERY_TEST_SERVER_VERSION (an 11.8 server would fail the CI job of the
+     * previous LTS release), or that accepts the default release when 11.8 is selected.
+     * Still passes: a check that reads the release from another PDO attribute
+     * (the synthetic record carries only the value).
+     */
+    public function test_the_server_release_must_be_the_selected_one(): void
+    {
+        $default = self::serverEnvironment('mariadb');
+        $previous = self::serverEnvironment('mariadb', ['ORRERY_TEST_SERVER_VERSION' => '11.8']);
+
+        $current = self::matchingServerRecord($default);
+        $current['primary']['server_version'] = '12.3.1-MariaDB-ubu2404';
+        $current['mirror']['server_version'] = '12.3.1-MariaDB-ubu2404';
+        $older = $current;
+        $older['primary']['server_version'] = '11.8.5-MariaDB-ubu2404';
+        $older['mirror']['server_version'] = '11.8.5-MariaDB-ubu2404';
+
+        IdentityRecord::fromArray($current)->assertMatches($default);
+        IdentityRecord::fromArray($older)->assertMatches($previous);
+        self::assertStringContainsString('primary.server_version: expected 12.3.*, got "11.8.5-MariaDB-ubu2404"', $this->refusalOf(static fn () => IdentityRecord::fromArray($older)->assertMatches($default)));
+        self::assertStringContainsString('primary.server_version: expected 11.8.*, got "12.3.1-MariaDB-ubu2404"', $this->refusalOf(static fn () => IdentityRecord::fromArray($current)->assertMatches($previous)));
+    }
+
     public function test_a_wrong_token_fails_the_identity(): void
     {
         // Synthetic: a record that matches a server environment, then the same
@@ -994,15 +1019,18 @@ final class HarnessIdentityTest extends TestCase
             : ['orrery_settings', ['key' => 'harness-business', 'value' => 'x'], 'key'];
     }
 
-    private static function serverEnvironment(): TestEnvironment
+    /**
+     * @param  array<string, string>  $extra
+     */
+    private static function serverEnvironment(string $driver = 'mysql', array $extra = []): TestEnvironment
     {
         return TestEnvironment::fromArray([
-            'ORRERY_TEST_DRIVER' => 'mysql',
+            'ORRERY_TEST_DRIVER' => $driver,
             'ORRERY_TEST_DATABASE' => 'orrery_harness',
             'ORRERY_TEST_TOKEN' => str_repeat('a', 32),
             'ORRERY_TEST_RUN_ID' => 'run_1_0000000a',
             'ORRERY_TEST_MIRROR' => 'separate',
-        ]);
+        ] + $extra);
     }
 
     /**
@@ -1047,7 +1075,7 @@ final class HarnessIdentityTest extends TestCase
             'driver' => $env->driver,
             'database' => $database,
             'prefix' => '',
-            'server_version' => TestEnvironment::SERVER_VERSIONS[$env->driver].'0',
+            'server_version' => $env->serverVersion.'0',
             'pdo' => $pdo,
             'evidence' => ['kind' => 'endpoint-token', 'marker' => $env->token, 'host' => TestEnvironment::HOST, 'port' => $env->port, 'session' => $pdo],
         ];
