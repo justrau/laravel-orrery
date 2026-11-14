@@ -1,7 +1,8 @@
 # zizmor, the security linter of GitHub Actions, on every push and pull
 # request that changes .github/. The configuration is .github/zizmor.yml.
-# It runs offline: the audits that need the GitHub API are left out, so the
-# job needs no token.
+# It runs online, with the job's read-only token, so the audits that need the
+# GitHub API run too: a pinned commit that comes from a fork (impostor-commit),
+# actions with known vulnerabilities, and refs that name both a tag and a branch.
 
 name: zizmor
 
@@ -22,7 +23,7 @@ concurrency:
 
 jobs:
   zizmor:
-    name: zizmor (offline)
+    name: zizmor
     runs-on: ubuntu-24.04
     timeout-minutes: 10
 
@@ -33,4 +34,6 @@ jobs:
           persist-credentials: false
 
       - name: Lint the workflows
-        run: pipx run zizmor==1.31.1 --offline --format=github .github
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: pipx run zizmor==1.31.1 --format=github .github

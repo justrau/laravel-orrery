@@ -321,7 +321,8 @@ final class CiWorkflowTest extends TestCase
 
     /**
      * Rejects: a zizmor workflow that a change of .github/ does not start, that runs zizmor at a
-     * floating version, and a Dependabot configuration that updates anything but the GitHub
+     * floating version or offline (no token, --offline or --no-online-audits: the impostor-commit
+     * audit is skipped), and a Dependabot configuration that updates anything but the GitHub
      * Actions, or less often than weekly.
      * Still passes: a pinned zizmor version that does not exist (only CI can show that).
      */
@@ -331,7 +332,12 @@ final class CiWorkflowTest extends TestCase
 
         self::assertSame(['.github/**'], $workflow['on']['push']['paths']);
         self::assertSame(['.github/**'], $workflow['on']['pull_request']['paths']);
-        self::assertMatchesRegularExpression('/zizmor==\d+\.\d+\.\d+ --offline /', implode("\n", array_column($workflow['jobs']['zizmor']['steps'], 'run')));
+        $lint = array_values(array_filter($workflow['jobs']['zizmor']['steps'], static fn (array $step): bool => str_contains($step['run'] ?? '', 'zizmor==')));
+        self::assertCount(1, $lint);
+        self::assertMatchesRegularExpression('/zizmor==\d+\.\d+\.\d+ /', $lint[0]['run']);
+        self::assertStringNotContainsString('--offline', $lint[0]['run'], 'the online audits (impostor-commit) need the API');
+        self::assertStringNotContainsString('--no-online-audits', $lint[0]['run'], 'the online audits (impostor-commit) need the API');
+        self::assertSame('${{ github.token }}', $lint[0]['env']['GH_TOKEN'] ?? null, 'without a token zizmor skips the online audits');
 
         $dependabot = Yaml::parse((string) file_get_contents(self::root().'/.github/dependabot.yml'));
         self::assertIsArray($dependabot);
